@@ -1,0 +1,53 @@
+# splat config for the main exe. Started from `splat create_config` on the retail SCUS_941.63, then corrected by hand.
+name: SCUS_941.63
+sha1: a95e8b16b97071203b953bb81a33980509262f30
+options:
+  basename: main
+  target_path: disks/SCUS_941.63
+  elf_path: build/main.elf
+  base_path: ..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm
+  src_path: src
+  build_path: build
+  ld_script_path: build/main.ld
+  undefined_funcs_auto_path: build/undefined_funcs_auto.txt
+  undefined_syms_auto_path: build/undefined_syms_auto.txt
+  symbol_addrs_path:
+    - config/symbols.main.txt
+
+  find_file_boundaries: False
+  gp_value: 0x80062D44
+  o_as_suffix: True
+  use_legacy_include_asm: False
+  section_order: [".rodata", ".text", ".data", ".bss"]
+
+  subalign: 2
+  # The retail link packs sections back to back (code starts at the unaligned 0x800110B8).
+  ld_align_section_vram_end: False
+  ld_align_segment_vram_end: False
+
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+segments:
+  - name: header
+    type: header
+    start: 0x0
+
+  - name: main
+    type: code
+    start: 0x800
+    vram: 0x80010000
+    subsegments:
+      - [0x800, rodata, 800]
+      # splat guessed 0x18AC, but 0x18AC-0x18B7 is the string " (%08x)\n".
+      - [0x18B8, asm, 18B8]
+      - [0x5200, c, main/bitops]
+      - [0x5284, asm, 5284]
+      - [0x39518, data, 39518] # estimated
+  - [0x61000]

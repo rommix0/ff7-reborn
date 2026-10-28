@@ -21,6 +21,12 @@ if [ ! -d toolchain/maspsx ]; then
     git -C toolchain/maspsx checkout -q "$MASPSX_REV"
 fi
 
+if [ ! -x toolchain/venv/bin/python ]; then
+    # --copies: symlinked venvs break on Windows drives mounted in WSL.
+    python3 -m venv --copies toolchain/venv
+    toolchain/venv/bin/pip install -q -r tools/requirements.txt
+fi
+
 command -v mipsel-linux-gnu-as >/dev/null || {
     echo "missing GNU binutils for MIPS: sudo apt install binutils-mipsel-linux-gnu" >&2
     exit 1

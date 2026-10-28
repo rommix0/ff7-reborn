@@ -7,3 +7,4 @@ disks/
 build/
 __pycache__/
 toolchain/
+asm/

@@ -25,17 +25,23 @@ python tools/unpack.py "assets/Final Fantasy VII (USA) (Disc 1)/BATTLE/BATTLE.X"
 ## Build toolchain (Linux or WSL)
 
 ```bash
-sudo apt install binutils-mipsel-linux-gnu python3 curl git
+sudo apt install binutils-mipsel-linux-gnu python3 python3-venv curl git make
 sh tools/setup_toolchain.sh
-bash tools/match.sh src/main/bitops.c 80014A00
+make split   # splat: cut your SCUS_941.63 into assembly (asm/, git-ignored)
+make         # rebuild the exe from asm + recovered C and check the SHA1
 ```
 
-`match.sh` compiles a C file with the period compiler and checks it byte-for-byte against your extracted
-`SCUS_941.63`.
+`make` ends with `build/SCUS_941.63: OK` when the rebuild is byte-identical. To test one C file on its own
+against the original, run `bash tools/match.sh src/main/bitops.c 80014A00`.
+
+**Recovering a function:** add a `c` subsegment for it in `config/main.yaml`, write the C in `src/`, and add its
+name to `config/symbols.main.txt`. Then `make split && make`.
 
 ## Layout
 
 - `src/`: recovered C source, one folder per executable or overlay
+- `config/`: splat configs and symbol names (`main.yaml` for the boot exe)
+- `include/`: headers and the assembler macros splat expects
 - `tools/`: extractor scripts and the build/match tooling
 - `docs/knowledge_base.md`: what we know about the discs, overlays, sound engine and what is left to recover
 - `REFERENCES.md`: every source studied, its license, and what we may reuse

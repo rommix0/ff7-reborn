@@ -209,6 +209,23 @@ against your exe.
 **Proven:** `src/main/bitops.c` (3 functions, `80014A00`–`80014A84`, 132 bytes) is **byte-identical** to the game
 with GCC 2.7.2. GCC 2.6.3 matches only one of the three, so that part of the exe was built with 2.7.2.
 
+**Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml`, and `make` relinks it. The result is
+SHA1-identical to retail, with `bitops.c` compiled from C and the rest still assembly.
+
+Main exe layout (found by splat, then corrected by hand):
+
+| File offset | VRAM | Contents |
+|---|---|---|
+| `0x0000` | n/a | PS-X EXE header (t_addr `0x80010000`, t_size `0x60800`, pc0 `0x800110C0`) |
+| `0x0800`–`0x18B8` | `0x80010000` | read-only data (jump tables, strings such as `"battle.x"`) |
+| `0x18B8`–~`0x39518` | `0x800110B8` | code. splat guessed `0x18AC`, but the 12 bytes there are the string `" (%08x)\n"` |
+| ~`0x39518`–`0x61000` | ~`0x80048D18` | data *(boundary estimated by splat)* |
+
+- **No padding between sections.** The retail link packs them back to back, so splat needs
+  `ld_align_section_vram_end: False` and `ld_align_segment_vram_end: False`. Otherwise every address after the
+  read-only data shifts by 8 bytes.
+- **BSS size isn't set yet.** BSS isn't stored in the file, so it doesn't affect the hash.
+
 Lessons from getting it to match:
 - **Link address:** `ld` aligns `.text` to 16 bytes, so link with an explicit section address and `SUBALIGN(4)`.
   `match.sh` does this.

@@ -10,7 +10,7 @@ mkdir -p $w
 
 toolchain/gcc-$gcc/cpp -P -undef -D__GNUC__=2 -Iinclude "$src" > $w/f.i
 toolchain/gcc-$gcc/cc1 -quiet ${CFLAGS:--O2 -G0} $w/f.i -o $w/f.s
-python3 toolchain/maspsx/maspsx.py --aspsx-version=2.79 $w/f.s > $w/f.ms
+python3 toolchain/maspsx/maspsx.py --aspsx-version=2.79 < $w/f.s > $w/f.ms
 mipsel-linux-gnu-as -EL -march=r3000 -mtune=r3000 -no-pad-sections -O1 -G0 $w/f.ms -o $w/f.o
 # ld aligns .text to 16 bytes by default; most game functions aren't, so pin the address exactly.
 echo "SECTIONS { .text 0x$org : SUBALIGN(4) { *(.text) } }" > $w/f.ld

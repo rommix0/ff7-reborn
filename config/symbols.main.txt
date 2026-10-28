@@ -1,0 +1,3 @@
+copy_words = 0x80014A00; // type:func
+highest_bit = 0x80014A38; // type:func
+count_bits = 0x80014A58; // type:func
