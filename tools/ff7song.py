@@ -22,9 +22,6 @@ REVERB_PRESETS = 0x8004ABAC  # 0x44 bytes each: u32 mask, then the 32 reverb reg
 LFO_WAVEFORMS = 0x8004A5CC  # 16 pointers to the driver's s16 LFO waveforms, each ending 0, 0, -(steps to repeat)
 NOISE_WAVEFORM = 12  # the one waveform that isn't a shape we can rebuild
 EFFECT_TEMPO = 0x66A8  # the effect channels' own tempo, set at boot (0x80099FE0) and never changed
-# Effects play through the current song's reverb. Exported on their own, they get the most common one: Room (45 of
-# the 98 songs) at depth 0x2800 (86 of them start there).
-EFFECT_REVERB_MODE, EFFECT_REVERB_DEPTH = 1, 0x2800
 DEFAULT_METER = (48, 4)  # 4/4 until the first time signature
 # Event kind -> cell field; the rest keep their name.
 FIELD = {"program": "inst"}
@@ -69,14 +66,13 @@ def song_to_ff7song(block: bytes, presets: list | None = None, noise: list | Non
             **tracker(channels, loop_start, end, noise)}
 
 
-def effect_to_ff7song(data: bytes, effect: int, starts: list[int], presets: list | None = None,
-                      noise: list | None = None) -> dict:
-    """One sound effect from SOUND/EFFECT.ALL: its one or two channels, at the effect channels' tempo, over a
-    typical song's reverb (the game plays them over whatever the current song set up)."""
+def effect_to_ff7song(data: bytes, effect: int, starts: list[int], noise: list | None = None) -> dict:
+    """One sound effect from SOUND/EFFECT.ALL: its one or two channels, at the effect channels' tempo. Effects
+    play over whatever reverb the current song set up, so they carry none of their own."""
     channels, loop_start, end, _, _ = akao.play_song(data, trim_notes=False, starts=starts, effect=True)
-    channels[0][:0] = [[0, "tempo", EFFECT_TEMPO]] + ([[0, "reverb_depth", EFFECT_REVERB_DEPTH]] if presets else [])
-    return {"format": "ff7song", "version": 1, "effect": effect, "bank": 1,
-            "reverb": presets[EFFECT_REVERB_MODE] if presets else None, **tracker(channels, loop_start, end, noise)}
+    channels[0].insert(0, [0, "tempo", EFFECT_TEMPO])
+    return {"format": "ff7song", "version": 1, "effect": effect, "bank": 1, "reverb": None,
+            **tracker(channels, loop_start, end, noise)}
 
 
 def tracker(channels: list, loop_start: int | None, end: int, noise: list | None) -> dict:
@@ -139,7 +135,7 @@ def main():
     effects = akao.effects(data)
     for effect, starts in effects:
         (out / "effects" / f"effect_{effect:04d}.ff7song").write_text(
-            json.dumps(effect_to_ff7song(data, effect, starts, presets, noise), separators=(",", ":")), encoding="utf-8")
+            json.dumps(effect_to_ff7song(data, effect, starts, noise), separators=(",", ":")), encoding="utf-8")
     print(f"{len(songs)} songs, {len(effects)} effects and instruments.ff7bank -> {out}")
 
 

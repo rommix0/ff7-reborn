@@ -79,8 +79,7 @@ out = song_to_ff7song(song(bytes([0xAC, 0x41, 0xAC, 0x2E, 0xAC, 0x42, 0x02, 0xAC
 cells = {tick: fields for tick, _, fields in out["patterns"][0]["cells"]}
 assert cells[0]["noise_clock"] == 48 and "noise_clock_add" not in cells[0] and cells[48]["noise_clock_add"] == 4
 
-# A sound effect: its channels at the effect tempo, from tick 0, over Room reverb at the usual depth when the
-# presets are at hand (none without them).
+# A sound effect: its channels at the effect tempo, from tick 0; no reverb of its own.
 table = [0xFFFF] * 2048
 table[10], table[11] = 0, 2
 data = struct.pack("<2048H", *table) + bytes([0x02, 0xA0, 0x18, 0xA0])
@@ -88,9 +87,6 @@ out = effect_to_ff7song(data, 5, [0x1000, 0x1002])
 assert out["effect"] == 5 and "song" not in out and out["channels"] == 2 and out["reverb"] is None
 cells = {(tick, ch): fields for tick, ch, fields in out["patterns"][0]["cells"]}
 assert cells[0, 0]["tempo"] == EFFECT_TEMPO == 0x66A8 and cells[0, 1]["note"] == 38
-presets = [{"mode": mode, "start": 0, "registers": []} for mode in range(10)]
-out = effect_to_ff7song(data, 5, [0x1000, 0x1002], presets)
-assert out["reverb"]["mode"] == 1 and out["patterns"][0]["cells"][0][2]["reverb_depth"] == 0x2800
 
 # Bank: header, 68-byte entries, then each instrument's samples.
 with tempfile.TemporaryDirectory() as tmp:
