@@ -228,6 +228,18 @@ starts:
     `func_80030148` hands to the SPU. The voice's sample step then follows the previous voice's output: step ×
     (1 + output).
   - **In the songs:** 53, 66 and 89.
+  - **The SPU's rule** (psx-spx): step = pitch register × (previous voice's output after its envelope, + 0x8000)
+    >> 15, then anything over `0x3FFF` becomes `0x4000`. So the cap comes after the modulation. We used to cap
+    first, which let effect 270's FM voice (register `0x2B2E`) swing up to `0x565C`, far past what the chip
+    plays.
+- **Pitch register: masked, not clamped.** Every voice update writes the pitch as `& 0x3FFF` (`0x8002F1D0`,
+  `0x8002F23C` for songs, `0x8002F6AC`, `0x8002F728` for effects). The setter at `0x800395C8` copies that straight
+  into the voice, so a pitch past `0x3FFF` wraps round to a low one; the player now does the same.
+  - **Songs:** 2, 9, 53 and 72 have notes past it. Song 2's channel 10 plays instrument 30, whose own table
+    starts at `0x6590` for octave 6, so its key-85 notes (`0x6BA0`) play at `0x2BA0`. That's 6.6 semitones below
+    the `0x3FFF` we used to clamp to.
+  - **Effects:** 87 have such notes.
+  - **XM export:** it still gives those notes their unwrapped pitch.
 - **Opcode audit (98 songs).**
   - **Handled:** every command a song uses is handled.
   - **No audio effect:** `FE` is a bar counter for the game.

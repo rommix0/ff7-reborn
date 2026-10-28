@@ -553,12 +553,14 @@ class Synth:
                 pitch = source.pitch + self.vibrato_offset(source)
                 if ch.pitch_follow and c - 1 in pitches:
                     pitch = pitches[c - 1] + self.vibrato_offset(source)
+                # The driver writes the pitch register masked to 14 bits, so a pitch past 0x3FFF wraps round.
+                pitch = int(max(0.0, pitch)) & 0x3FFF
                 if v is ch.voice:
                     pitches[c] = self.pitch_registers[c] = pitch
-                pitch *= 2 ** (self.transpose / 12)
-                steps = np.full(n, min(0x3FFF, max(0.0, pitch)) / 4096 * SPU_HZ / self.rate)
+                steps = np.full(n, pitch * 2 ** (self.transpose / 12))
                 if ch.fm and c - 1 in outputs:  # SPU pitch modulation: step * (1 + previous voice's output)
                     steps *= np.maximum(0.0, 1 + outputs[c - 1])
+                steps = np.minimum(steps, 0x4000) / 4096 * SPU_HZ / self.rate  # the SPU's step limit, after FM
                 pcm, length = v.inst.pcm, len(v.inst.pcm)
                 pos = v.pos + np.cumsum(steps) - steps
                 index = pos.astype(np.int64)

@@ -135,11 +135,30 @@ def peak(cells):
 lead = [0, 0, {"tempo": 0x6000, "inst": 0, "note": 84, "len": 96}]  # pitch 0x1000
 assert abs(peak([lead, [0, 1, {"inst": 0, "volume_follow": True, "volume": 10, "note": 60, "len": 96}]]) /
            peak([lead, [0, 1, {"inst": 0, "volume": 64, "note": 60, "len": 96}]]) - 1) < 1e-3
-# Past the 15-bit volume it wraps: register 0x3FFF, A3 120, hard left makes 0x7698, which plays as -0x968 (-0.147),
-# not 1.85 times full scale.
-high = [0, 0, {"tempo": 0x6000, "inst": 0, "note": 108, "len": 96}]  # pitch 0x4000, past the register's 0x3FFF
+# Past the 15-bit volume it wraps: register 0x3FC0 (key 96 detuned by 255/128) is volume 255; with A3 120 and the
+# master volume, hard left, that makes register 30,243, which plays as 30,243 - 0x8000 (-0.154), not 1.85.
+high = [0, 0, {"tempo": 0x6000, "inst": 0, "detune": 127, "note": 96, "len": 96}]
 wrapped = peak([high, [0, 1, {"inst": 0, "volume_follow": True, "pan": 0, "note": 60, "len": 96}]])
-assert abs(wrapped / TONE.max() - 0x968 / 0x4000) < 1e-3
+register = round(0x3FC0 / 64 * 120 * 127 / 128 / 0x4000 * 32640 / 32768 * 0x4000)
+assert abs(wrapped / TONE.max() - (0x8000 - register) / 0x4000) < 1e-3
+
+# The pitch register is the pitch masked to 14 bits (the driver's & 0x3FFF): key 108 (0x4000) plays at 0.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 108, "len": 96}]]))
+s.render(frames_for(4))
+assert s.pitch_registers[0] == 0 and s.channels[0].voice.pos == 0
+# FM: a steady modulator at 0.9 takes a 0x3000 voice (key 96, detune +64) to 1.9 x 0x3000, which stops at 0x4000:
+# exactly 4 samples per output frame.
+flat = Instrument(np.full(200_000, 0.9, np.float32), False, 0, (0x1000,) * 12, STEADY)
+two = song([[0, 0, {"tempo": 0x6000, "inst": 2, "note": 84, "len": 190}],
+            [0, 1, {"inst": 2, "fm": True, "detune": 64, "note": 96, "len": 190}]])
+two["channels"] = 2
+s = Synth({**BANK, 2: flat}, None, RATE)
+s.load(two)
+s.playing = True
+s.render(2000)
+start = s.channels[1].voice.pos
+s.render(1000)
+assert abs(s.channels[1].voice.pos - start - 4000) < 1e-6
 
 # An instrument change while a note sounds (A1/F2) rescales its pitch by the two instruments' C pitches.
 bank2 = {0: BANK[0], 1: Instrument(TONE, True, 0, (0x1800,) * 12, STEADY)}
