@@ -1,10 +1,53 @@
-// PsyQ library functions found by tools/psyq_match.py against SDK libs 4.4/4.5 (regenerate, don't hand-edit).
+// PsyQ library functions found by tools/psyq_match.py (regenerate, don't hand-edit). Sources, in priority order:
+// PsyQ 3.5 libs (PSYQ_SDK.zip psyq/lib/old_libs/LIB35.ZIP), SDK 4.4/4.5 libs, Net Yaroze MON/LIBPS.EXE + LIBPS.A.
 // LIBSPU.SPU
 _spu_FgetRXXa = 0x80036E84; // type:func
+// LIBSPU.S_M_INIT
+SpuInitMalloc = 0x80036FFC; // type:func
+// LIBSPU.S_M_WSA
+SpuMallocWithStartAddr = 0x800373AC; // type:func
+// LIBSPU.S_M_INT
+_spu_gcSPU = 0x80037664; // type:func
+// LIBSPU.S_SNC
+SpuSetNoiseClock = 0x80037B90; // type:func
+// LIBSPU.S_SR
+SpuSetReverb = 0x80037C40; // type:func
+// LIBSPU.S_SRMP
+SpuSetReverbModeParam = 0x80037E1C; // type:func
 // LIBSPU.S_SRA
 _spu_setReverbAttr = 0x8003832C; // type:func
+// LIBSPU.S_GRMP
+SpuGetReverbModeParam = 0x800387FC; // type:func
+// LIBSPU.S_SRD
+SpuSetReverbDepth = 0x8003884C; // type:func
+// LIBSPU.S_CRWA
+SpuClearReverbWorkArea = 0x800388E8; // type:func
+// LIBSPU.S_SIA
+SpuSetIRQAddr = 0x80038BC4; // type:func
+// LIBSPU.S_SIC
+SpuSetIRQCallback = 0x80038C04; // type:func
+// LIBSPU.S_GKS
+SpuGetKeyStatus = 0x80038E70; // type:func
 // LIBGTE.GEO_00
 rsin = 0x80039A74; // type:func
+sin_1 = 0x80039AB0; // type:func
+// LIBGTE.GEO_01
+rcos = 0x80039B40; // type:func
+// LIBGTE.FOG_02
+SetFogNearFar = 0x80039BE0; // type:func
+// LIBGTE.COR_05
+csqrt_1 = 0x80039CEC; // type:func
+csqrt = 0x80039E40; // type:func
+// LIBGTE.MSC00
+InitGeom = 0x80039EDC; // type:func
+// LIBGTE.MSC01
+SquareRoot0 = 0x80039F5C; // type:func
+// LIBGTE.MSC02
+InvSquareRoot = 0x80039FEC; // type:func
+VectorNormalS = 0x8003A078; // type:func
+VectorNormal = 0x8003A08C; // type:func
+VectorNormalSS = 0x8003A0B8; // type:func
+MatrixNormal = 0x8003A1A4; // type:func
 // LIBGTE.MSC05
 gteMIMefunc = 0x8003A28C; // type:func
 // LIBGTE.MSC06
@@ -14,11 +57,21 @@ LoadAverageShort12 = 0x8003A3AC; // type:func
 LoadAverageShort0 = 0x8003A434; // type:func
 LoadAverageByte = 0x8003A4BC; // type:func
 LoadAverageCol = 0x8003A51C; // type:func
-// LIBGTE.MTX_003
+// LIBGTE.MSC09
+SquareRoot12 = 0x8003A59C; // type:func
+// LIBGTE.MTX_00
 CompMatrix = 0x8003A63C; // type:func
-// LIBGTE.MTX_00B
+MulMatrix0 = 0x8003A79C; // type:func
+MulRotMatrix0 = 0x8003A8A8; // type:func
+MulRotMatrix = 0x8003A98C; // type:func
 SetMulMatrix = 0x8003AA74; // type:func
-// LIBGTE.MTX_008
+ApplyMatrixLV = 0x8003AB84; // type:func
+ApplyRotMatrix = 0x8003ACE4; // type:func
+ScaleMatrixL = 0x8003AD14; // type:func
+PushMatrix = 0x8003AE38; // type:func
+PopMatrix = 0x8003AED8; // type:func
+ReadRotMatrix = 0x8003AF78; // type:func
+ReadLightMatrix = 0x8003AFC0; // type:func
 ReadColorMatrix = 0x8003B008; // type:func
 // LIBGTE.MTX_03
 MulMatrix = 0x8003B05C; // type:func
@@ -30,6 +83,8 @@ ApplyMatrix = 0x8003B27C; // type:func
 ApplyMatrixSV = 0x8003B2CC; // type:func
 // LIBGTE.MTX_07
 TransMatrix = 0x8003B32C; // type:func
+// LIBGTE.MTX_08
+ScaleMatrix = 0x8003B35C; // type:func
 // LIBGTE.MTX_09
 SetRotMatrix = 0x8003B48C; // type:func
 // LIBGTE.MTX_10
@@ -113,6 +168,8 @@ RotAverage4 = 0x8003BD7C; // type:func
 RotAverageNclip3 = 0x8003BDFC; // type:func
 // LIBGTE.CMB_07
 RotAverageNclip4 = 0x8003BE8C; // type:func
+// LIBGTE.FGO_00
+TransposeMatrix = 0x8003BF3C; // type:func
 // LIBGTE.FGO_01
 RotMatrix = 0x8003BF8C; // type:func
 // LIBGTE.FGO_02
@@ -125,24 +182,72 @@ RotMatrixX = 0x8003C73C; // type:func
 RotMatrixY = 0x8003C8DC; // type:func
 // LIBGTE.FGO_06
 RotMatrixZ = 0x8003CA7C; // type:func
+// LIBGTE.RATAN
+ratan2 = 0x8003CC1C; // type:func
+// LIBGTE.PATCHGTE
+_patch_gte = 0x8003CD9C; // type:func
+// LIBETC.PAD
+PadInit = 0x8003CE3C; // type:func
+PadRead = 0x8003CE8C; // type:func
+PadStop = 0x8003CEBC; // type:func
+// LIBPS.EXE
+VSync = 0x8003CEDC; // type:func
 // LIBETC.INTR
 ResetCallback = 0x8003D0C0; // type:func
 InterruptCallback = 0x8003D0F0; // type:func
 DMACallback = 0x8003D120; // type:func
+// LIBPS.EXE
+VSyncCallback = 0x8003D150; // type:func
+// LIBETC.INTR
 VSyncCallbacks = 0x8003D184; // type:func
 StopCallback = 0x8003D1B4; // type:func
 RestartCallback = 0x8003D1E4; // type:func
 CheckCallback = 0x8003D214; // type:func
 GetIntrMask = 0x8003D224; // type:func
+// LIBETC.INTR_VB
+startIntrVSync = 0x8003D7D0; // type:func
+// LIBCD.EVENT
+CdInit = 0x8003DBD0; // type:func
+// LIBCD.SYS
+CdReset = 0x8003DD18; // type:func
+CdIntToPos = 0x8003E2D0; // type:func
+// LIBCD.CDREAD2
+CdRead2 = 0x80040594; // type:func
+// LIBCD.TYPE
+CdDiskReady = 0x80040648; // type:func
+// LIBCD.C_003
+StUnSetRing = 0x800408F8; // type:func
+// LIBCD.C_004
+data_ready_callback = 0x80040950; // type:func
+StGetBackloc = 0x800409E0; // type:func
+// LIBCD.C_005
+StSetStream = 0x80040A40; // type:func
+// LIBCD.C_007
+StFreeRing = 0x80040AC8; // type:func
+// LIBCD.C_008
+init_ring_status = 0x80040B84; // type:func
+// LIBCD.C_009
+StGetNext = 0x80040BC4; // type:func
+// LIBCD.C_015
+StRingStatus = 0x80041810; // type:func
+// LIBPS.EXE
+CdRead = 0x80041D28; // type:func
+CdReadSync = 0x80041E30; // type:func
 // LIBPRESS.LIBPRESS
 DecDCTBufSize = 0x80042038; // type:func
 DecDCTin = 0x80042044; // type:func
+DecDCTinCallback = 0x80042120; // type:func
+// LIBPRESS.VLC
+DecDCTvlcSize = 0x800425FC; // type:func
+DecDCTvlc = 0x8004262C; // type:func
 // LIBAPI.C57
 InitHeap = 0x80042990; // type:func
 // LIBAPI.C68
 FlushCache = 0x800429A0; // type:func
 // LIBAPI.C112
 _bu_init = 0x800429B0; // type:func
+// LIBAPI.C114
+_96_remove = 0x800429C0; // type:func
 // LIBAPI.C159
 SetMem = 0x800429D0; // type:func
 // LIBAPI.C161
@@ -162,13 +267,13 @@ EnableEvent = 0x80042A40; // type:func
 // LIBAPI.A13
 DisableEvent = 0x80042A50; // type:func
 // LIBAPI.A18
-InitPAD2 = 0x80042A60; // type:func
+InitPAD = 0x80042A60; // type:func
 // LIBAPI.A19
-StartPAD2 = 0x80042A70; // type:func
+StartPAD = 0x80042A70; // type:func
 // LIBAPI.A20
-StopPAD2 = 0x80042A80; // type:func
+StopPAD = 0x80042A80; // type:func
 // LIBAPI.A21
-PAD_init2 = 0x80042A90; // type:func
+PAD_init = 0x80042A90; // type:func
 // LIBAPI.A22
 PAD_dr = 0x80042AA0; // type:func
 // LIBAPI.A23
@@ -195,20 +300,24 @@ write = 0x80042B40; // type:func
 close = 0x80042B50; // type:func
 // LIBAPI.A65
 format = 0x80042B60; // type:func
-// LIBAPI.A66
-firstfile2 = 0x80042B70; // type:func
 // LIBAPI.A67
 nextfile = 0x80042B80; // type:func
 // LIBAPI.A69
-erase = 0x80042B90; // type:func
+delete = 0x80042B90; // type:func
 // LIBAPI.A91
 ChangeClearPAD = 0x80042BA0; // type:func
 // LIBAPI.L10
 ChangeClearRCnt = 0x80042BB0; // type:func
 // LIBAPI.COUNTER
+SetRCnt = 0x80042BC0; // type:func
 GetRCnt = 0x80042C60; // type:func
+StartRCnt = 0x80042C98; // type:func
+StopRCnt = 0x80042CCC; // type:func
+ResetRCnt = 0x80042D00; // type:func
 // LIBC.A56
 exit = 0x80042D38; // type:func
+// LIBC.A63
+puts = 0x80042D48; // type:func
 // LIBC.C19
 setjmp = 0x80042D58; // type:func
 // LIBC.C23
@@ -225,33 +334,86 @@ rand = 0x80042DA8; // type:func
 srand = 0x80042DB8; // type:func
 // LIBC.C63
 printf = 0x80042DC8; // type:func
+// LIBPS.EXE
+sprintf = 0x80042DD8; // type:func
 // LIBC.C27
 strlen = 0x80043634; // type:func
 // LIBC.C46
 memchr = 0x80043644; // type:func
+// LIBC.MEMMOVE
+memmove = 0x80043654; // type:func
+// LIBGPU.EXT
+LoadTPage = 0x800436C0; // type:func
+LoadClut = 0x800437AC; // type:func
+SetDefDispEnv = 0x800438D4; // type:func
+// LIBPS.EXE
+SetDispMask = 0x80043D3C; // type:func
+DrawSync = 0x80043DD8; // type:func
+ClearImage = 0x80043F6C; // type:func
+MoveImage = 0x800440C8; // type:func
+PutDrawEnv = 0x800443B0; // type:func
+// LIBGPU.SYS
+SetPriority = 0x80044A40; // type:func
 // LIBAPI.C73
 GPU_cw = 0x8004655C; // type:func
+// LIBGPU.PRIM
+GetTPage = 0x8004656C; // type:func
+GetClut = 0x80046634; // type:func
 // LIBGPU.P03
 DumpClut = 0x8004671C; // type:func
+// LIBGPU.PRIM
+NextPrim = 0x8004675C; // type:func
+IsEndPrim = 0x80046778; // type:func
+AddPrim = 0x80046794; // type:func
+AddPrims = 0x800467D0; // type:func
+CatPrim = 0x8004680C; // type:func
+TermPrim = 0x80046830; // type:func
+SetPolyF3 = 0x80046898; // type:func
+SetPolyFT3 = 0x800468AC; // type:func
+SetPolyG3 = 0x800468C0; // type:func
+SetPolyGT3 = 0x800468D4; // type:func
+SetPolyF4 = 0x800468E8; // type:func
+SetPolyFT4 = 0x800468FC; // type:func
+SetPolyG4 = 0x80046910; // type:func
+SetPolyGT4 = 0x80046924; // type:func
+SetSprt8 = 0x80046938; // type:func
+SetSprt16 = 0x8004694C; // type:func
+SetSprt = 0x80046960; // type:func
+SetTile1 = 0x80046974; // type:func
+SetTile8 = 0x80046988; // type:func
+SetTile16 = 0x8004699C; // type:func
+SetTile = 0x800469B0; // type:func
+SetLineF2 = 0x800469C4; // type:func
+SetLineG2 = 0x800469D8; // type:func
+SetLineF3 = 0x800469EC; // type:func
+SetLineG3 = 0x80046A0C; // type:func
+SetLineF4 = 0x80046A2C; // type:func
+SetLineG4 = 0x80046A4C; // type:func
+SetBlockFill = 0x80046A6C; // type:func
+SetDrawMove = 0x80046A80; // type:func
+// LIBGPU.TMD
+OpenTIM = 0x80046CFC; // type:func
+ReadTIM = 0x80046D0C; // type:func
 // LIBC.C43
 memset = 0x80048498; // type:func
 // LIBGPU.BREAK
 IsIdleGPU = 0x80048540; // type:func
+ContinueDraw = 0x800485A0; // type:func
 // LIBCARD.C171
 _card_info = 0x80048968; // type:func
 // LIBCARD.C172
 _card_load = 0x80048978; // type:func
 // LIBCARD.C173
 _card_auto = 0x80048988; // type:func
+// LIBCARD.CARD
+_card_clear = 0x80048998; // type:func
 // LIBCARD.A78
 _card_write = 0x800489D0; // type:func
 // LIBCARD.A80
 _new_card = 0x800489E0; // type:func
-// LIBCARD.INIT
-StartCARD = 0x80048A44; // type:func
 // LIBCARD.A74
-InitCARD2 = 0x80048AAC; // type:func
+InitCARD = 0x80048AAC; // type:func
 // LIBCARD.A75
-StartCARD2 = 0x80048ABC; // type:func
+StartCARD = 0x80048ABC; // type:func
 // LIBCARD.A76
-StopCARD2 = 0x80048ACC; // type:func
+StopCARD = 0x80048ACC; // type:func

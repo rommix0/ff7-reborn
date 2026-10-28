@@ -1,4 +1,5 @@
-"""Find PsyQ library functions in a PS-X EXE by matching the code in SN .LIB archives (relocated bits masked).
+"""Find PsyQ library functions in a PS-X EXE by matching the code in SN .LIB archives (relocated bits masked),
+and optionally in linked reference EXEs named by an `nm` listing (`--ref-exe`).
 
 Prints splat symbol lines (`name = 0xADDR; // type:func`) grouped under `// LIBNAME.MODULE` comments. Only names
 and addresses come out; no SDK code is copied.
@@ -159,10 +160,65 @@ def fuzzy_candidates(text: bytes, t_addr: int, named: set[int], sdk_funcs, thres
             yield addr, best[0], *best[1]
 
 
+def ref_exe_funcs(exe_path: Path, nm_path: Path):
+    """Functions of a linked reference EXE (e.g. Net Yaroze's resident MON/LIBPS.EXE), named by an `nm` listing.
+
+    A linked EXE has no relocation records, so mask what linking changes: jump targets, `lui` immediates, and
+    offsets taken from a `lui`-loaded register or `$gp`.
+    """
+    ref = exe_path.read_bytes()
+    base = struct.unpack_from("<I", ref, 0x18)[0]
+    code = ref[0x800:]
+    syms = sorted({(int(addr, 16), name) for addr, kind, name in
+                   (line.split() for line in nm_path.read_text().splitlines() if len(line.split()) == 3)
+                   if kind in "AT"})
+    ends = [addr for addr, _ in syms[1:]] + [base + len(code)]
+    for (addr, name), next_addr in zip(syms, ends):
+        # Some stubs point at BIOS or RAM outside the EXE image.
+        if not base <= addr < base + len(code):
+            continue
+        value, mask, lui_regs = bytearray(), bytearray(), set()
+        for off in range(addr - base, min(next_addr - base, len(code)), 4):
+            word = struct.unpack_from("<I", code, off)[0]
+            op, rs, rt = word >> 26, word >> 21 & 31, word >> 16 & 31
+            m = 0xFFFFFFFF
+            if op in (2, 3):  # j, jal
+                m = 0xFC000000
+            elif op == 0x0F:  # lui
+                m = 0xFFFF0000
+                lui_regs.add(rt)
+            elif op >= 8 and (rs in lui_regs or rs == 28):  # immediate/load/store off a linked address
+                m = 0xFFFF0000
+            value += struct.pack("<I", word & m)
+            mask += struct.pack("<I", m)
+            # A symbol's body runs to its first return (plus delay slot) or the next symbol.
+            if word == 0x03E00008 and len(value) >= 4:
+                off += 4
+                word = struct.unpack_from("<I", code, off)[0]
+                value += struct.pack("<I", word)
+                mask += b"\xff\xff\xff\xff"
+                break
+        if len(value) >= 8:
+            yield name, f"{exe_path.name}", bytes(value), bytes(mask)
+
+
+def resolve(hits):
+    """One (order, name, origin) for an address, or None when the code is too generic to tell names apart."""
+    if len({name for _, name, _ in hits}) == 1:
+        return min(hits)
+    # Same library under different names is an API renamed between SDK versions (InitPAD -> InitPAD2):
+    # the first-listed source wins, so list the libs closest to the game's version first.
+    if len({origin.split(".")[0].upper() for _, _, origin in hits}) == 1:
+        return min(hits)
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("exe", type=Path)
-    ap.add_argument("libs", type=Path, nargs="+")
+    ap.add_argument("libs", type=Path, nargs="*")
+    ap.add_argument("--ref-exe", type=Path, nargs=2, action="append", default=[], metavar=("EXE", "NM_LIST"),
+                    help="a linked library EXE plus `nm` output naming its functions (e.g. Net Yaroze LIBPS.EXE)")
     ap.add_argument("--fuzzy", type=float, metavar="RATIO",
                     help="also list unnamed library-area functions whose code is at least RATIO similar (for review)")
     args = ap.parse_args()
@@ -170,9 +226,9 @@ def main():
     exe = args.exe.read_bytes()
     t_addr = struct.unpack_from("<I", exe, 0x18)[0]
     text = exe[0x800:]
-    found = {}  # addr -> set of (name, origin)
+    found = {}  # addr -> set of (source order, name, origin)
     sdk_funcs = []  # (name, origin, value, mask) per function, for --fuzzy
-    for lib in args.libs:
+    for order, lib in enumerate(args.libs):
         for module, obj in lib_modules(lib):
             sections, symbols = parse_obj(obj)
             for sec_id, (sec_name, code, patches) in sections.items():
@@ -186,7 +242,7 @@ def main():
                 hits = find(text, value, mask)
                 if len(hits) == 1 and distinctive(mask):
                     for off, name in funcs:
-                        found.setdefault(t_addr + hits[0] + off, set()).add((name, origin))
+                        found.setdefault(t_addr + hits[0] + off, set()).add((order, name, origin))
                     continue
                 # Older libs often differ in one function of a module, so fall back to matching each one alone.
                 strong, weak = [], []
@@ -199,9 +255,20 @@ def main():
                     (strong if distinctive(mask[off:end]) else weak).append((hits[0] - off, off, name))
                 bases = {base for base, _, _ in strong}
                 for base, off, name in strong + [w for w in weak if w[0] in bases]:
-                    found.setdefault(t_addr + base + off, set()).add((name, origin))
-    # Two different names for one address means the code is too generic to tell them apart.
-    found = {addr: hits for addr, hits in found.items() if len({name for name, _ in hits}) == 1}
+                    found.setdefault(t_addr + base + off, set()).add((order, name, origin))
+    for order, (ref_exe, nm_list) in enumerate(args.ref_exe, len(args.libs)):
+        for name, origin, value, mask in ref_exe_funcs(ref_exe, nm_list):
+            sdk_funcs.append((name, origin, value, mask))
+            hits = find(text, value, mask)
+            if len(hits) == 1 and distinctive(mask):
+                found.setdefault(t_addr + hits[0], set()).add((order, name, origin))
+    found = {addr: pick for addr, hits in found.items() if (pick := resolve(hits))}
+    # One name on two addresses (3.5's StartCARD stub vs 4.4's StartCARD wrapper): the first-listed source keeps it.
+    owner = {}
+    for addr, (order, name, _) in found.items():
+        if name not in owner or order < found[owner[name]][0]:
+            owner[name] = addr
+    found = {addr: hit for addr, hit in found.items() if owner[hit[1]] == addr}
 
     if args.fuzzy:
         candidates = list(fuzzy_candidates(text, t_addr, set(found), sdk_funcs, args.fuzzy))
@@ -214,7 +281,7 @@ def main():
 
     last_origin = None
     for addr in sorted(found):
-        name, origin = min(found[addr])
+        _, name, origin = found[addr]
         # Origin goes on its own comment line: splat reserves `lib:` as an attribute.
         if origin != last_origin:
             print(f"// {origin}")

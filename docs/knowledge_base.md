@@ -239,19 +239,24 @@ Lessons from getting it to match:
 
 ## 8. Sony library map (main exe)
 
-`tools/psyq_match.py` parses SN `.LIB` archives (`LIB\x01` with `LNK\x02` objects) and masks each relocated field by
-its patch type. It then searches the exe for each library module, falling back to single functions. Only
-names and addresses come out. Output is `config/symbols.main.psyq.txt`, which splat reads; the rebuild stays
-byte-identical.
+`tools/psyq_match.py` parses SN `.LIB` archives (`LIB` with `LNK` objects) and masks each relocated field by
+its patch type. It then searches the exe for each library module, falling back to single functions. With
+`--ref-exe EXE NM_LIST` it also matches a linked library EXE named by an `nm` listing. Only names and addresses
+come out. Output is `config/symbols.main.psyq.txt`, which splat reads; the rebuild stays byte-identical.
 
-Result against SDK libs 4.4/4.5 (`psx/lib`, `patches`, `zips/Lib44`, `zips/Lib45`):
+Sources, in priority order (on a rename the first one wins, so the closest version goes first):
 
-| | Count |
-|---|---|
-| Functions in the library block `0x80036E84`–`0x80048ACC` | 444 |
-| Named with confidence | **154** (libgte 83, libapi 36, libc 12, libcard 9, libetc 8, libgpu 2, libpress 2, libspu 2) |
-| Review candidates (`--fuzzy 0.8`, not applied) | 20 |
-| Unnamed | ~270, mostly libspu, libcd and libgpu, which changed between the game's 1996 libs and the SDK |
+| Source | Where | Version stamps (libetc / libcd / libgpu) | Names alone |
+|---|---|---|---|
+| PsyQ **3.5** libs | user archive `PSYQ_SDK.zip` → `psyq/lib/old_libs/LIB35.ZIP` (1996-05) | 1.73 / 1.77 / 1.120 | 247 |
+| PsyQ 4.4/4.5 libs | PsyQ SDK (`psx/lib`, `patches`, `zips/Lib44`, `zips/Lib45`) | 1.75 / 1.86 / 1.140 | 154 |
+| Net Yaroze resident library | `MON/LIBPS.EXE` on DTL-S3030/S3035, named by `PSX/LIB/LIBPS.A` on DTL-S3040 (`nm` listing) | 1.73 / 1.76 / 1.120 | 40 |
+| **FF7 itself** | `SCUS_941.63` | 1.73 / 1.76 / 1.115 | |
+
+Combined: **267 of 454** functions in the library block `0x80036E84`–`0x80048D18` named (58%). By library: libgte 110,
+libgpu 40, libapi 40, libspu 14, libcd 13, libetc 12, libc 14, libcard 10, libpress 5, Net-Yaroze-only 10. The libspu
+names include `SpuSetReverb`, `SpuSetIRQCallback`, `SpuGetKeyStatus` and `SpuMallocWithStartAddr`, which are useful
+anchors for finding the AKAO driver.
 
 Rules that keep false names out:
 - **Unique:** a hit must occur exactly once in the exe.
@@ -259,21 +264,34 @@ Rules that keep false names out:
   4 words (BIOS call stubs carry a unique call number).
 - **Siblings:** smaller functions count only when a distinctive sibling from the same module puts the module at the
   same base.
-- **Clashes:** an address claimed by two different names is dropped. Example: `0x80048A7C` is a "call three
-  functions" wrapper that fits both libsnd `SsInitHot` and libmcrd `MemCardInit`.
+- **Clashes:** two names for one address are dropped, unless both come from the same library. Then it's an API
+  renamed between versions (`InitPAD` → `InitPAD2`, `delete` → `erase`) and the first-listed source wins. Example of
+  a dropped clash: `0x80048A7C` is a "call three functions" wrapper that fits both libsnd `SsInitHot` and libmcrd
+  `MemCardInit`.
+- **One name per address:** a name found at two addresses stays with the higher-priority source. 3.5 `StartCARD` is
+  a BIOS stub; 4.4's `StartCARD` is a different wrapper.
+- **Reference EXEs** have no relocation records, so jump targets, `lui` immediates, and offsets from a `lui`-loaded
+  register or `$gp` are masked.
 - **Example false positive:** `atof` at `0x800144F0` in game code was one, rejected by the distinctive rule.
 
-Review candidates (similarity, then name and address; confirm against `Libref.pdf` before using):
-0.94 `SpuSetReverbDepth` `0x8003884C`, 0.94 `SpuSetIRQAddr` `0x80038BC4`, 0.92 `_SpuIsInAllocateArea_` `0x80037D90`,
-0.88 `SpuInitMalloc` `0x80036FFC`, 0.92 `VSyncCallback` `0x8003D150`, 0.91 `CD_vol` `0x8003F398`,
-0.85 `CD_initvol` `0x8003F500`, 0.86 `StSetStream` `0x80040A40`, 0.90 `SetDispMask` `0x80043D3C`,
-0.89 `ClearImage` `0x80043F6C`, 0.84 `LoadImage` `0x80044000`, 0.84 `StoreImage` `0x80044064`,
-0.90 `DrawOTag` `0x8004433C`, 0.83 `SetSemiTrans` `0x80046848`, 0.89 `BreakDraw` `0x800484A8`,
-1.00 `SpuStSetPreparationFinishedCallback` `0x80038FEC`, `CdPosToInt` `0x8003E3D4`, `StClearRing` `0x80040898`,
-`ReadInitPadFlag` `0x80043928`, `OpenTIM` `0x80046CFC`. The 1.00 ones are exact but too small to pass the
-distinctive rule alone.
+Review candidates (`--fuzzy 0.8`, not applied). The earlier 4.4-only list was a good test of this policy: 8 of its
+20 guesses are now confirmed by exact matches, but 2 were **wrong** (`0x80038FEC` is `SpuSetTransferCallback`, not
+`SpuStSetPreparationFinishedCallback`; `0x80043928` is `GetVideoMode`, not `ReadInitPadFlag`). Still open, with
+similarity scores:
+- **libspu, 1.00 but too small to pass alone:** `_SpuDataCallback` `0x80036FD8`, `SpuSetNoiseVoice` `0x80037964`,
+  `SpuSetReverbVoice` `0x800388C4`, `_SpuCallback` `0x80038C48`, `SpuSetTransferMode` `0x80038FB8`,
+  `SpuSetTransferCallback` `0x80038FEC`, `SpuSetPitchLFOVoice` `0x80039010`. Also `_SpuIsInAllocateArea_` `0x80037D90`
+  at 0.92.
+- **libcd:** `CdControl` `0x8003DE9C` 0.90, `CdControlF` `0x8003DFD4` 0.84, `CdMix` `0x8003E244` 0.89, `CdGetSector`
+  `0x8003E268` 0.89, `CdLastPos` `0x8003DD08` 1.00, `CdPosToInt` `0x8003E3D4` 1.00, `CD_vol` `0x8003F398` 0.91,
+  `CD_initvol` `0x8003F500` 0.85, `StSetRing` `0x8003DBA0` 1.00, `StClearRing` `0x80040898` 1.00, `StSetMask`
+  `0x80040C88` 1.00, `CdGetToc` `0x80042144` 1.00, `CdGetDiskType` `0x8004076C` 0.81.
+- **libgpu:** `ClearOTag` `0x8004418C` 0.85, `DrawOTag` `0x8004433C` 0.90, `SetDrawMode` `0x80044A68` 0.91,
+  `SetSemiTrans` `0x80046848` 0.90, `SetShadeTex` `0x80046870` 0.90, `BreakDraw` `0x800484A8` 0.89.
+- **libetc:** `GetVideoMode` `0x80043928` 1.00, `startIntrDMA` `0x8003D8F8` 0.81.
 
-What would name the rest: the PsyQ 3.3–3.6 libraries the game actually linked. The CVS stamps in §7 point there.
+The remaining ~187 unnamed functions are probably from PsyQ 3.3/3.4 builds or are internal (static) helpers with no
+exported name. The game's libgpu `sys.c 1.115` is older than every source we have.
 
 **Game code ends just before `0x80036E84`.** The last unnamed functions before it (`0x80036D98`, `0x80036DE0`) still
 need checking: game code, or the start of libspu?
