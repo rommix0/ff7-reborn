@@ -22,6 +22,17 @@ Then decompress what you need (overlays, `KERNEL.BIN`, field maps). The format i
 python tools/unpack.py "assets/Final Fantasy VII (USA) (Disc 1)/BATTLE/BATTLE.X"
 ```
 
+Disassemble the music and sound effects (AKAO sequences):
+
+```bash
+python tools/akao.py dump "assets/Final Fantasy VII (USA) (Disc 1)/MINI/SENSUI.SND"
+python tools/akao.py dump "assets/Final Fantasy VII (USA) (Disc 1)/SOUND/EFFECT.ALL" 5
+python tools/akao.py check assets
+```
+
+`check` parses every song and sound effect it finds and reports anything that doesn't parse (~3 minutes for three
+discs).
+
 ## Build toolchain (Linux or WSL)
 
 ```bash

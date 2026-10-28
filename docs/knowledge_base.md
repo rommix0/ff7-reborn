@@ -117,14 +117,26 @@ Commands read so far:
   `<< 23` into `+0x44` (a volume-like value).
 - **`CC`:** sets `+0x6E = 1`.
 
-Argument lengths, from how far each handler advances the read pointer (to confirm with a parser run over the
-~600 sequences on disc):
-- **1 byte:** `A1`–`A3`, `A5`, `A8`, `AA`, `AC`–`AF`, `B1`, `B2`, `B5`, `B7`, `B9`, `BB`, `BD`, `BF`, `C0`, `C1`, `CE`,
-  `CF`, `D2`, `D3`, `D8`–`DA`, `DC`, `F2`, `F6`, `F8`.
-- **2 bytes:** `A4`, `A9`, `AB`, `BC`, `E8`, `F7`, `FD`, `FE`.
-- **None:** `A6`, `A7`, `B3`, `B6`, `BA`, `BE`, `C2`–`C8`, `CB`–`CD`, `D0`, `D1`, `D4`–`D7`, `DB`, `ED`, `F3`, `F5`, `F9`.
-- **Unclear, with branching reads:** `B0`, `B4`, `B8`, `C9`, `DD`–`DF`, `E9`–`EC`, `F4`.
-- **Jumps or loops (set the pointer directly):** `CA`, `EE`, `EF`, `F0`, `F1`.
+Argument lengths come from how far each handler moves the read pointer, then were confirmed by
+`tools/akao.py check`. **All 98 distinct songs (1,340 channels) and all 1,423 sound-effect streams on the three
+discs parse cleanly** with this table. No unused command is hit, and 96% of streams end exactly where the next one
+starts:
+
+| Args | Commands |
+|---|---|
+| 0 | `A0` end · `A6` `A7` octave ± · `B3` `B6` `BA` `BE` `C2`–`C7` · `C8` loop point · `CA` loop back (stops linear parsing) · `CB`–`CD` `D0` `D1` `D4`–`D7` `DB` `ED` `F3` `F5` `F9` |
+| 1 | `A1`–`A3` `A5` octave · `A8` volume · `AA` `AC`–`AF` `B1` `B2` `B5` `B7` `B9` `BB` `BD` `BF` `C0` `C1` · `C9` repeat count · `CE` `CF` `D2` `D3` `D8`–`DA` `DC` `F2` `F6` `F8` |
+| 2 | `A4` `A9` `AB` `B0` `BC` `DD`–`DF` `E8`–`EC` · `EE` jump (stops linear parsing) · `F4` `F7` `FD` `FE` |
+| 3 | `B4` `B8` `EF` `F0` `F1` |
+| — | `E0`–`E7` `FA`–`FC` `FF`: unused; the driver treats them as `A0` |
+
+- **Lengths confirmed by real data** for every command except `B7`, `BE`, `BF`, `CE`, `CF`, `DF`, `E9`, `EB`, `EF`, `F1`
+  and `F3`. None of those occur on the discs, so their lengths rest on the handler code alone.
+- **Structure quirks:**
+  - Channels may fall through into the next channel's bytes (shared tails).
+  - Some songs leave trailing bytes after the last channel.
+- **Behaviour notes:** "loop point", "repeat count", "loop back" and "jump" are inferred from the pointer
+  handling and from the `C8`…`C9` pairing seen in the data. Only `A0` and `A5`–`A8` have been read in detail.
 
 Sound files (checked against our disc):
 
@@ -134,8 +146,18 @@ Sound files (checked against our disc):
 | `SOUND/INSTR.DAT` | 8,192 | Instrument table copied into the driver; starts with SPU sample/loop addresses that point into `INSTR.ALL` |
 | `SOUND/INSTR2.ALL` | 251,120 | Same header (`spu_addr 0x38560`, length `0x3D4E0`), second bank loaded later on top of the upper instrument slots |
 | `SOUND/INSTR2.DAT` | 8,192 | Instrument table for the second bank |
-| `SOUND/EFFECT.ALL` | 51,200 | Sound-effect sequences; starts with `FF FF FF FF` then a `u16` offset table |
-| `*.SND` (e.g. `MINI/ASERI2.SND`, `ENEMY6/FAN2.SND`) | small | Standalone AKAO music sequence: magic `"AKAO"`, `u16` id, `u16` length, … |
+| `SOUND/EFFECT.ALL` | 51,200 | Sound effects: a `0x1000`-byte table of 2,048 `u16` offsets (`0xFFFF` = empty) relative to `0x1000`, then 1,423 header-less command streams (same command set as music). Identical on all discs |
+| `*.SND` (e.g. `MINI/ASERI2.SND`, `ENEMY6/FAN2.SND`) | small | One AKAO block (layout below) |
+
+**AKAO block** (in `.SND` files, field maps, `MINI/BGM*.LZS`, `MINI/CHOCOBO.DAT`, `MOVIE/STAFF*.BIN`):
+- `0x00` `"AKAO"`.
+- `0x04` `u16` song id.
+- `0x06` `u16` data length (block = 16 + length).
+- `0x08` `u16` *(unknown)*.
+- `0x0A` 6-byte BCD timestamp, e.g. `96 12 18 22 46 28` = 1996-12-18 22:46:28.
+- `0x10` `u32` channel mask.
+- `0x14` one `u16` per set bit. Each is relative to the byte after itself, so channel *i* starts at
+  `0x14 + 2i + 2 + offset`.
 
 Field maps embed their music as AKAO blocks: 613 of the 703 LZS field `.DAT`s contain the `"AKAO"` magic after
 decompression. That gives us roughly 600 real sequences to test a sequence parser against.
