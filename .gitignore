@@ -1,0 +1,8 @@
+# Copyrighted game data: never commit. Users extract from their own discs.
+assets/
+disks/
+*.bin
+*.cue
+*.iso
+build/
+__pycache__/
