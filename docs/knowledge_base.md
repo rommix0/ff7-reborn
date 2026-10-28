@@ -182,6 +182,16 @@ starts:
     change (the drum-kit path does the same per note).
   - **In the songs:** `AD` in 47 songs, `B1` in 35, `AF` in 7, `AE` in 5 and `B2` in 1: 476 overrides in all.
   - **Mode commands:** `B7`, `BB` and `BF` (the envelope modes) never occur.
+  - **Rate changes mid-step (player bug, fixed):** the SPU waits a number of samples per envelope step that grows
+    with the rate, up to 2^20 samples (about 24 s) at sustain rate `0x7F`, the "hold" most instruments use. The
+    player carried the samples already waited over to the next rate as they were, so a faster rate cashed them in
+    at once.
+    - **Where it showed:** effect 448's `B1 3E` mid-note (6 down every 16 samples) dropped the note to silence
+      in one tick, halfway through. Any release slower than a few milliseconds, after such a sustain, was cut off
+      too: release rate 12 lasted 0 ms instead of 180.
+    - **Now:** the carry is kept as a fraction of a step, which a new rate continues.
+    - **Reach:** 50 songs and 193 effects change an envelope rate on a cell without a note, and any song with a
+      slow release (`B2`, the `F8` ring) after a held sustain.
 - **Song start** (`func_80029C48`): tempo `0xFFFF` (`D_8009A11E`) and accumulator 1 (`D_8009A124`).
   - **Before the first `E8`:** a song runs at about a tick per timer interrupt. Song 50 sets its tempo at tick 4,
     and song 85 at tick 72.

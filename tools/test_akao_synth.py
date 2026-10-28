@@ -198,6 +198,14 @@ assert s.channels[0].voice.phase == 3 and 0x800 < held < 0x1000
 s.render(frames_for(3))
 assert s.channels[0].voice.phase == 3 and s.pitch_registers[0] == held and s.channels[0].voice.pitch > held
 
+# A rate change carries over the part of an envelope step already waited, not the samples: sustain rate 0x7F
+# steps once per 2^20 samples, and effect 448's B1 3E (6 down every 16 samples) used to cash that in at once.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 72, "len": 192}], [96, 0, {"sr": 62}]]))
+s.render(frames_for(98))
+assert s.channels[0].voice.level > 0x7000
+s.render(frames_for(60))
+assert 0 < s.channels[0].voice.level < 0x6000
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)

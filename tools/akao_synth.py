@@ -60,7 +60,7 @@ class Voice:
     held_pitch: int | None = None  # the last pitch register written, which the SPU keeps through the release
     held_mix: tuple | None = None  # likewise (gain, left, right)
     level: float = 0.0
-    env_count: float = 0.0
+    env_count: float = 0.0  # the part of the current envelope step already waited, 0..1
 
 
 @dataclass
@@ -553,9 +553,12 @@ class Synth:
         if exponential and rising and v.level > 0x6000:
             cycles *= 4
         delta = step << max(0, 11 - shift)
-        # Envelope steps passed by each output sample, counting the part-step carried over from last time.
-        steps = np.floor(v.env_count + np.arange(1, n + 1) * (SPU_HZ / self.rate)) // cycles
-        v.env_count = (v.env_count + n * SPU_HZ / self.rate) % cycles
+        # Envelope steps passed by each output sample, counting the part of a step carried over from last time. The
+        # carry is a fraction of a step, so a new rate (B1 mid-note, or a key-off after a 2^20-sample sustain step)
+        # doesn't cash in a long wait at the new rate's speed.
+        per_sample = SPU_HZ / self.rate / cycles
+        steps = np.floor(v.env_count + np.arange(1, n + 1) * per_sample)
+        v.env_count = (v.env_count + n * per_sample) % 1
         if exponential and not rising:
             levels = v.level * (1 + delta / 32768) ** steps
         else:
