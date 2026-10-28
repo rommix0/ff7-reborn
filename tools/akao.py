@@ -3,6 +3,7 @@
 usage:
   python tools/akao.py check <assets dir>     # parse every distinct sequence under the folder, report problems
   python tools/akao.py dump <file> [index]    # disassemble one .SND file or the AKAO blocks in a field .DAT
+  python tools/akao.py midi <file|dir> <out>  # export songs as .mid (a folder exports every distinct song)
 """
 import struct
 import sys
@@ -28,6 +29,12 @@ ARGS = {
 }
 # Commands after which the stream never continues linearly: end of channel, loop back forever, jump.
 STOP = {0xA0, 0xCA, 0xEE}
+# Note length table in the main exe (seq_note_lengths); a byte's remainder mod 11 picks one. 48 ticks = quarter note.
+NOTE_TICKS = (192, 96, 48, 24, 12, 6, 3, 32, 16, 8, 4)
+TICKS_PER_QUARTER = 48
+# The driver steps on root counter 2 (system clock / 8) with target 0x43D1, and adds the tempo to a 16-bit
+# accumulator each step; every carry is one tick.
+DRIVER_HZ = 33_868_800 / 8 / 0x43D1
 
 
 def blocks(data: bytes):
@@ -159,8 +166,160 @@ def dump(path: Path, index: int):
         print("   " + show(events))
 
 
+MAX_TICKS = 192 * 4000  # 4000 bars: far past any song; reaching it means a loop was misread
+
+
+def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS):
+    """Follow one channel like the driver does, once through. Returns (events, loop_start_tick, end_tick).
+
+    Events are [tick, kind, ...]: ("note", key, ticks), ("program", n), ("volume", n), ("pan", n), ("tempo", t).
+    Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
+    the tick its target was first reached at.
+    """
+    pos, tick = start, 0
+    octave, fixed_len, next_len, last_len = 4, 0, 0, 0
+    loops = []  # [loop start pos, pass count]; the driver keeps 4 levels
+    first_seen, events, last_note = {}, [], None
+    while tick < max_ticks:
+        first_seen.setdefault(pos, tick)
+        b = block[pos]
+        if b < 0xA0:
+            # Length precedence as in seq_step_channel: DC fixed length, else A2 one-shot length, else the table.
+            last_len = fixed_len or next_len or NOTE_TICKS[b % 11]
+            next_len = 0
+            key = b // 11
+            if key < 12:
+                last_note = [tick, "note", min(127, 12 * (octave + 1) + key), last_len]
+                events.append(last_note)
+            elif key == 12 and last_note:
+                last_note[3] += last_len  # tie
+            tick += last_len
+            pos += 1
+            continue
+        if b not in ARGS or b == 0xA0:
+            return events, None, tick
+        args = block[pos + 1:pos + 1 + ARGS[b]]
+        nxt = pos + 1 + len(args)
+        match b:
+            case 0xA1 | 0xF2:  # instrument (F2 also rescales pitch from the old instrument to the new one)
+                events.append([tick, "program", args[0] & 0x7F])
+            case 0xA2:
+                next_len, fixed_len = args[0], 0
+            case 0xDC:  # fixed length = last length + signed delta, 0 turns it off
+                delta = args[0] - 256 if args[0] & 0x80 else args[0]
+                fixed_len = max(1, min(255, last_len + delta)) if delta else 0
+            case 0xA5:
+                octave = args[0]
+            case 0xA6:
+                octave = (octave + 1) & 15
+            case 0xA7:
+                octave = (octave - 1) & 15
+            case 0xA8:
+                events.append([tick, "volume", args[0] & 0x7F])
+            case 0xAA:
+                events.append([tick, "pan", args[0] & 0x7F])
+            case 0xE8:
+                events.append([tick, "tempo", args[0] | args[1] << 8])
+            case 0xC8:
+                loops = (loops + [[nxt, 0]])[-4:]
+            case 0xC9 if loops and args[0]:
+                loops[-1][1] += 1
+                if loops[-1][1] == args[0]:
+                    loops.pop()
+                else:
+                    nxt = loops[-1][0]
+            case 0xCA | 0xC9 if loops:
+                return events, first_seen.get(loops[-1][0]), tick
+            case 0xF0 if loops and loops[-1][1] + 1 == (args[0] or 256):  # on pass n of the repeat, jump
+                nxt += struct.unpack("<h", args[1:])[0]
+            case 0xEE:
+                target = nxt + struct.unpack("<h", args)[0]
+                if target <= pos:
+                    return events, first_seen.get(target), tick
+                nxt = target
+        pos = nxt
+    return events, None, tick
+
+
+def vlq(n: int) -> bytes:
+    out = [n & 0x7F]
+    while n > 0x7F:
+        n >>= 7
+        out.insert(0, n & 0x7F | 0x80)
+    return bytes(out)
+
+
+def midi_track(timed: list[tuple[int, int, bytes]]) -> bytes:
+    """(tick, order, message) list -> MTrk chunk. `order` puts note-offs before note-ons on the same tick."""
+    data, now = b"", 0
+    for tick, _, msg in sorted(timed, key=lambda e: e[:2]):
+        data += vlq(tick - now) + msg
+        now = tick
+    data += b"\x00\xFF\x2F\x00"
+    return b"MTrk" + struct.pack(">I", len(data)) + data
+
+
+def song_to_midi(block: bytes) -> tuple[bytes, list[int], bool]:
+    """Return (Standard MIDI File bytes, loop length in ticks of each looping channel, any channel ran away)."""
+    channels = [play_channel(block, start) for start in channel_starts(block)]
+    conductor = []
+    tracks = []
+    for i, (events, _, _) in enumerate(channels):
+        ch = i % 16
+        timed = []
+        for tick, kind, *rest in events:
+            if kind == "note":
+                key, length = rest
+                timed += [(tick, 1, bytes([0x90 | ch, key, 100])), (tick + length, 0, bytes([0x80 | ch, key, 0]))]
+            elif kind == "program":
+                timed.append((tick, 1, bytes([0xC0 | ch, rest[0]])))
+            elif kind in ("volume", "pan"):
+                timed.append((tick, 1, bytes([0xB0 | ch, 7 if kind == "volume" else 10, rest[0]])))
+            elif kind == "tempo" and rest[0]:
+                usec = round(TICKS_PER_QUARTER * 65536 * 1_000_000 / (DRIVER_HZ * rest[0]))
+                conductor.append((tick, 1, b"\xFF\x51\x03" + usec.to_bytes(3, "big")))
+        tracks.append(midi_track(timed))
+    # Loop markers (the convention most game-music players understand) where the endless loop starts and ends.
+    loop_starts = [loop for _, loop, _ in channels if loop is not None]
+    if loop_starts:
+        conductor.append((min(loop_starts), 0, b"\xFF\x06\x09loopStart"))
+        conductor.append((max(end for _, loop, end in channels if loop is not None), 0, b"\xFF\x06\x07loopEnd"))
+    header = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks) + 1, TICKS_PER_QUARTER)
+    loop_lengths = [end - loop for _, loop, end in channels if loop is not None]
+    return header + midi_track(conductor) + b"".join(tracks), loop_lengths, any(end >= MAX_TICKS for *_, end in channels)
+
+
+def export_midi(source: Path, out: Path):
+    out.mkdir(parents=True, exist_ok=True)
+    if source.is_dir():
+        found = list(sequences(source))
+    else:
+        data = source.read_bytes()
+        if len(data) > 4 and int.from_bytes(data[:4], "little") == len(data) - 4:
+            data = lzs(data)
+        found = [(f"{source.name}@{off:#x}", block) for off, block in blocks(data)]
+    names, uneven = set(), []
+    for origin, block in found:
+        song_id = struct.unpack_from("<H", block, 4)[0]
+        name = f"song_{song_id:03d}"
+        while name in names:  # same id, different data
+            name += "b"
+        names.add(name)
+        midi, loop_lengths, runaway = song_to_midi(block)
+        (out / f"{name}.mid").write_bytes(midi)
+        # Looping channels of a song repeat the same length (echo channels may start a little late, and a short
+        # pattern like a one-bar drum loop divides it); anything else points at a misread length or loop command.
+        if runaway or loop_lengths and any(not n or max(loop_lengths) % n for n in loop_lengths):
+            uneven.append(f"{name} ({origin}): loop lengths {sorted(set(loop_lengths))}" + (" + runaway" if runaway else ""))
+    print(f"{len(names)} songs -> {out}; {len(names) - len(uneven)} with every looping channel the same length")
+    for line in uneven:
+        print("  " + line)
+
+
 def main():
     match sys.argv[1:]:
+        case ["midi", source, out]:
+            export_midi(Path(source), Path(out))
         case ["check", root]:
             check(Path(root))
         case ["dump", path]:

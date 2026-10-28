@@ -138,6 +138,46 @@ starts:
 - **Behaviour notes:** "loop point", "repeat count", "loop back" and "jump" are inferred from the pointer
   handling and from the `C8`…`C9` pairing seen in the data. Only `A0` and `A5`–`A8` have been read in detail.
 
+### Timing, loops and MIDI export
+
+- **Clock:** `snd_init` (`0x8002988C`) sets up root counter 2 with target `0x43D1` and `snd_timer_tick`
+  (`0x80030234`) as its interrupt. Counter 2 runs at system clock ÷ 8, so the driver steps about **243.86 times a
+  second**. The ÷8 is confirmed by the driver's own catch-up code, which counts elapsed scanlines in units of 66.
+- **Tempo:** each step, `seq_tick` (`0x800308D4`) adds the song tempo (the `u16` from `E8 lo hi`, kept at
+  `seq_song + 0x18`) to a 16-bit accumulator, and every carry is one sequence tick. So
+  ticks/s = 243.86 × tempo / 65,536, and with 48 ticks per quarter note, **BPM = tempo × 0.004651**. Across the
+  96 songs that set a tempo this gives 56–191 BPM (median 106).
+- **Per-channel counter:** `+0x56` holds `gate << 8 | length`, and each tick subtracts 1 from both bytes. Length 0
+  steps the channel to its next event; gate 0 releases the note. Notes that aren't tied get a gate 2 ticks shorter
+  than the length.
+- **Length commands:**
+  - **`A2 n`:** the next note lasts `n` ticks, and the fixed length is cleared.
+  - **`DC d`:** sets a fixed length for every following note, equal to the last length + signed `d`, clamped to 1–255.
+    `d` = 0 turns it off.
+  - **Precedence:** fixed length, then `A2`, then the length table.
+- **Loop commands:**
+  - **`C8`:** pushes a loop point (4 levels).
+  - **`C9 n`:** jumps back until pass `n` (0 = 256), then pops.
+  - **`CA`:** jumps back forever.
+  - **`F0 n lo hi`:** jumps by a signed 16-bit offset on pass `n` of the current repeat, for a different ending on the
+    last pass.
+  - **`EE lo hi`:** jumps by a signed 16-bit offset, counted from after its arguments; a backward jump is the song's
+    endless loop.
+- **Instrument commands:** `A1 n` selects instrument `n`. `F2 n` also changes instrument, rescaling the playing pitch
+  from the old instrument to the new one.
+
+`python tools/akao.py midi <file|dir> <out>` writes one Standard MIDI File per song:
+- **Layout:** format 1 at 48 PPQ, a conductor track with tempos plus `loopStart`/`loopEnd` markers, and one track per
+  channel (MIDI channel = index mod 16).
+- **Notes:** key = 12 × (octave + 1) + semitone, so octave 4 = middle C.
+- **Controls:** program = AKAO instrument; CC7 = `A8`; CC10 = `AA`; velocity is fixed at 100.
+- **Loops:** counted repeats are unrolled, and endless loops play once.
+- **Left out:** vibrato/tremolo/pan LFOs, slides, ADSR, reverb, drum-kit mode and the other effect commands.
+
+Check: in all **98 songs, every looping channel repeats the same length**, or a length that divides it, such as a
+one-bar drum loop. Echo channels may start a few ticks late. Before `F0` was handled, 5 songs failed this check,
+which is how its meaning was confirmed. No channel runs past 4,000 bars.
+
 Sound files (checked against our disc):
 
 | File | Size | Layout |

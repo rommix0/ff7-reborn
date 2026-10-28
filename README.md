@@ -28,10 +28,11 @@ Disassemble the music and sound effects (AKAO sequences):
 python tools/akao.py dump "assets/Final Fantasy VII (USA) (Disc 1)/MINI/SENSUI.SND"
 python tools/akao.py dump "assets/Final Fantasy VII (USA) (Disc 1)/SOUND/EFFECT.ALL" 5
 python tools/akao.py check assets
+python tools/akao.py midi assets assets/midi
 ```
 
 `check` parses every song and sound effect it finds and reports anything that doesn't parse (~3 minutes for three
-discs).
+discs). `midi` writes each distinct song as `song_<id>.mid`, with tempo and `loopStart`/`loopEnd` markers.
 
 Convert the instrument samples to WAV (with loop points) and a CSV of their settings:
 
