@@ -207,6 +207,10 @@ starts:
       0.047 → 0.051, song 82 (Studio C) 0.067 → 0.078.
     - **Known gap:** Room's two "diff" filters both write offset 0, so the SPU's left filter reads the right
       one's last output. Ours uses its own. Nothing reaches the output from there (`vCOMB3`/`vCOMB4` are 0).
+  - **Impulse responses** (`tools/reverb_ir.py`): the reverb is linear, so a click through it records each type
+    for convolution reverbs. Levels are at full depth. The tails, trimmed where they fall below 24-bit:
+    Room 1.65 s, Studio A 2.00 s, Studio B 2.07 s, Studio C 4.76 s, Hall 4.02 s, Space Echo 8.15 s,
+    Echo 11.87 s, Delay 0.74 s (a single repeat) and Pipe 3.94 s.
   - **Per channel:** `C2` turns a channel's reverb send on and `C3` turns it off (1,876 and 59 uses). Song 42
     turns it on for all 16 channels.
 - **`F4 a b` / `F5`: layer** (`0x80031D6C` / `0x80031E98`).

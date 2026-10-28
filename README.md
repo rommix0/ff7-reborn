@@ -61,6 +61,13 @@ In the player:
   the loop. Bars that share a pattern (shown as `×2` and so on) change together until **Own copy** splits one off.
 - **Saving:** Ctrl+S writes the `.ff7song` back.
 
+Record the game's nine SPU reverb types as impulse-response WAVs for a convolution reverb (24-bit stereo, 44.1 kHz;
+a centred one per type, plus left-in and right-in files for true stereo):
+
+```bash
+python tools/reverb_ir.py "assets/Final Fantasy VII (USA) (Disc 1)/SCUS_941.63"
+```
+
 Convert the instrument samples to WAV (with loop points) and a CSV of their settings:
 
 ```bash
