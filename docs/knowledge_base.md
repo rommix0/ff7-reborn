@@ -415,6 +415,8 @@ Read from `seq_step_channel`'s note and tie paths:
   - **`DB`:** glide off (`+0x6C` = 0). The look-ahead ends a glide there too.
 - **Commands:** none use `E8` (tempo). They use plenty of slurs, detune, bends, LFOs, envelope overrides, FM
   (755) and reverb sends (1,331 `C2`). There are 29 instruments, all in the boot bank.
+- **Reverb:** effects have none of their own. They send to the current song's reverb (1,331 `C2`s). The export gives
+  them the most common setting, Room at depth `0x2800`, and the player's Reverb switch turns it off.
 - **Our export:** `effects/effect_NNNN.ff7song`, which the player opens like songs
   (`python tools/ff7player.py assets/ff7song/effects`). All 721 render with sound. Half end within 3 s, and the
   longest one-shots (115–117) run 7,080 ticks (72 s).

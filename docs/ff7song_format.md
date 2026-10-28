@@ -55,7 +55,8 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
   jumps back to when it reaches `loop.end`. `loop` is `null` for songs that end.
 - **`effect`:** in place of `song`, a sound effect's id (0–1023, the id the game's play-effect commands take). An
   effect has one or two channels, runs at the effect channels' fixed tempo `0x66A8` (a `tempo` cell at tick 0),
-  and has `"reverb": null`: in the game it plays through whatever reverb the current song set up.
+  and Room reverb at depth `0x2800` (a `reverb_depth` cell at tick 0). In the game an effect plays through whatever
+  reverb the current song set up; Room at `0x2800` is the most common (45 songs use Room, 86 start at that depth).
 - **`bank`:** 1 for the instruments loaded at boot. With 2 (song 82), the second bank replaces slots 53 and up, and
   only its own instruments are left there, as when the game loads `INSTR2`.
 - **`reverb`:** the SPU reverb the song sets up (the header's mode), or `null` for none. `mode` is libspu's
