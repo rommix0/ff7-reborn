@@ -194,6 +194,17 @@ plain.pos = modulated.pos = 0.0
 s.render(37)
 assert abs(modulated.pos - plain.pos) > 0.5
 
+# Level and pan follow the driver: A8 x A3 x master 127/128 of SPU full scale, split by its linear pan tables.
+peaks = {}
+for pan in (0, 64, 127):
+    s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 127, "expression": 127, "pan": pan,
+                            "note": 72, "len": 192}]]))
+    peaks[pan] = np.abs(s.render(8000)[2000:]).max(axis=0)
+full = TONE.max() * 127 * 127 * 127 / 128 / 0x4000
+assert abs(peaks[0][0] / (full * 32640 / 32768) - 1) < 0.01 and abs(peaks[0][1] / peaks[0][0] - 128 / 32640) < 1e-3
+assert abs(peaks[64][0] / (full * 16256 / 32768) - 1) < 0.01 and abs(peaks[64][1] / peaks[64][0] - 16512 / 16256) < 1e-3
+assert abs(peaks[127][1] / (full * 32640 / 32768) - 1) < 0.01
+
 # Muted channels are silent; the stereo output is (frames, 2).
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 192}]]))
 s.muted = 1

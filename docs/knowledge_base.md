@@ -299,9 +299,19 @@ which is how its meaning was confirmed. No channel runs past 4,000 bars.
   (`+0x2C` = `0x78`).
 - **Voice volume.** Computed in `0x8002ED34`:
   - **Base:** (`A8` volume `<< 7`) × `A3` ÷ 128, plus a tremolo offset (`+0xD8`).
-  - **Master volume:** scaled by the global master volume `0x80062F5E` ÷ 128.
-  - **Stereo:** split into left/right through 256-entry pan tables at `0x80049C44`/`0x80049E44`, indexed by
-    `AA`'s pan plus a pan-LFO offset (`+0xDA`).
+  - **Master volume:** scaled by the global master volume `0x80062F5E` ÷ 128. It's `0x7F` at boot (`0x800294A4`
+    stores `0x7F0000` to `0x80062F5C`).
+  - **Output mode:** the word at `0x8009A104` (named `seq_song` in our symbols) picks how the volume is split. The
+    sound-setting functions at `0x8002C7E8`, `0x8002C81C` and `0x8002C850` set it to 1, 4 and 2, and boot sets 1.
+    - **1, stereo:** left = volume × `0x80049C44`[i] >> 15, right = volume × `0x80049E44`[i] >> 15.
+    - **4:** the same, but odd-numbered voices get their right side inverted (`~right`).
+    - **Anything else (mono):** both sides = volume × `0x80049CC4` (entry 64 of the left table, 16,256) >> 15.
+  - **Pan tables:** i = (`AA` pan + pan-LFO offset `+0xDA`) & 0xFF. Entries 0–127 are linear: left
+    32,640 − 256·i, right 128 + 256·i. The two always add up to 32,768, so the centre is −6 dB per side, not the
+    −3 dB of equal-power panning. Entries 128–255 hold unrelated data (signed squares). Only a pan LFO could reach
+    them, and simulating all four pan-LFO songs keeps i within 5–114.
+  - **On the SPU:** a volume register r plays at r ÷ `0x4000` of full scale (psx-spx). So a voice plays at
+    `A8` × `A3` × 127/128 ÷ 16,384 × the pan table entry ÷ 32,768.
 - **`A3 n`:** the multiplier above. In songs, 1,317 of 2,108 uses are 127, and the rest go as low as 10.
 - **`A9 n v` / `AB n p`:** slide volume or pan to `v`/`p` over `n` ticks (0 = 256). The per-tick step sits at
   `+0x48`/`+0xCA` and the counter at `+0x5C`/`+0x62`. `A8`/`AA` cancel a running slide. 266 of the slides fade in
@@ -376,9 +386,12 @@ the XM's compromises with the driver's own behaviour.
 - **Other driver features:** the layered second instrument with its balance (`F4`–`F7`), the pan LFO (`BC`/`BD`),
   LFO depth slides (`DD`/`DE`), and FM (`C6`/`C7`).
 - **Reverb:** SPU reverb with the song's preset, depth and sends (see "Reverb").
-- **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
-  tables at `0x80049C44`/`0x80049E44` aren't read yet), and voice volume taken as volume × expression ÷ 127² ×
-  ½.
+- **Volume and pan:** the driver's own (see "Voice volume"): stereo mode, the master volume at boot, linear pan
+  tables. Boot sets the SPU main volume to `0x3FFF` (full scale, in the common attributes at `0x8009C578`), so the
+  console clips a loud mix just as the player does: 10 of 98 songs touch full scale in their first 15 s, at most
+  0.031% of samples (song 92). Before this, the player used equal-power panning and half the level, so songs now
+  play 2.7 dB louder at the centre and 5.8 dB louder panned hard.
+- **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian).
 
 ### LFOs: vibrato, tremolo, pan
 

@@ -79,8 +79,8 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 | `reverb` | `true` (`C2`): the channel's voices feed the reverb; `false` (`C3`) stops it. Off at song start |
 | `reverb_depth` | `EA`: the reverb's output volume for the whole song, signed 16-bit, `0x8000` = −1 (most songs use `0x2800`). 0 at song start |
 | `ar`, `dr`, `sl`, `sr`, `rr` | The channel's own attack rate, decay rate, sustain level, sustain rate, release rate (`AD`, `AE`, `AF`, `B1`, `B2`; the same values as the bank's ADSR bytes), until the next `inst`. They reach a voice that is already sounding |
-| `volume`, `expression` | `A8` volume and `A3` multiplier, 0–127; the voice plays at volume × expression ÷ 127² of full scale. Slides arrive as one value per tick |
-| `pan` | 0–127, 64 = centre |
+| `volume`, `expression` | `A8` volume and `A3` multiplier, 0–127; the voice plays at volume × expression × 127/128 (the driver's master volume) ÷ 16,384 of full scale. Slides arrive as one value per tick |
+| `pan` | 0–127, 64 = centre. Linear, like the driver's tables: left (32,640 − 256 × pan) ÷ 32,768, right (128 + 256 × pan) ÷ 32,768 |
 | `tempo` | New tempo for the whole song |
 | `detune` | Scales the pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0) |
 | `bend` | `[ticks, semitones]`: from this tick, slide linearly in frequency to `semitones` above the held note |
@@ -90,4 +90,4 @@ LFO details (waveform shapes, depth scaling) are in `knowledge_base.md`, "LFOs: 
 
 ## Not carried yet
 
-The SPU's own interpolation and pan law (the player uses linear interpolation and equal-power panning).
+The SPU's own interpolation (the player uses linear interpolation).

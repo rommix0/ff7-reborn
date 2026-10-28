@@ -17,6 +17,7 @@ from xm import lfo_wave
 
 SPU_HZ = 44100
 REVERB_HZ = SPU_HZ / 2  # the SPU runs its reverb on every other sample
+MASTER_VOLUME = 127 / 128  # the driver's master volume at boot (0x80062F5E = 0x7F)
 ATTACK, DECAY, SUSTAIN, RELEASE, OFF = range(5)
 
 
@@ -513,18 +514,22 @@ class Synth:
                     outputs[c] = sample * env
                 if self.muted >> c & 1:
                     continue
-                gain = ch.volume * ch.expression / (127 * 127) * 0.5
+                # The driver's voice volume, A8 x A3 x master 127/128, as SPU volume (0x4000 = full scale).
+                gain = ch.volume * ch.expression * MASTER_VOLUME / 0x4000
                 if ch.layer_inst is not None:  # F4: the balance splits the note between main and layer voice
                     gain *= (ch.balance if v is ch.layer_voice else 127 - ch.balance) / 256
                 if v.tremolo:
                     gain *= max(0.0, 1 + v.tremolo.depth / 128 * v.tremolo.value / 32768)
-                angle = min(127, max(0, ch.pan + self.pan_offset(source))) / 127 * math.pi / 2
+                # The driver's pan tables (stereo mode): linear, so each side is -6 dB at the centre. It indexes
+                # them with (pan + pan LFO) & 0xFF and other data follows entry 127, but no song gets past it.
+                pan = min(127, max(0, ch.pan + self.pan_offset(source)))
+                left, right = (32640 - 256 * pan) / 32768, (128 + 256 * pan) / 32768
                 voiced = sample * env * gain
-                out[:, 0] += voiced * math.cos(angle)
-                out[:, 1] += voiced * math.sin(angle)
+                out[:, 0] += voiced * left
+                out[:, 1] += voiced * right
                 if send is not None and ch.reverb:
-                    send[:, 0] += voiced * math.cos(angle)
-                    send[:, 1] += voiced * math.sin(angle)
+                    send[:, 0] += voiced * left
+                    send[:, 1] += voiced * right
 
     def render(self, frames: int) -> np.ndarray:
         """The next `frames` stereo samples, (frames, 2) float32."""
