@@ -370,8 +370,8 @@ Read from `seq_step_channel`'s note and tie paths:
   channels, as offsets from `0x1000` (`0xFFFF` = none). That gives 721 effects: 702 with two channels and 19 with
   one, the 1,423 streams. 90 loop forever (ambient sounds).
 - **Playing one:** the sound commands around `0x20`–`0x34` (we read the handlers at `0x8002B6AC` and
-  `0x8002B8B4`) look up the id and hand both streams to `func_8002A094`. It sets up a pair of effect channels (`0x80096608` + slot × `0x108`): the
-  pan from the command, and flag `+0x54` = 1.
+  `0x8002B8B4`) look up the id and hand both streams to `func_8002A094`. It sets up a pair of effect channels
+  (`0x80096608` + slot × `0x108`): the pan from the command, and flag `+0x54` = 1.
 - **Flag `+0x54`:** `B4`/`B8` (vibrato/tremolo on) take no delay, and a non-zero first byte becomes the depth
   instead.
 - **Tempo:** effect channels tick on their own accumulator (`0x80099FE8`), at tempo `0x66A8` (`0x80099FE0`, set
