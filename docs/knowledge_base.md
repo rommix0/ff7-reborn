@@ -119,7 +119,7 @@ Commands read so far:
 
 Argument lengths come from how far each handler moves the read pointer, then were confirmed by
 `tools/akao.py check`. **All 98 distinct songs (1,340 channels) and all 1,423 sound-effect streams on the three
-discs parse cleanly** with this table. No unused command is hit, and 96% of streams end exactly where the next one
+discs parse cleanly** with this table. No unused command is hit, and about 95% of streams end exactly where the next one
 starts:
 
 | Args | Commands |
