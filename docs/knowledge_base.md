@@ -258,15 +258,19 @@ Read from `seq_step_channel`'s note and tie paths:
 
 ### Our song format and player
 
-`tools/ff7song.py` and `player/` (spec: [`ff7song_format.md`](ff7song_format.md)) replace the XM's compromises with
-the driver's own behaviour.
+`tools/ff7song.py` and the player/editor `tools/ff7player.py` (spec: [`ff7song_format.md`](ff7song_format.md)) replace
+the XM's compromises with the driver's own behaviour.
 - **Patterns are bars**, so any `FD` time signature works. Identical bars share a pattern: 81 of 98 songs reuse
   some. The 98 songs come to 9.8 MB of JSON plus a 1.7 MB bank (93 instruments).
 - **Events sit at exact ticks**, and effects keep the driver's parameters. Notes keep their full length across the
   loop end, as the driver holds them.
-- **The player runs the driver's timing:** 243.86 Hz interrupts, the tempo accumulator, per-tick note lengths,
-  bends and LFO delays, per-interrupt LFO steps, and the SPU ADSR at 44.1 kHz. In Node it renders about 50× faster
-  than real time.
+- **The player runs the driver's timing** (`tools/akao_synth.py`):
+  - 243.86 Hz interrupts and the tempo accumulator.
+  - Per tick: note lengths, bends and LFO delays.
+  - Per interrupt: LFO steps.
+  - The SPU ADSR at 44.1 kHz, worked out per stretch between interrupts.
+  - **Speed and output:** numpy mixes 8–12× faster than real time. The output matches the earlier browser version
+    (commit 72514b8, the one checked by ear) to within 0.01 in peak and RMS.
 - **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
   tables at `0x80049C44`/`0x80049E44` aren't read yet), and voice volume taken as volume × expression ÷ 127² ×
   ½. There's no reverb, pan LFO, LFO depth slide or noise waveform.

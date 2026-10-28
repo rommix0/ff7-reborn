@@ -65,14 +65,11 @@ def main():
     source, sound_dir, out = map(Path, sys.argv[1:])
     out.mkdir(parents=True, exist_ok=True)
     write_bank(load_bank_instruments(sound_dir), out / "instruments.ff7bank")
-    names = []
-    for name, _, block in akao.named_songs(source):
+    songs = akao.named_songs(source)
+    for name, _, block in songs:
         (out / f"{name}.ff7song").write_text(json.dumps(song_to_ff7song(block), separators=(",", ":")),
                                              encoding="utf-8")
-        names.append(f"{name}.ff7song")
-    (out / "index.json").write_text(json.dumps({"bank": "instruments.ff7bank", "songs": names}, indent=1),
-                                    encoding="utf-8")
-    print(f"{len(names)} songs and instruments.ff7bank -> {out}")
+    print(f"{len(songs)} songs and instruments.ff7bank -> {out}")
 
 
 if __name__ == "__main__":

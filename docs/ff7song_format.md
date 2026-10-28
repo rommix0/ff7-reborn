@@ -1,12 +1,12 @@
 # FF7 song and instrument bank formats
 
-Our own tracker format for the PS1 game's music, written by `tools/ff7song.py` and played by `player/index.html`.
+Our own tracker format for the PS1 game's music, written by `tools/ff7song.py` and played and edited by `tools/ff7player.py`.
 It keeps what XM couldn't: bars of any time signature, events at exact AKAO ticks, and the driver's own effect
 parameters (the player emulates the driver rather than translating effects). Songs hold no samples; they name
 instrument slots in one shared bank file.
 
-`python tools/ff7song.py <file|assets dir> <SOUND dir> <out dir>` writes `instruments.ff7bank`, one
-`song_NNN.ff7song` per song and an `index.json` listing the songs.
+`python tools/ff7song.py <file|assets dir> <SOUND dir> <out dir>` writes `instruments.ff7bank` and one
+`song_NNN.ff7song` per song.
 
 ## Instrument bank (`instruments.ff7bank`, binary, little-endian)
 
