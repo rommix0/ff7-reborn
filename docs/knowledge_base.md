@@ -452,6 +452,15 @@ Read from `seq_step_channel`'s note and tie paths:
     - The game sets both scales with sound commands (`func_8002BCCC` sets a pair's volume, `func_8002C2CC` the
       pitch scale), not from the effect data. At boot they're `0x7F00` and 0 (`0x800294A4`'s loop over the effect
       channels), which is what the player plays: 127/128 and no change.
+  - **Their own per-tick update** (`func_8002E954`, where songs run `seq_channel_slides`):
+    - It keeps the volume slide, the noise and FM countdowns (`+0xA4`/`+0xA6`), bends and LFO depth slides.
+    - It has no pan slide (`+0x60`/`+0x62`), so `AB` does nothing on an effect (effects 112, 113, 117; the
+      export now leaves their pan alone).
+    - It has no LFO delay countdown, which effects never need since `B4`/`B8` start them with no delay, and no
+      layer balance slide.
+  - **Effect 270** was checked step by step against all of the above and against FM in psx-spx and Mednafen. Its
+    commands come out as the driver plays them: a 58-semitone swoop and a +16 bend on the modulator, a 1-tick blip
+    then a long note with a square vibrato on the FM voice, and their envelopes.
   - **Set by the game at play time, not by the effect:**
     - the pan (the play command's argument; the player uses the centre);
     - the volume and pitch scales above;

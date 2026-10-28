@@ -448,6 +448,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 set_level("volume", args[0] & 0x7F)
             case 0xAA:
                 set_level("pan", args[0] & 0x7F)
+            case 0xAB if effect:  # effect channels' per-tick update (func_8002E954) never moves the pan
+                pass
             case 0xA9 | 0xAB:  # slide volume / pan to a target over n ticks (0 = 256)
                 kind = "volume" if b == 0xA9 else "pan"
                 target = (args[1] - 256 if args[1] & 0x80 else args[1]) if b == 0xA9 else args[1]

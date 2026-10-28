@@ -170,6 +170,9 @@ assert at(events, "dr") == [(48, 5)] and at(events, "sl") == [(48, 6)] and at(ev
 assert at(events, "adsr_reset") == [(48, True)] and at(events, "pitch_follow") == [(48, True), (48, False), (48, False)]
 assert at(events, "volume_follow") == [(48, False)]  # CB clears D6 too
 assert at(events, "fm") == [(48, False), (48, True), (51, False)] and at(events, "reverb") == [(48, False)]
+# AB on an effect channel does nothing: the effect channels' per-tick update has no pan slide.
+assert [e for e in play_channel(one_channel(bytes([0xAB, 0x04, 0x00, 0x02, 0xA0])), 0x16, effect=True)[0]
+        if e[1] == "pan"] == []
 events, *_ = play_channel(one_channel(bytes([0xD6, 0x02, 0xD7, 0xA0])), 0x16, effect=True)
 assert at(events, "volume_follow") == [(0, True), (48, False)]
 # A4 n s: the pending bend starts on the next note as well as the next tie (both run the same code), then is spent.
