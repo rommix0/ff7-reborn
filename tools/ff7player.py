@@ -18,7 +18,8 @@ from tkinter import messagebox, simpledialog, ttk
 
 NOTE_NAMES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
 LIST_FIELDS = {"bend": 2, "vibrato": 4, "tremolo": 4}  # fields that hold several numbers
-FIELDS = ["note", "len", "inst", "volume", "expression", "pan", "detune", "tempo", "bend", "vibrato", "tremolo"]
+FIELDS = ["note", "len", "slur", "inst", "volume", "expression", "pan", "detune", "tempo", "bend", "vibrato", "tremolo",
+          "ar", "dr", "sl", "sr", "rr"]
 
 
 def note_name(key: int) -> str:
@@ -41,8 +42,9 @@ def bpm(tempo: int, timer_hz: float, ticks_per_quarter: int) -> int:
 
 
 def cell_text(f: dict, timer_hz: float, ticks_per_quarter: int) -> str:
-    parts = [note_name(f["note"])] if "note" in f else []
-    for name, letter in (("inst", "i"), ("volume", "v"), ("expression", "x"), ("pan", "p"), ("detune", "d")):
+    parts = [("~" if f.get("slur") else "") + note_name(f["note"])] if "note" in f else []
+    for name, letter in (("inst", "i"), ("volume", "v"), ("expression", "x"), ("pan", "p"), ("detune", "d"),
+                         ("ar", "ar"), ("dr", "dr"), ("sl", "sl"), ("sr", "sr"), ("rr", "rr")):
         if name in f:
             parts.append(f"{letter}{f[name]}")
     if "bend" in f:
@@ -138,7 +140,7 @@ class PlayerWindow:
         from akao_synth import SPU_HZ, Synth, read_bank
 
         self.root, self.folder = root, folder
-        self.synth = Synth(read_bank(folder / "instruments.ff7bank"))
+        self.synth = Synth(*read_bank(folder / "instruments.ff7bank"))
         self.paths = sorted(folder.glob("*.ff7song"))
         self.song, self.path, self.dirty = None, None, False
         self.shown_bar, self.row_ticks, self.selected = -1, [], None
@@ -463,12 +465,12 @@ class CellDialog:
             ttk.Label(top, text=name).grid(row=r, column=0, sticky="e", padx=6, pady=2)
             entry = ttk.Entry(top, width=24)
             if value is not None:
-                text = note_name(value) if name == "note" else ", ".join(map(str, value)) if isinstance(value, list) \
-                    else str(value)
+                text = "1" if name == "slur" else note_name(value) if name == "note" else \
+                    ", ".join(map(str, value)) if isinstance(value, list) else str(value)
                 entry.insert(0, text)
             entry.grid(row=r, column=1, padx=6, pady=2)
             self.entries[name] = entry
-        hint = "note: C-4 / C#4 · len: ticks, or hold · bend: ticks, semitones · vibrato/tremolo: delay, rate, waveform, depth"
+        hint = "note: C-4 / C#4 · len: ticks, or hold · slur: 1 = no restart · ar…rr: envelope · bend: ticks, semitones · vibrato/tremolo: delay, rate, waveform, depth"
         ttk.Label(top, text=hint, foreground="#666").grid(row=len(rows), column=0, columnspan=2, padx=6)
         buttons = ttk.Frame(top)
         buttons.grid(row=len(rows) + 1, column=0, columnspan=2, pady=6)
@@ -493,6 +495,9 @@ class CellDialog:
                     fields[name] = parse_note(text)
                 elif name == "len" and text.lower() == "hold":
                     fields[name] = None
+                elif name == "slur":
+                    if int(text):
+                        fields[name] = True
                 elif name in LIST_FIELDS:
                     values = [int(v) for v in text.replace(",", " ").split()]
                     if len(values) != LIST_FIELDS[name]:
@@ -500,8 +505,8 @@ class CellDialog:
                     fields[name] = values
                 else:
                     fields[name] = int(text)
-            if ("note" in fields) != ("len" in fields):
-                raise ValueError("a note needs a len (ticks), and len only goes with a note")
+            if ("note" in fields) != ("len" in fields) or "slur" in fields and "note" not in fields:
+                raise ValueError("a note needs a len (ticks), and len and slur only go with a note")
         except ValueError as error:
             messagebox.showerror("Cell", str(error), parent=self.top)
             return

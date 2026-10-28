@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 import akao
-from instruments import BANKS, decode_adpcm
+from instruments import BANK2_SONGS, BANKS, decode_adpcm
 
 AKAO_PER_XM = 2    # AKAO ticks per XM tick
 BAR_TICKS = 192    # AKAO ticks in a bar of 4/4; patterns hold two
@@ -36,13 +36,15 @@ def bpm(tempo: int) -> int:
     return max(32, min(255, round(akao.DRIVER_HZ * tempo / 65536 * 60 / akao.TICKS_PER_QUARTER)))
 
 
-def load_bank_instruments(sound_dir: Path) -> dict:
+def load_bank_instruments(sound_dir: Path, bank2: bool = False) -> dict:
     """slot -> (samples, loop_start or None, pitches of C..B at octave 6, ADSR bytes +0x08..+0x0F).
 
-    Bank 1 wins where both banks define a slot.
+    Bank 1 as loaded at boot; with `bank2`, INSTR2 then replaces slots 53 and up as load_instrument_bank2 does,
+    which leaves only its own instruments there.
     """
     slots = {}
-    for all_name, dat_name, first_slot, count in reversed(BANKS):
+    for all_name, dat_name, first_slot, count in BANKS if bank2 else BANKS[:1]:
+        slots = {slot: v for slot, v in slots.items() if slot < first_slot}
         samples_file = (sound_dir / all_name).read_bytes()
         table = (sound_dir / dat_name).read_bytes()
         base, length = struct.unpack_from("<II", samples_file)
@@ -257,6 +259,7 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections
     first_tempo = None
     for ch, events in enumerate(channels):
         inst, volume, expression, detune = 0, 100, 120, 0
+        key_offs = []
         timeline = sorted(events, key=lambda e: e[0])
         for i, (tick, kind, *rest) in enumerate(timeline):
             if kind == "note":
@@ -277,7 +280,7 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections
                 # Release only if the next note doesn't start right away (a new note retriggers anyway).
                 nxt = next((e[0] for e in timeline[i + 1:] if e[1] == "note"), None)
                 if nxt is None or nxt > tick + length:
-                    put(tick + length, ch, note=KEY_OFF)
+                    key_offs.append(tick + length)
             elif kind == "program":
                 inst = inst_no.get(rest[0], 0)
             elif kind in ("volume", "expression"):
@@ -305,6 +308,17 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections
             elif kind == "tempo" and rest[0]:
                 first_tempo = first_tempo or bpm(rest[0])
                 put(tick, n_chan - 1, fx=0x0F, param=bpm(rest[0]))
+
+        # Key-offs after the channel's other events: the driver keys off 2 ticks before the next note, which often
+        # needs a note delay, and that shouldn't take the effect column from a bend. Where a note already starts in
+        # the row it retriggers anyway; where the effect column is taken, key off at the row's start.
+        for off in key_offs:
+            row, delay = divmod(round(off / AKAO_PER_XM), speed)
+            if row >= rows_total or (cells[row][ch] or [0])[0]:
+                continue
+            if delay and (cells[row][ch] or [0, 0, 0, 0])[3]:
+                delay = 0
+            put(row * row_ticks + delay * AKAO_PER_XM, ch, note=KEY_OFF)
 
         # LFOs go last, into cells nothing else wanted: a pitch step whose effect column is taken is made up on the
         # next free row. The driver steps its LFOs on every timer interrupt and restarts them with each note; a row
@@ -405,10 +419,11 @@ def main():
         return
     source, sound_dir, out = map(Path, sys.argv[1:])
     out.mkdir(parents=True, exist_ok=True)
-    bank = load_bank_instruments(sound_dir)
+    banks = {1: load_bank_instruments(sound_dir), 2: load_bank_instruments(sound_dir, bank2=True)}
     songs, total_dropped = akao.named_songs(source), collections.Counter()
     for name, _, block in songs:
-        xm, dropped = song_to_xm(block, bank, name)
+        song_id = struct.unpack_from("<H", block, 4)[0]
+        xm, dropped = song_to_xm(block, banks[2 if song_id in BANK2_SONGS else 1], name)
         total_dropped += dropped
         (out / f"{name}.xm").write_bytes(xm)
     print(f"{len(songs)} songs -> {out}; dropped where two landed in one cell: {dict(total_dropped) or 'nothing'}")

@@ -189,12 +189,46 @@ def dump(path: Path, index: int):
 MAX_TICKS = 192 * 4000  # 4000 bars: far past any song; reaching it means a loop was misread
 
 
+def look_ahead(block: bytes, pos: int, loops: list) -> tuple[int, bool]:
+    """The driver's scan from just after a note (func_800318BC): the next note, tie or rest byte (0xA0 if the
+    channel stops first), and whether a slur or full-length mode ends on the way. Loops and jumps are followed; a
+    rest, CB CD D1 DB, or anything that stops the channel ends the mode."""
+    ends, level = False, len(loops) - 1
+    for _ in range(1000):  # a loop with no note in it would spin forever, in the driver too
+        b = block[pos]
+        if b < 0xA0:
+            return b, ends or 0x8F <= b < 0x9A
+        if b in (0xCB, 0xCD, 0xD1, 0xDB):
+            ends = True
+        elif b == 0xC9 and level >= 0 and loops[level][1] + 1 != block[pos + 1]:
+            pos = loops[level][0]  # the repeat goes round again
+            continue
+        elif b == 0xC9:
+            level -= 1
+        elif b == 0xCA and level >= 0:
+            pos = loops[level][0]
+            continue
+        elif b == 0xF0 and level >= 0 and loops[level][1] + 1 == (block[pos + 1] or 256):
+            pos += 4 + struct.unpack_from("<h", block, pos + 2)[0]
+            level -= 1
+            continue
+        elif b == 0xEE:
+            pos += 3 + struct.unpack_from("<h", block, pos + 1)[0]
+            continue
+        elif b == 0xA0 or b not in ARGS or b in (0xEF, 0xF1):
+            return 0xA0, True
+        pos += 1 + ARGS[b]
+    return 0xA0, True
+
+
 def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: int | None = None):
     """Follow one channel like the driver does, once through. Returns (events, loop_start_tick, end_tick).
 
-    Events are [tick, kind, ...]: ("note", key, ticks), ("program", n), ("volume", n), ("expression", n),
+    Events are [tick, kind, ...]: ("note", key, ticks until key-off), ("slur",) just before a note that takes over
+    the sounding voice instead of restarting it, ("program", n), ("volume", n), ("expression", n),
     ("pan", n), ("tempo", t), ("detune", d), ("bend", ticks, semitones), ("vibrato" / "tremolo", delay, rate,
-    waveform, depth), ("meter", ticks per beat, beats per bar). Volume and pan slides become one event per tick that changes the value. Detune d scales the
+    waveform, depth), ("meter", ticks per beat, beats per bar), and the channel's own envelope settings ("ar", "dr",
+    "sl", "sr", "rr", n) until the next program change. Volume and pan slides become one event per tick that changes the value. Detune d scales the
     pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0); a bend slides the pitch linearly in frequency from the held
     note to `semitones` above it. An LFO event gives the settings from then on, depth 0 while it is off.
     Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
@@ -208,6 +242,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     drum_map = None
     transpose, detune, bend = 0, 0, None
     lfos = {"vibrato": [0, 1, 0, False, 0], "tremolo": [0, 1, 0, False, 0]}  # delay, rate, waveform, on, depth
+    # The driver's note mode (+0x6E): bit 0 slur (CC), bit 1 "this note slurs from the last", bit 2 full length (D0).
+    mode, cut = 0, 0
     loops = []  # [loop start pos, pass count]; the driver keeps 4 levels
     first_seen, last_note = {}, None
     events = [[0, "program", 5], [0, "volume", 100], [0, "expression", 120]]
@@ -241,6 +277,13 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
             last_len = fixed_len or next_len or NOTE_TICKS[b % 11]
             next_len = 0
             semitone = b // 11
+            following, ends = look_ahead(block, pos + 1, loops)
+            if ends:
+                mode &= ~5
+            # Key-off comes 2 ticks before the next event, unless a tie follows or slur/full-length mode is on.
+            early = 2 if last_len > 2 and not 0x84 <= following < 0x8F and not mode & 5 else 0
+            if semitone < 12 and mode & 2:
+                events.append([tick, "slur"])
             if semitone < 12 and drum_map is not None:
                 # Drum kit: the semitone picks a 5-byte entry (instrument, key, u16 volume, pan) that also sets
                 # the channel's volume and pan, as the driver writes them into the channel.
@@ -248,16 +291,19 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "program", inst & 0x7F])
                 set_level("volume", min(127, (vol_lo | vol_hi << 8) >> 7))
                 set_level("pan", pan & 0x7F)
-                last_note = [tick, "note", min(127, key + 12), last_len]
+                last_note = [tick, "note", min(127, key + 12), last_len - early]
                 events.append(last_note)
             elif semitone < 12:
-                last_note = [tick, "note", max(0, min(127, 12 * (octave + 1) + semitone + transpose)), last_len]
+                last_note = [tick, "note", max(0, min(127, 12 * (octave + 1) + semitone + transpose)),
+                             last_len - early]
                 events.append(last_note)
             elif semitone == 12 and last_note:
-                last_note[3] += last_len  # tie
+                last_note[3] += cut + last_len - early  # tie: the last segment's early key-off didn't happen
                 if bend:  # a pending A4 bend starts on the tie, then is spent
                     events.append([tick, "bend", *bend])
                     bend = None
+            cut = early
+            mode = mode & ~2 | (mode & 1) << 1 if semitone <= 12 else mode & ~2
             advance(last_len)
             pos += 1
             continue
@@ -294,6 +340,12 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, kind, delay, rate, wave, depth if on else 0])
             case 0xFD:  # time signature; the driver restarts its beat and bar counting here
                 events.append([tick, "meter", args[0], args[1]])
+            case 0xAD | 0xAE | 0xAF | 0xB1 | 0xB2:  # the channel's own envelope, until the next program change
+                events.append([tick, {0xAD: "ar", 0xAE: "dr", 0xAF: "sl", 0xB1: "sr", 0xB2: "rr"}[b], args[0]])
+            case 0xCC:  # slur on; the look-ahead turns it off at a CD
+                mode = 1
+            case 0xD0:  # full-length notes; the look-ahead turns it off at a D1
+                mode = 4
             case 0xA3:  # multiplier on the channel volume: voice volume = A8 volume * A3 / 128
                 events.append([tick, "expression", args[0]])
             case 0xDC:  # fixed length = last length + signed delta, 0 turns it off

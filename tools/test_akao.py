@@ -29,8 +29,9 @@ song = b"AKAO" + struct.pack("<HHH", 7, 6 + len(seq), 0) + bytes(6) + struct.pac
 events, loop_tick, end = play_channel(song, 0x16)
 notes = [(t, key, length) for t, kind, *rest in events if kind == "note" for key, length in [rest]]
 # Passes 1-2: note + rest (96 ticks each); pass 3: note then F0 jumps over the rest to C9, which ends the repeat.
-assert notes[:3] == [(0, 36, 48), (96, 36, 48), (192, 36, 48)]  # no A5: driver default octave 2
-assert notes[3] == (240, 37, 96 + 48)  # C# half note tied to a quarter
+# Lengths count to key-off, 2 ticks before the next event (see "Articulation" below).
+assert notes[:3] == [(0, 36, 46), (96, 36, 46), (192, 36, 46)]  # no A5: driver default octave 2
+assert notes[3] == (240, 37, 96 + 48 - 2)  # C# half note tied to a quarter
 assert (loop_tick, end) == (240, 384)
 assert [e for e in events if e[1] == "tempo"] == [[0, "tempo", 0x4000]]
 midi, loop_lengths, runaway = song_to_midi(song)
@@ -49,7 +50,7 @@ def at(events, kind):
 # Channel defaults from the driver's channel reset: instrument 5, octave 2, volume 100, A3 multiplier 120.
 events, *_ = play_channel(one_channel(bytes([0x02, 0xA0])), 0x16)
 assert at(events, "program") == [(0, 5)] and at(events, "volume") == [(0, 100)]
-assert at(events, "expression") == [(0, 120)] and at(events, "note") == [(0, 36, 48)]
+assert at(events, "expression") == [(0, 120)] and at(events, "note") == [(0, 36, 46)]
 
 # Drum-kit mode: EC points at 5-byte entries per semitone (instrument, key, u16 volume, pan); ED switches it off.
 #   0 EC +4 -> map at 7 | 3 note semitone 1 (0x0B), quarter: 0x0B + 2 = 0x0D | 4 ED | 5 note C | 6 A0 | 7 map
@@ -57,7 +58,7 @@ drum_map = bytes([0, 0, 0, 0, 0]) + bytes([9, 60, 0x80, 0x3F, 32])  # semitone 1
 events, *_ = play_channel(one_channel(bytes([0xEC, 0x04, 0x00, 0x0D, 0xED, 0x02, 0xA0]) + drum_map), 0x16)
 assert at(events, "program") == [(0, 5), (0, 9)]
 assert at(events, "volume")[-1] == (0, 127) and at(events, "pan") == [(0, 32)]
-assert at(events, "note")[0] == (0, 72, 48)  # drum key 60 is octave 5 C: one octave up like A5's numbering
+assert at(events, "note")[0] == (0, 72, 46)  # drum key 60 is octave 5 C: one octave up like A5's numbering
 
 # A9 n v slides the volume to v over n ticks; A3 n sets the multiplier.
 events, *_ = play_channel(one_channel(bytes([0xA3, 0x40, 0xA8, 0x00, 0xA9, 0x04, 0x40, 0x02, 0xA0])), 0x16)
@@ -74,7 +75,7 @@ two = b"AKAO" + struct.pack("<HHH", 9, 8 + len(ch0) + len(ch1), 0) + bytes(6) + 
 channels, loop_start, loop_end, loop_lengths, runaway = play_song(two)
 assert (loop_start, loop_end, loop_lengths, runaway) == (48, 144, [96, 96], False)
 assert [e[0] for e in channels[0] if e[1] == "note"] == [0, 96]  # second pass of channel 0's loop
-assert [(e[0], e[3]) for e in channels[1] if e[1] == "note"] == [(0, 48), (48, 96)]
+assert [(e[0], e[3]) for e in channels[1] if e[1] == "note"] == [(0, 46), (48, 94)]
 # With a time signature the loop moves to the next bar line: channel 0 sets 2/4 (96-tick bars), so the loop that
 # could start at tick 48 starts at 96 instead, and runs one period (96 ticks) from there.
 ch0 = bytes([0xFD, 0x30, 0x02, 0x01, 0xEE, 0xFC, 0xFF])  # 2/4, note C half, EE -4: back to the note
@@ -82,7 +83,7 @@ table = struct.pack("<IHH", 0b11, 2, len(ch0))
 two = b"AKAO" + struct.pack("<HHH", 9, 8 + len(ch0) + len(ch1), 0) + bytes(6) + table + ch0 + ch1
 channels, loop_start, loop_end, loop_lengths, runaway = play_song(two)
 assert (loop_start, loop_end) == (96, 192)
-assert [(e[0], e[3]) for e in channels[1] if e[1] == "note"] == [(0, 48), (48, 96), (144, 48)]
+assert [(e[0], e[3]) for e in channels[1] if e[1] == "note"] == [(0, 46), (48, 94), (144, 48)]  # cut at 192
 assert bar_lines([(0, 192), (2, 144), (146, 120)], 400) == [0, 2, 146, 266, 386]  # FD restarts the bar count
 
 # Pitch: C0 transposes keys, D8 sets detune, and A4 n s bends by s semitones over n ticks, starting at the next
@@ -91,7 +92,7 @@ events, *_ = play_channel(one_channel(bytes([
     0xC0, 0x02, 0xD8, 0xFE, 0xA2, 0x02, 0x02,  # transpose +2, detune -2, note C with length 2
     0xA4, 0x04, 0x01, 0xA2, 0x0A, 0x86,        # bend +1 semitone over 4 ticks, tie for 10 ticks
     0xA2, 0x0A, 0x86, 0xA0])), 0x16)           # a second tie: the bend was one-shot
-assert at(events, "note") == [(0, 38, 22)]  # C of octave 2 (36) + 2; 2 + 10 + 10 ticks
+assert at(events, "note") == [(0, 38, 20)]  # C of octave 2 (36) + 2; 2 + 10 + 10 ticks, last key-off 2 early
 assert at(events, "detune") == [(0, -2)] and at(events, "bend") == [(2, 4, 1)]
 
 # LFOs: B4 delay rate waveform turns vibrato on, B5 sets its depth, B6 turns it off but keeps the depth; B8/B9/BA
@@ -104,4 +105,28 @@ assert at(events, "tremolo") == [(48, 0, 3, 5, 0), (48, 0, 3, 5, 0x78)]
 # FD t n: time signature, n beats of t ticks; the driver restarts its beat count there, so it marks a bar line.
 events, *_ = play_channel(one_channel(bytes([0xFD, 0x18, 0x06, 0x01, 0xFD, 0x18, 0x05, 0xA0])), 0x16)
 assert at(events, "meter") == [(0, 24, 6), (96, 24, 5)]
+# Articulation, as seq_step_channel sets each note's key-off countdown. The length table holds (key-off << 8 |
+# length); a normal note keys off 2 ticks early. Notes before a tie, in CC slur mode or in D0 mode are held to the end.
+events, *_ = play_channel(one_channel(bytes([0x02, 0x02, 0xA0])), 0x16)
+assert at(events, "note") == [(0, 36, 46), (48, 36, 46)]
+events, *_ = play_channel(one_channel(bytes([0x02, 0x86, 0xA0])), 0x16)
+assert at(events, "note") == [(0, 36, 94)]  # the tie segment keys off early, the first one doesn't
+# CC slurs: n1 is held into n2, which takes over the sounding voice without restarting it. The driver ends the slur
+# by looking ahead from each note: a CD (or a rest) before the next note clears it, so n2 keys off early and n3
+# starts fresh. D0 holds notes to full length the same way, without slurring; D1 ends it.
+events, *_ = play_channel(one_channel(bytes([0xCC, 0x02, 0x02, 0xCD, 0x02, 0xA0])), 0x16)
+assert at(events, "note") == [(0, 36, 48), (48, 36, 46), (96, 36, 46)] and at(events, "slur") == [(48,)]
+events, *_ = play_channel(one_channel(bytes([0xD0, 0x02, 0x02, 0xD1, 0x02, 0xA0])), 0x16)
+assert at(events, "note") == [(0, 36, 48), (48, 36, 46), (96, 36, 46)] and at(events, "slur") == []
+# A rest ends a slur too, and the look-ahead follows loops: here the EE jump lands on a note, so n1 is held.
+events, *_ = play_channel(one_channel(bytes([0xCC, 0x02, 0x8F, 0x02, 0xA0])), 0x16)
+assert at(events, "note")[0] == (0, 36, 46) and at(events, "slur") == []
+events, *_ = play_channel(one_channel(bytes([0xD0, 0x02, 0xEE, 0xFC, 0xFF])), 0x16)
+assert at(events, "note")[0] == (0, 36, 48)
+
+# AD AE AF B1 B2 override the channel's attack rate, decay rate, sustain level, sustain rate and release rate.
+events, *_ = play_channel(one_channel(bytes([0xA1, 0x03, 0xAD, 0x28, 0xAE, 0x0E, 0xAF, 0x05, 0xB1, 0x40, 0xB2, 0x12,
+                                             0x02, 0xA0])), 0x16)
+assert [(e[1], e[2]) for e in events if e[1] in ("ar", "dr", "sl", "sr", "rr")] == [
+    ("ar", 0x28), ("dr", 0x0E), ("sl", 0x05), ("sr", 0x40), ("rr", 0x12)]
 print("ok")

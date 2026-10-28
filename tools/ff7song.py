@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import akao
+from instruments import BANK2_SONGS
 from xm import load_bank_instruments
 
 DEFAULT_METER = (48, 4)  # 4/4 until the first time signature
@@ -16,14 +17,15 @@ DEFAULT_METER = (48, 4)  # 4/4 until the first time signature
 FIELD = {"program": "inst"}
 
 
-def write_bank(bank: dict, path: Path):
-    """Bank file: header, one 68-byte entry per instrument, then every instrument's 16-bit samples."""
+def write_bank(bank: dict, path: Path, bank2: dict | None = None):
+    """Bank file: header, one 68-byte entry per instrument, then every instrument's 16-bit samples. Flag bit 0:
+    the sample loops; bit 1: the instrument belongs to the second bank (INSTR2)."""
     entries, samples = b"", b""
-    for slot in sorted(bank):
-        pcm, loop, pitches, adsr = bank[slot]
-        entries += struct.pack("<HHII12I8s", slot, loop is not None, len(pcm), loop or 0, *pitches, adsr)
+    sets = [(slot, v, 0) for slot, v in sorted(bank.items())] + [(slot, v, 2) for slot, v in sorted((bank2 or {}).items())]
+    for slot, (pcm, loop, pitches, adsr), flag in sets:
+        entries += struct.pack("<HHII12I8s", slot, flag | (loop is not None), len(pcm), loop or 0, *pitches, adsr)
         samples += struct.pack(f"<{len(pcm)}h", *pcm)
-    path.write_bytes(b"FF7BANK\0" + struct.pack("<HH", 1, len(bank)) + entries + samples)
+    path.write_bytes(b"FF7BANK\0" + struct.pack("<HH", 1, len(sets)) + entries + samples)
 
 
 def song_to_ff7song(block: bytes) -> dict:
@@ -37,7 +39,7 @@ def song_to_ff7song(block: bytes) -> dict:
         for tick, kind, *args in events:
             if kind == "meter":
                 continue
-            value = args[0] if len(args) == 1 else args
+            value = True if kind == "slur" else args[0] if len(args) == 1 else args
             merged.setdefault(tick, {}).update({"note": args[0], "len": args[1]} if kind == "note"
                                                else {FIELD.get(kind, kind): value})
         for tick, fields in merged.items():
@@ -52,7 +54,8 @@ def song_to_ff7song(block: bytes) -> dict:
             seen[key] = len(patterns)
             patterns.append(pattern)
         order.append(seen[key])
-    return {"format": "ff7song", "version": 1, "song": struct.unpack_from("<H", block, 4)[0],
+    song_id = struct.unpack_from("<H", block, 4)[0]
+    return {"format": "ff7song", "version": 1, "song": song_id, "bank": 2 if song_id in BANK2_SONGS else 1,
             "channels": len(channels), "ticks_per_quarter": akao.TICKS_PER_QUARTER, "timer_hz": akao.DRIVER_HZ,
             "loop": {"start": loop_start, "end": end} if loop_start is not None else None,
             "patterns": patterns, "order": order, "restart": bars.index(loop_start) if loop_start is not None else 0}
@@ -64,7 +67,8 @@ def main():
         return
     source, sound_dir, out = map(Path, sys.argv[1:])
     out.mkdir(parents=True, exist_ok=True)
-    write_bank(load_bank_instruments(sound_dir), out / "instruments.ff7bank")
+    bank2 = {slot: v for slot, v in load_bank_instruments(sound_dir, bank2=True).items() if slot >= 53}
+    write_bank(load_bank_instruments(sound_dir), out / "instruments.ff7bank", bank2)
     songs = akao.named_songs(source)
     for name, _, block in songs:
         (out / f"{name}.ff7song").write_text(json.dumps(song_to_ff7song(block), separators=(",", ":")),

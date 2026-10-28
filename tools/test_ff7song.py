@@ -25,7 +25,7 @@ assert [(p["ticks"], p["beat"], p["beats"]) for p in out["patterns"]] == [(48, 4
 assert out["order"] == [0, 1, 2, 1, 2] and out["restart"] == 1
 # Events on one tick and channel share a cell; the driver's channel defaults come first.
 assert out["patterns"][0]["cells"] == [[0, 0, {"inst": 5, "volume": 100, "expression": 120}]]
-assert out["patterns"][1]["cells"] == [[0, 0, {"note": 36, "len": 144}]]  # C, driver default octave 2
+assert out["patterns"][1]["cells"] == [[0, 0, {"note": 36, "len": 142}]]  # C, octave 2; keys off 2 ticks early
 
 # Notes keep their full length across the loop end, as the driver holds them into the next pass. Channel 1 loops a
 # whole note from tick 0, channel 0 from tick 48, so the song loops 48..240 and channel 1's note at 192 runs on.
@@ -34,26 +34,32 @@ ch1 = bytes([0x00, 0xEE, 0xFC, 0xFF])        # whole note C forever
 out = song_to_ff7song(song(ch0, ch1))
 assert out["loop"] == {"start": 48, "end": 240}
 assert [p["ticks"] for p in out["patterns"]] == [48, 192]  # no time signature: 4/4 bars counted from the loop
-assert [144, 1, {"note": 36, "len": 192}] in out["patterns"][1]["cells"]  # tick 192, untrimmed (not 48)
+assert [144, 1, {"note": 36, "len": 190}] in out["patterns"][1]["cells"]  # tick 192, untrimmed (not 48)
 
 # A note tied across the loop point: the loop body opens with a tie, so on every pass after the first the last note
 # of the loop keeps sounding into the next one. Note at 0, then loop 48..144: tie, note at 96, back to the tie.
 out = song_to_ff7song(song(bytes([0x02, 0x86, 0x02, 0xEE, 0xFB, 0xFF])))
 assert out["loop"] == {"start": 48, "end": 144}
-assert [48, 0, {"note": 36, "len": 96}] in out["patterns"][1]["cells"]  # held through the next pass's tie, not 48
+assert [48, 0, {"note": 36, "len": 94}] in out["patterns"][1]["cells"]  # held through the next pass's tie, not 46
 # A drone: one note, then a loop of nothing but ties (songs 66 and 75). It never ends, so its length is null.
 out = song_to_ff7song(song(bytes([0x00, 0x84, 0xEE, 0xFC, 0xFF])))
 assert out["patterns"][0]["cells"][0][2]["len"] is None
+
+# Slurs and the channel's own envelope settings become cell fields; songs say which instrument bank they need.
+out = song_to_ff7song(song(bytes([0xAD, 0x28, 0xCC, 0x02, 0x02, 0xCD, 0xA0])))
+cells = {tick: fields for tick, _, fields in out["patterns"][0]["cells"]}
+assert cells[0]["ar"] == 0x28 and cells[48] == {"slur": True, "note": 36, "len": 46} and out["bank"] == 1
 
 # Bank: header, 68-byte entries, then each instrument's samples.
 with tempfile.TemporaryDirectory() as tmp:
     path = Path(tmp) / "test.ff7bank"
     write_bank({3: ([0, 100, -100], 1, tuple(range(0x1000, 0x100C)), bytes(range(8))),
-                9: ([7], None, (0x2000,) * 12, bytes(8))}, path)
+                9: ([7], None, (0x2000,) * 12, bytes(8))}, path, bank2={53: ([5, 6], None, (0x1000,) * 12, bytes(8))})
     data = path.read_bytes()
-assert data[:12] == b"FF7BANK\0" + struct.pack("<HH", 1, 2) and len(data) == 12 + 2 * 68 + 4 * 2
+assert data[:12] == b"FF7BANK\0" + struct.pack("<HH", 1, 3) and len(data) == 12 + 3 * 68 + 6 * 2
+assert struct.unpack_from("<HH", data, 12 + 2 * 68) == (53, 2)  # flag bit 1: the second bank's instrument
 slot, flags, length, loop, *rest = struct.unpack_from("<HHII12I8s", data, 12)
 assert (slot, flags, length, loop, rest[0], rest[11], rest[12]) == (3, 1, 3, 1, 0x1000, 0x100B, bytes(range(8)))
 assert struct.unpack_from("<HHII", data, 12 + 68) == (9, 0, 1, 0)
-assert struct.unpack_from("<4h", data, 12 + 2 * 68) == (0, 100, -100, 7)
+assert struct.unpack_from("<6h", data, 12 + 3 * 68) == (0, 100, -100, 7, 5, 6)
 print("ok")

@@ -103,14 +103,15 @@ if __name__ == "__main__":
         xm, _ = song_to_xm(song, bank, "test")
         return [(e[0], *e[2:]) if rows else e[2:] for e in walk(xm)["effects"] if e[1] == 0]
     bend = bytes([0xA1, 0x00, 0xA5, 0x04, 0xA2, 0x02, 0x00, 0xA4, 0x04, 0x01, 0xA2, 0x0A, 0x86, 0xA0])
-    assert effects_of(bend) == [(0x01, 8), (0x01, 8)]
+    # The tie keys off 2 ticks before the end (tick 10): row 2, delayed one XM tick.
+    assert effects_of(bend) == [(0x01, 8), (0x01, 8), (0x0E, 0xD1)]
     # Detune D8 -2 is 1 - 2/256 of the pitch, about -13.6 cents: fine portamento down 2/16 on the note's row.
     assert effects_of(bytes([0xA1, 0x00, 0xD8, 0xFE, 0x02, 0xA0])) == [(0x0E, 0x22)]
     # Song 7 channel 16 sets pan right before each bending note: the pan moves a row earlier so the bend's first
     # step keeps its cell. 4-tick rest (row 0), pan 0x30, note on row 1, bend steps on rows 1 and 2.
     pan_then_bend = bytes([0xA1, 0x00, 0xA5, 0x04, 0xA2, 0x04, 0x8F, 0xAA, 0x30,
                            0xA2, 0x02, 0x00, 0xA4, 0x04, 0x01, 0xA2, 0x0A, 0x86, 0xA0])
-    assert effects_of(pan_then_bend, rows=True) == [(0, 0x08, 0x60), (1, 0x01, 8), (2, 0x01, 8)]
+    assert effects_of(pan_then_bend, rows=True) == [(0, 0x08, 0x60), (1, 0x01, 8), (2, 0x01, 8), (3, 0x0E, 0xD1)]
 
     # LFOs are baked per row: FT2's vibrato can't go as shallow as the game's (its least depth is 1/8 semitone)
     # and neither vibrato nor tremolo runs at speed 1. Tempo 0x6000: 91.4 ticks/s, 45.7 rows/s.

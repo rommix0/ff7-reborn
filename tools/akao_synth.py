@@ -43,6 +43,7 @@ class Lfo:
 @dataclass
 class Voice:
     inst: Instrument
+    adsr: list  # the channel's envelope settings, shared so AD/B1/... reach a sounding voice as in the driver
     key: int
     pitch: float
     left: int  # ticks until key-off; -1 holds it until the channel's next note
@@ -51,6 +52,7 @@ class Voice:
     pos: float = 0.0
     bend: list | None = None  # [from, to, ticks, done]
     phase: int = ATTACK
+    released_from: int = ATTACK  # the phase a key-off interrupted, for a slur that lands on the same tick
     level: float = 0.0
     env_count: float = 0.0
 
@@ -64,22 +66,26 @@ class Channel:
     detune: int = 0
     vibrato: list | None = None
     tremolo: list | None = None
+    adsr: list = field(default_factory=lambda: [0, 0x0F, 0x0F, 0x7F, 0x06, 1, 3, 3])  # the instrument's, or AD/B1...
     voice: Voice | None = None
 
 
-def read_bank(path: Path) -> dict:
-    """slot -> Instrument from an .ff7bank file."""
+ENVELOPE_FIELDS = {"ar": 0, "dr": 1, "sl": 2, "sr": 3, "rr": 4}  # cell field -> index in the ADSR bytes
+
+
+def read_bank(path: Path) -> tuple[dict, dict]:
+    """(bank 1, bank 2): slot -> Instrument from an .ff7bank file."""
     data = path.read_bytes()
     if data[:8] != b"FF7BANK\0":
         raise ValueError(f"{path} is not an .ff7bank file")
     count = struct.unpack_from("<H", data, 10)[0]
-    bank, at = {}, 12 + count * 68
+    banks, at = ({}, {}), 12 + count * 68
     for i in range(count):
         slot, flags, length, loop, *rest = struct.unpack_from("<HHII12I8s", data, 12 + i * 68)
         pcm = np.frombuffer(data, "<i2", length, at).astype(np.float32) / 32768
-        bank[slot] = Instrument(pcm, bool(flags & 1), loop, tuple(rest[:12]), rest[12])
+        banks[flags >> 1 & 1][slot] = Instrument(pcm, bool(flags & 1), loop, tuple(rest[:12]), rest[12])
         at += 2 * length
-    return bank
+    return banks
 
 
 def timeline(song: dict) -> tuple[list[int], int, list]:
@@ -95,8 +101,9 @@ def timeline(song: dict) -> tuple[list[int], int, list]:
 
 
 class Synth:
-    def __init__(self, bank: dict, rate: int = SPU_HZ):
-        self.bank, self.rate = bank, rate
+    def __init__(self, bank: dict, bank2: dict | None = None, rate: int = SPU_HZ):
+        self.bank, self.bank2, self.rate = bank, bank2 or {}, rate
+        self.instruments = bank
         self.song = None
         self.tick, self.tempo = -1, 0
         self.muted = 0
@@ -109,6 +116,10 @@ class Synth:
 
     def load(self, song: dict):
         self.song = song
+        # Bank 2 replaces slots 53 and up, leaving only its own instruments there (load_instrument_bank2).
+        self.instruments = self.bank
+        if song.get("bank", 1) == 2:
+            self.instruments = {slot: i for slot, i in self.bank.items() if slot < 53} | self.bank2
         self.starts, self.end, self.events = timeline(song)
         self.reset()
 
@@ -123,6 +134,14 @@ class Synth:
         self.until_interrupt = 0.0
         self.ended = False
         self.channels = [Channel() for _ in range(self.song["channels"])]
+        for ch in self.channels:
+            self.set_instrument(ch, ch.inst)
+
+    def set_instrument(self, ch: Channel, slot: int):
+        """The driver's load_channel_instrument: a program change also resets the channel's envelope."""
+        ch.inst = slot
+        if slot in self.instruments:
+            ch.adsr = list(self.instruments[slot].adsr)
 
     def seek(self, target: int):
         """Run the sequence silently up to the tick before `target`, so its state is right and notes on it play."""
@@ -135,7 +154,7 @@ class Synth:
         self.playing = playing
 
     def pitch_of(self, ch: Channel, key: int) -> float:
-        inst = self.bank.get(ch.inst)
+        inst = self.instruments.get(ch.inst)
         if not inst:
             return 0.0
         pitch = inst.pitches[key % 12] * 2.0 ** (key // 12 - 1 - 6)
@@ -151,7 +170,7 @@ class Synth:
         return Lfo(delay, rate, depth, *wave) if wave else None
 
     def key_on(self, ch: Channel, key: int, length: int):
-        inst = self.bank.get(ch.inst)
+        inst = self.instruments.get(ch.inst)
         if not inst:
             ch.voice = None
             return
@@ -161,7 +180,8 @@ class Synth:
             # (d & 0x7F)/128 of the pitch with d's top bit set, else 15/256 of that.
             d = vibrato.depth
             vibrato.amount = (d & 0x7F) * (pitch if d & 0x80 else pitch * 15 / 256) / 128
-        ch.voice = Voice(inst, key, pitch, -1 if length is None else length, vibrato, self.start_lfo(ch.tremolo))
+        ch.voice = Voice(inst, ch.adsr, key, pitch, -1 if length is None else length, vibrato,
+                         self.start_lfo(ch.tremolo))
 
     def step_tick(self):
         self.tick += 1
@@ -179,7 +199,7 @@ class Synth:
             if v.left > 0:
                 v.left -= 1
                 if not v.left and v.phase < RELEASE:
-                    v.phase = RELEASE
+                    v.released_from, v.phase = v.phase, RELEASE
             for lfo in (v.vibrato, v.tremolo):
                 if lfo and lfo.delay > 0:
                     lfo.delay -= 1
@@ -191,15 +211,27 @@ class Synth:
             _, c, f = self.events[self.next]
             self.next += 1
             ch = self.channels[c]
-            for name in ("inst", "volume", "expression", "pan", "detune", "vibrato", "tremolo"):
+            if "inst" in f:
+                self.set_instrument(ch, f["inst"])
+            for name in ("volume", "expression", "pan", "detune", "vibrato", "tremolo"):
                 if name in f:
                     setattr(ch, name, f[name])
+            for name, index in ENVELOPE_FIELDS.items():
+                if name in f:
+                    ch.adsr[index] = f[name]
             self.tempo = f.get("tempo", self.tempo)
             if "bend" in f and ch.voice:
                 ticks, semitones = f["bend"]
                 ch.voice.bend = [ch.voice.pitch, self.pitch_of(ch, ch.voice.key + semitones), ticks, 0]
                 ch.voice.key += semitones
-            if "note" in f:
+            if "note" in f and f.get("slur") and ch.voice:
+                # A slurred note takes over the sounding voice: new pitch and length, no key-on.
+                v = ch.voice
+                if v.phase == RELEASE and not v.left:  # its key-off came on this very tick: the driver has none
+                    v.phase = v.released_from
+                v.key, v.pitch, v.bend = f["note"], self.pitch_of(ch, f["note"]), None
+                v.left = -1 if f["len"] is None else f["len"]
+            elif "note" in f:
                 self.key_on(ch, f["note"], f["len"])
 
     def interrupt(self):
@@ -229,7 +261,7 @@ class Synth:
 
     def envelope(self, v: Voice, n: int) -> np.ndarray:
         """The SPU envelope (psx-spx ADSR rules, 44.1 kHz) over the next n output samples, 0..1."""
-        ar, dr, sl, sr, rr, a_mode, s_mode, r_mode = v.inst.adsr
+        ar, dr, sl, sr, rr, a_mode, s_mode, r_mode = v.adsr
         match v.phase:
             case 0:
                 shift, step, exponential, rising, stop = ar >> 2, 7 - (ar & 3), a_mode == 5, True, 0x7FFF

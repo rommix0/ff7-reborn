@@ -17,8 +17,8 @@ def song(cells, ticks=192, loop=None):
             "order": [0], "restart": 0}
 
 
-def synth(s):
-    out = Synth(BANK, RATE)
+def synth(s, bank2=None):
+    out = Synth(BANK, bank2, RATE)
     out.load(s)
     out.playing = True
     return out
@@ -64,6 +64,28 @@ assert s.channels[0].voice.key == 60
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": None}]], ticks=96, loop={"start": 48, "end": 96}))
 s.render(frames_for(500))
 assert s.channels[0].voice.phase < 3 and np.abs(s.render(1000)).max() > 0.05
+
+# The channel's own envelope: rr 0x1A releases far slower than the instrument's 6, until the next instrument change.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "rr": 0x1A, "note": 60, "len": 4}]]))
+s.render(frames_for(4) + 3000)
+assert s.channels[0].voice.phase == 3 and s.channels[0].voice.level > 0x4000
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "rr": 0x1A}], [1, 0, {"inst": 0, "note": 60, "len": 4}]]))
+s.render(frames_for(5) + 3000)
+assert s.channels[0].voice.phase == 4
+# A slurred note takes over the sounding voice: same voice, sample position not restarted, new key.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 24}],
+                [24, 0, {"slur": True, "note": 62, "len": 24}]]))
+s.render(frames_for(20))
+first = s.channels[0].voice
+s.render(frames_for(6))
+assert s.channels[0].voice is first and first.key == 62 and first.phase < 3  # not released between the two
+
+# A song marked "bank": 2 gets the second bank in slots 53 and up, with nothing of bank 1 left there.
+s = Synth({**BANK, 53: BANK[0], 60: BANK[0]}, {54: BANK[0]}, RATE)
+s.load({**song([]), "bank": 2})
+assert set(s.instruments) == {0, 54}
+s.load(song([]))
+assert set(s.instruments) == {0, 53, 60}
 
 # Muted channels are silent; the stereo output is (frames, 2).
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 192}]]))

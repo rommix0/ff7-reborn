@@ -14,6 +14,10 @@ from pathlib import Path
 SPU_RATE = 44100
 # (sample file, table file, first instrument slot the table fills, entries copied) as the driver's loaders do it.
 BANKS = (("INSTR.ALL", "INSTR.DAT", 0, 128), ("INSTR2.ALL", "INSTR2.DAT", 53, 75))
+# Songs that play with INSTR2 loaded. The game loads it only in main-loop mode 15 (func_80011274) and never reloads
+# bank 1, so it replaces slots 53 and up from then on. Song 82 (FIELD/LASTMAP.DAT) uses exactly bank 2's six
+# instruments, 53-58; other songs use bank 1's instruments in those slots and above, so they can't follow it.
+BANK2_SONGS = {82}
 # SPU-ADPCM prediction filters (psx-spx, "SPU ADPCM Samples").
 FILTERS = ((0, 0), (60, 0), (115, -52), (98, -55), (122, -60))
 

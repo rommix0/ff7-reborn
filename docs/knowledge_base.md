@@ -141,6 +141,7 @@ starts:
   - **Read in detail (volume, drums and pitch, below):** `A3`, `A4`, `A8`, `A9`, `AA`, `AB`, `C0`, `C1`, `D8`, `D9`,
     `DA`, `EC` and `ED`.
   - **Read in detail (LFOs and bars, below):** `B4`–`B6`, `B8`–`BA`, `BC`, `BD`, `DD`, `DE`, `FD` and `FE`.
+  - **Read in detail (articulation and envelopes, below):** `AD`–`AF`, `B1`, `B2`, `CC`, `CD`, `D0` and `D1`.
   - **Not studied yet:** the rest.
 - **`FD t n`: time signature** (`0x80033548`). It writes ticks per beat (`+0x5A`) and beats per bar (`+0x56`) into
   the song state and resets the beat and tick counters, so the bar starts where it stands.
@@ -150,6 +151,30 @@ starts:
   - **Lead-ins:** most songs open with a 1–4 tick rest, then `FD` + `FE 01 00`, so their bar lines sit a few ticks
     after tick 0. Some open with a pickup bar (song 47: `FD 30 01`).
 - **`FE lo hi`: bar number** (`0x80033588`), a `u16` at `+0x5E`. Usually `01 00` at the start of bar 1.
+- **Key-off timing.** `seq_note_lengths` (`0x80049C28`) holds `u16`s: the key-off countdown in the high byte and
+  the length in the low byte (`0x3030` = 48, 48). `seq_tick` takes `0x101` off `+0x56` each tick. When the low byte
+  runs out, the channel steps; when the high byte does, the voice keys off.
+  - **Early key-off:** for an ordinary note, `seq_step_channel` subtracts `0x200`, so the voice keys off 2 ticks
+    before the next event. Notes of 2 ticks or less never key off early.
+  - **Held to the end:** a note keeps its full length when the next byte is a tie, or in slur or full-length mode.
+- **`CC` slur and `D0` full length** (`0x80032D44`, `0x80032D58`) set the note mode `+0x6E` to 1 and 4.
+  - **Mode bits:** at each note or tie, bit 1 takes bit 0, and a note with bit 1 set skips key-on. It takes over
+    the sounding voice with a new pitch and no new attack. So `CC n1 n2` slurs n1 into n2.
+  - **Ending the mode:** `CD` and `D1` (`0x80032D50`, `0x80032D64`) are empty. The look-ahead `seq_look_ahead`
+    (`0x800318BC`) runs before each note and scans to the next note, following `C9`/`CA`/`EE`/`F0` like the
+    sequencer.
+    - **Clear and keep scanning:** `CB`, `CD`, `D1` or `DB` clear bits 0 and 2.
+    - **Clear and stop:** a rest, `A0`, or an unused command.
+    - So `CC n1 n2 CD n3` holds n1 into n2, keys n2 off early, and starts n3 fresh.
+  - **In the songs:** `CC`/`CD` appear 1,601 times in 56 songs, and 12,039 of 156,161 notes are slurred. `D0`/`D1`
+    appear 97 times in 14 songs.
+- **`AD`, `AE`, `AF`, `B1`, `B2`: the channel's envelope** (`0x80032E08`…`0x80032F98`).
+  - **What they set:** attack rate, decay rate, sustain level, sustain rate and release rate (`+0xFA`…`+0x102`),
+    with a voice-update flag so they reach a sounding note.
+  - **Reset:** `load_channel_instrument` copies all five, and the three modes, from the instrument on every program
+    change (the drum-kit path does the same per note).
+  - **In the songs:** `AD` in 47 songs, `B1` in 35, `AF` in 7, `AE` in 5 and `B2` in 1: 476 overrides in all.
+  - **Mode commands:** `B7`, `BB` and `BF` (the envelope modes) never occur.
 
 ### Timing, loops and MIDI export
 
@@ -276,6 +301,8 @@ the XM's compromises with the driver's own behaviour.
   - The SPU ADSR at 44.1 kHz, worked out per stretch between interrupts.
   - **Speed and output:** numpy mixes 8–12× faster than real time. The output matches the earlier browser version
     (commit 72514b8, the one checked by ear) to within 0.01 in peak and RMS.
+- **Articulation and envelopes follow the driver:** early key-off, slurs, and the channel's own envelope settings.
+- **Instrument bank 2:** song 82 gets it (`"bank": 2`). See the sound files table.
 - **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
   tables at `0x80049C44`/`0x80049E44` aren't read yet), and voice volume taken as volume × expression ÷ 127² ×
   ½. There's no reverb, pan LFO, LFO depth slide or noise waveform.
@@ -334,7 +361,12 @@ instruments sound like the game rather than General MIDI.
   - **Tuning:** relative note + finetune = 12·log2(44,100 · pitch[C] / 0x1000 / 8,363) − 12·(6 − base − 4), where
     `base` shifts songs whose octaves exceed XM's 8.
   - **Why one value per sample is enough:** the pitch tables are equal-tempered to within 0.86 cents.
-  - **Bank choice:** slots in both banks use bank 1, since which songs expect bank 2 isn't known yet.
+  - **Bank choice:** bank 1, except song 82, which gets bank 2 in slots 53 and up (see the sound files table).
+  - **Key-offs:** placed after the channel's other events, 2 ticks before the next note as the driver does. Where a
+    note already starts in that row, the key-off is skipped, since the note retriggers anyway. Where the row's
+    effect column is taken, it moves to the row's start, so bends keep their cells.
+  - **Not carried:** slurs (every note retriggers) and the channel envelope overrides, since an XM instrument has
+    one fixed envelope.
 - **Events:** each channel starts from the driver's defaults (instrument 5, octave 2, volume 100, `A3` 120).
   - Notes carry the voice volume: 64 × `A8` × `A3` ÷ 127². Global master volume and the pan law are left out.
   - Slides become per-tick volume/pan values.
@@ -376,7 +408,7 @@ Sound files (checked against our disc):
 | `SOUND/INSTR.ALL` | 483,232 | 16-byte header: `u32 spu_addr` (`0x1010`), `u32 length` (`0x75F90` = file size − 16), 8 zero bytes; then raw SPU ADPCM sample data uploaded to SPU RAM at `spu_addr` |
 | `SOUND/INSTR.DAT` | 8,192 | 128 × 64-byte instruments, copied whole into `instrument_table` by `load_instrument_bank` (`0x800297A4`). Entry: `+0x00` `u32` SPU sample address, `+0x04` `u32` SPU loop address, `+0x08` 8 bytes of ADSR settings, `+0x10` 12 × `u32` SPU pitch for each semitone of octave 6 (other octaves shift it). 93 slots used |
 | `SOUND/INSTR2.ALL` | 251,120 | Same header (`spu_addr 0x38560`, length `0x3D4E0`), second bank uploaded over the top part of bank 1's sample memory |
-| `SOUND/INSTR2.DAT` | 8,192 | `load_instrument_bank2` (`0x80029818`) copies only the first 75 entries (4,800 bytes) to slot **53** onward (`instrument_table + 0xD40`). 6 used, becoming slots 53–58 |
+| `SOUND/INSTR2.DAT` | 8,192 | `load_instrument_bank2` (`0x80029818`) copies only the first 75 entries (4,800 bytes) to slot **53** onward (`instrument_table + 0xD40`). 6 used, becoming slots 53–58. `INSTR2.ALL` uploads at SPU `0x38560`, exactly where bank 1's slot 53 starts. **When:** only main-loop mode 15 loads it (`snd_load_bank2`, `0x80011274`: sectors `0x1E4` and `0x25F`), and bank 1 is loaded once at boot. From then on slots 53–127 hold only bank 2's six instruments. Song 82 (`FIELD/LASTMAP.DAT`) uses exactly those six plus low slots, while every other song that uses slots 53+ needs bank 1's instruments there. So song 82 is the bank-2 song (`BANK2_SONGS` in `tools/instruments.py`) |
 | `SOUND/EFFECT.ALL` | 51,200 | Sound effects: a `0x1000`-byte table of 2,048 `u16` offsets (`0xFFFF` = empty) relative to `0x1000`, then 1,423 header-less command streams (same command set as music). Identical on all discs |
 | `*.SND` (e.g. `MINI/ASERI2.SND`, `ENEMY6/FAN2.SND`) | small | One AKAO block (layout below) |
 
