@@ -255,6 +255,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     slides = {}  # kind -> [step per tick, ticks left]
     drum_map = None
     transpose, detune, bend = 0, 0, None
+    held_transpose = 0  # the transpose in the sounding pitch; a bend aims at its key + s + the transpose now
     lfos = {kind: [0, 1, 0, False, 0] for kind in ("vibrato", "tremolo", "pan_lfo")}  # delay rate waveform on depth
     # The driver's note mode (+0x6E): bit 0 slur (CC), bit 1 "this note slurs from the last", bit 2 full length (D0).
     mode, cut = 0, 0
@@ -313,6 +314,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 set_level("pan", pan & 0x7F)
                 last_note = [tick, "note", min(127, key + 12), last_len - early]
                 events.append(last_note)
+                held_transpose = transpose
             elif semitone < 12:
                 key = max(0, min(127, 12 * (octave + 1) + semitone + transpose))
                 # A glide starts the note on the last one's key and bends to its own over the glide time.
@@ -320,12 +322,12 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append(last_note)
                 if glide and last_key:  # it takes over the bend fields, so a pending A4 bend is lost
                     bend = (glide, key - last_key) if key != last_key else None
-                last_key = key
+                last_key, held_transpose = key, transpose
             elif semitone == 12 and last_note:
                 last_note[3] += cut + last_len - early  # tie: the last segment's early key-off didn't happen
             if semitone <= 12 and last_note and bend:  # a pending bend starts on the next note or tie, then is spent
-                events.append([tick, "bend", *bend])
-                bend = None
+                events.append([tick, "bend", bend[0], bend[1] + transpose - held_transpose])
+                bend, held_transpose = None, transpose
             cut = early
             mode = mode & ~2 | (mode & 1) << 1 if semitone <= 12 else mode & ~2
             advance(last_len)

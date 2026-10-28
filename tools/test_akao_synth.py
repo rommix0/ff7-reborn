@@ -108,6 +108,13 @@ s = synth(two)
 s.render(frames_for(24))
 assert s.channels[1].voice.pos == s.channels[0].voice.pos
 
+# On an effect channel a bend lands on the key's plain pitch: the driver's effect path skips the detune there.
+for effect, want in ((False, 1.5), (True, 1.0)):
+    s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "detune": 64, "note": 60, "len": 96, "bend": [1, 0]}]])
+              | ({"effect": 1} if effect else {}))
+    s.render(frames_for(4))
+    assert abs(s.channels[0].voice.pitch / s.pitch_of(s.channels[0], 60, detune=False) - want) < 1e-9
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)

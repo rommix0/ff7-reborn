@@ -172,4 +172,9 @@ assert at(events, "fm") == [(48, False), (48, True), (51, False)] and at(events,
 # A4 n s: the pending bend starts on the next note as well as the next tie (both run the same code), then is spent.
 events, *_ = play_channel(one_channel(bytes([0xA4, 0x05, 0x0F, 0x02, 0x86, 0xA4, 0x04, 0x02, 0x86, 0xA0])), 0x16)
 assert at(events, "bend") == [(0, 5, 15), (96, 4, 2)]
+# The bend aims at the note's key + s + the transpose at the time (effect 36 ends on one after a C1 +2), so it
+# reaches 2 semitones further than s above the held note.
+events, *_ = play_channel(one_channel(bytes([0x02, 0xC1, 0x02, 0xA4, 0x04, 0x03, 0x86, 0xA4, 0x04, 0x01, 0x86, 0xA0])),
+                          0x16)
+assert at(events, "bend") == [(48, 4, 5), (96, 4, 1)]
 print("ok")

@@ -310,12 +310,12 @@ class Synth:
             ch.voice = ch.tail = ch.layer_voice = None
         self.playing = playing
 
-    def pitch_of(self, ch: Channel, key: int) -> float:
+    def pitch_of(self, ch: Channel, key: int, detune: bool = True) -> float:
         inst = self.instruments.get(ch.inst)
         if not inst:
             return 0.0
         pitch = inst.pitches[key % 12] * 2.0 ** (key // 12 - 1 - 6)
-        return pitch * (1 + ch.detune / (128 if ch.detune > 0 else 256))
+        return pitch * (1 + ch.detune / (128 if ch.detune > 0 else 256)) if detune else pitch
 
     def start_lfo(self, settings) -> Lfo | None:
         """Each note restarts the channel's LFOs: `delay` ticks, then a waveform step every `rate` interrupts."""
@@ -446,7 +446,9 @@ class Synth:
                 self.key_on(ch, f["note"], f["len"])
             if "bend" in f and ch.voice:  # after the note: a glide (DA) bends the note it starts
                 ticks, semitones = f["bend"]
-                ch.voice.bend = [ch.voice.pitch, self.pitch_of(ch, ch.voice.key + semitones), ticks, 0]
+                # Effect channels aim bends at the plain key's pitch: their path skips the detune.
+                target = self.pitch_of(ch, ch.voice.key + semitones, detune="effect" not in self.song)
+                ch.voice.bend = [ch.voice.pitch, target, ticks, 0]
                 ch.voice.key += semitones
 
     def interrupt(self):

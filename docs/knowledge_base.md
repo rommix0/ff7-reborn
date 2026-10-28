@@ -357,6 +357,12 @@ Read from `seq_step_channel`'s note and tie paths:
   - **Songs and effects:** most songs put `A4` before a tie. Effects often put it before a note (effect 1: +15 and
     +12; effect 36: +32), and so do songs 9 and 66. We used to start bends only on ties, which dropped those.
   - **Glide:** a `DA` glide writes the same fields on a note, so a pending `A4` bend is lost.
+  - **Target key:** `+0xD0` (the note's key before transpose) += `s`, plus the transpose `+0xCC` *now*. A `C1`
+    between the note and the bend therefore moves the target. Effect 36's last bend comes after a loop of `C1 02`, so
+    it lands 2 semitones higher than `s` above the held note (key 90, where we had 88). The export folds this into the
+    bend's semitones.
+  - **Effects skip the detune:** with flag `+0x54` set, the target pitch comes straight from the instrument's table,
+    without the `+0xCE` detune scaling that songs apply.
   - **One-shot:** the amount is then cleared, and later ties hold the new pitch.
   - **Song 7 channel 16:** a 2-tick note, `A4 04 01`, a 10-tick tie, repeated.
   - **Scale:** 321 bends in the songs, from ±1 semitone over 4 ticks up to +65 over 8.
