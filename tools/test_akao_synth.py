@@ -39,6 +39,15 @@ assert np.abs(s.render(4000)).max() > 0.05
 s.render(frames_for(48) + 2000)
 assert s.channels[0].voice.phase == 4 and not np.abs(s.render(1000)).any()
 
+# Before its first tempo command a song runs at the driver's start tempo 0xFFFF, about a tick per interrupt (songs 50
+# and 85 set theirs at ticks 4 and 72). The accumulator starts at 1: tick 0 comes on the first interrupt, and since
+# 0xFFFF falls just short of a carry, tick 4 on the sixth.
+s = synth(song([[4, 0, {"tempo": 0x6000, "inst": 0}], [8, 0, {"note": 60, "len": 48}]]))
+s.render(math.ceil(6 * RATE / TIMER_HZ))
+assert s.tick == 4 and s.tempo == 0x6000
+s.render(frames_for(5))
+assert s.channels[0].voice and s.channels[0].voice.key == 60
+
 # Loop: at loop.end the song jumps back to loop.start.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 48}]], ticks=96, loop={"start": 48, "end": 96}))
 s.render(frames_for(100))

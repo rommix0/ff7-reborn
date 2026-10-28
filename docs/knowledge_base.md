@@ -175,6 +175,19 @@ starts:
     change (the drum-kit path does the same per note).
   - **In the songs:** `AD` in 47 songs, `B1` in 35, `AF` in 7, `AE` in 5 and `B2` in 1: 476 overrides in all.
   - **Mode commands:** `B7`, `BB` and `BF` (the envelope modes) never occur.
+- **Song start** (`func_80029C48`): tempo `0xFFFF` (`D_8009A11E`) and accumulator 1 (`D_8009A124`).
+  - **Before the first `E8`:** a song runs at about a tick per timer interrupt. Song 50 sets its tempo at tick 4,
+    and song 85 at tick 72.
+  - **Player bug this caused:** the player used to start at tempo 0, so those two songs never got past tick 0.
+- **Reverb.** The PS1's notes mostly die at key-off: most instruments have release rate 5, linear, about 1.5 ms.
+  The tail you hear in the game is SPU reverb, which we don't emulate yet.
+  - **Mode:** the song header's `u16` at `+8`. The song-start code (`func_8002DA7C`) passes it to
+    `snd_set_reverb_mode` (`0x80029AF0`), which sets libspu's reverb type. 45 songs use 1 (Room), 40 use 3
+    (Studio B, medium), and 13 use 4 (Studio C, large).
+  - **Depth:** `EA lo hi` (`seq_cmd_reverb_depth`, `0x80031BA0`) sets it to `(hi << 8 | lo) << 16`. It's zeroed at
+    song start and used in 93 songs, mostly `EA 00 28` (`0x2800`).
+  - **Per channel:** `C2` turns a channel's reverb send on and `C3` turns it off (1,876 and 59 uses). Song 42
+    turns it on for all 16 channels.
 - **`F8 n`: overlap** (`0x80033128`).
   - **Release rate:** sets the channel's release rate to `n`.
   - **Second voice:** on first use, reserves a free SPU voice for the channel (`+0x28`, flag `0x200`). From then
@@ -314,7 +327,8 @@ the XM's compromises with the driver's own behaviour.
 - **Articulation and envelopes follow the driver:** early key-off, slurs, the channel's own envelope settings, and
   `F8` overlap (the previous note rings on in its release on a second voice).
 - **Instrument bank 2:** song 82 gets it (`"bank": 2`). See the sound files table.
-- **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
+- **Tempo:** songs start at the driver's tempo `0xFFFF` until their first `E8`.
+- **Approximations:** no SPU reverb yet (see "Reverb"), linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
   tables at `0x80049C44`/`0x80049E44` aren't read yet), and voice volume taken as volume × expression ÷ 127² ×
   ½. There's no reverb, pan LFO, LFO depth slide or noise waveform.
 

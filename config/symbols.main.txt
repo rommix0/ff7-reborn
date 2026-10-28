@@ -82,3 +82,5 @@ seq_look_ahead = 0x800318BC; // type:func
 snd_load_bank2 = 0x80011274; // type:func
 seq_cmd_overlap_on = 0x80033128; // type:func
 seq_cmd_overlap_off = 0x800331CC; // type:func
+snd_set_reverb_mode = 0x80029AF0; // type:func
+seq_cmd_reverb_depth = 0x80031BA0; // type:func

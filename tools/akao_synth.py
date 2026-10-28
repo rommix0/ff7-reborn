@@ -132,7 +132,9 @@ class Synth:
         self.next = next((i for i, e in enumerate(self.events) if e[0] > self.tick), len(self.events))
 
     def reset(self):
-        self.tick, self.next, self.tempo, self.accumulator = -1, 0, 0, 0
+        # The driver's song start (func_80029C48): tempo 0xFFFF and accumulator 1, so tick 0 comes on the first
+        # interrupt and the song runs about a tick per interrupt until its first tempo command.
+        self.tick, self.next, self.tempo, self.accumulator = -1, 0, 0xFFFF, 1
         self.until_interrupt = 0.0
         self.ended = False
         self.channels = [Channel() for _ in range(self.song["channels"])]
@@ -257,9 +259,6 @@ class Synth:
                             lfo.countdown = lfo.rate
                             lfo.value = lfo.steps[lfo.index]
                             lfo.index = lfo.index + 1 if lfo.index + 1 < len(lfo.steps) else lfo.loop
-        if self.tick < 0:  # the song's first tick sets its tempo
-            self.step_tick()
-            return
         self.accumulator += self.tempo
         if self.accumulator >= 0x10000:
             self.accumulator -= 0x10000
