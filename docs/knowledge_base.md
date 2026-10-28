@@ -498,7 +498,7 @@ Sound files (checked against our disc):
 - `0x00` `"AKAO"`.
 - `0x04` `u16` song id.
 - `0x06` `u16` data length (block = 16 + length).
-- `0x08` `u16` *(unknown)*.
+- `0x08` `u16` reverb mode (libspu's type; see "Reverb").
 - `0x0A` 6-byte BCD timestamp, e.g. `96 12 18 22 46 28` = 1996-12-18 22:46:28.
 - `0x10` `u32` channel mask.
 - `0x14` one `u16` per set bit. Each is relative to the byte after itself, so channel *i* starts at
