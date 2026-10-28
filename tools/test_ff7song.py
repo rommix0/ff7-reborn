@@ -2,7 +2,8 @@ import struct
 import tempfile
 from pathlib import Path
 
-from ff7song import EXE_BASE, REVERB_PRESETS, REVERB_WORK_STARTS, reverb_presets, song_to_ff7song, write_bank
+from ff7song import (EXE_BASE, LFO_WAVEFORMS, REVERB_PRESETS, REVERB_WORK_STARTS, lfo_noise, reverb_presets,
+                     song_to_ff7song, write_bank)
 
 
 def song(*channels: bytes) -> bytes:
@@ -62,6 +63,16 @@ cells = {tick: fields for tick, _, fields in out["patterns"][0]["cells"]}
 assert cells[0]["reverb"] is True and cells[0]["reverb_depth"] == 0x2800 and cells[48]["reverb"] is False
 block[8] = 0
 assert song_to_ff7song(bytes(block), reverb_presets(bytes(exe)))["reverb"] is None
+
+# The noise LFO (waveform 12): read through the executable's waveform pointers, up to its 0, 0, -n end marker.
+# Only songs that use it carry it.
+exe += bytes(8 * 2)
+struct.pack_into("<I", exe, LFO_WAVEFORMS - EXE_BASE + 12 * 4, len(exe) - 16 + EXE_BASE)
+struct.pack_into("<8h", exe, len(exe) - 16, 0, 500, -700, 0, 0, 0, 0, -5)
+noise = lfo_noise(bytes(exe))
+assert noise == [0, 500, -700, 0, 0]
+assert song_to_ff7song(song(bytes([0xB4, 0, 1, 12, 0x02, 0xA0])), None, noise)["lfo_noise"] == noise
+assert "lfo_noise" not in song_to_ff7song(song(bytes([0xB4, 0, 1, 6, 0x02, 0xA0])), None, noise)
 
 # Bank: header, 68-byte entries, then each instrument's samples.
 with tempfile.TemporaryDirectory() as tmp:

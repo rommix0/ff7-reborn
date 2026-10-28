@@ -61,6 +61,8 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
   `vAPF1`, `vAPF2`, `mLSAME`, `mRSAME`, `mLCOMB1`, `mRCOMB1`, `mLCOMB2`, `mRCOMB2`, `dLSAME`, `dRSAME`, `mLDIFF`,
   `mRDIFF`, `mLCOMB3`, `mRCOMB3`, `mLCOMB4`, `mRCOMB4`, `dLDIFF`, `dRDIFF`, `mLAPF1`, `mRAPF1`, `mLAPF2`,
   `mRAPF2`, `vLIN`, `vRIN`), as psx-spx names them. The player runs psx-spx's reverb formula on them at 22.05 kHz.
+- **`lfo_noise`:** only in songs whose LFOs use waveform 12. It holds the driver's noise waveform: 256 signed 16-bit
+  steps, repeated from the start, read from the executable.
 - **Cells** are `[tick within the bar, channel, fields]`. Each channel is one voice. All fields are optional:
 
 | Field | Meaning |

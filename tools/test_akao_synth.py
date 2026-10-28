@@ -62,6 +62,21 @@ for _ in range(200):
 semis = [12 * math.log2((0x1000 + o) / 0x1000) for o in (max(offsets), min(offsets))]
 assert abs(semis[0] - 0.98) < 0.05 and abs(semis[1] + 0.51) < 0.05, semis
 
+# Waveform 12 is the song's noise table, stepped through in order and repeated from the start; without the table
+# (an old export) it stays off.
+noise = [0, 30000, -30000, 15000]
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "vibrato": [0, 1, 12, 0x7F], "note": 84, "len": 192}]])
+          | {"lfo_noise": noise})
+s.interrupt()  # tick 0: the note keys on
+lfo, seen = s.channels[0].voice.vibrato, []
+for _ in range(9):
+    s.interrupt()
+    seen.append(lfo.value)
+assert seen == noise * 2 + [0]
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "vibrato": [0, 1, 12, 0x7F], "note": 84, "len": 192}]]))
+s.render(64)
+assert s.channels[0].voice.vibrato is None
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)

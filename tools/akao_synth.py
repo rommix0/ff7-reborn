@@ -283,13 +283,12 @@ class Synth:
         pitch = inst.pitches[key % 12] * 2.0 ** (key // 12 - 1 - 6)
         return pitch * (1 + ch.detune / (128 if ch.detune > 0 else 256))
 
-    @staticmethod
-    def start_lfo(settings) -> Lfo | None:
+    def start_lfo(self, settings) -> Lfo | None:
         """Each note restarts the channel's LFOs: `delay` ticks, then a waveform step every `rate` interrupts."""
         if not settings or not settings[3]:
             return None
         delay, rate, waveform, depth = settings
-        wave = lfo_wave(waveform)
+        wave = (self.song["lfo_noise"], 0) if waveform == 12 and "lfo_noise" in self.song else lfo_wave(waveform)
         return Lfo(delay, rate, depth, *wave) if wave else None
 
     def key_on(self, ch: Channel, key: int, length: int):

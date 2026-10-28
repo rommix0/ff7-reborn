@@ -378,7 +378,7 @@ the XM's compromises with the driver's own behaviour.
 - **Reverb:** SPU reverb with the song's preset, depth and sends (see "Reverb").
 - **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
   tables at `0x80049C44`/`0x80049E44` aren't read yet), and voice volume taken as volume × expression ÷ 127² ×
-  ½. There's no noise waveform.
+  ½.
 
 ### LFOs: vibrato, tremolo, pan
 
@@ -399,6 +399,10 @@ Read from the command handlers, the note path at `0x80031518` and `seq_channel_l
   - 0/1 square ±; 2/3 square 0/+; 4/5 square 0/−.
   - 6/7 sine, 39 steps per cycle (a 40-step sine missing its 4th step).
   - 8/9 triangle, 16 steps; 10/11 sine, 20 steps; 12 noise; 13–15 reuse 9/8/9.
+  - **12, noise:** 256 steps that repeat from the start (end marker `0, 0, −256`). It isn't a shape, so the
+    exporter copies it from the user's executable into the songs that use it (`lfo_noise`). Song 76 runs it as
+    vibrato on channels 1–4 (`B4 00 01 0C`, depth 60): the pitch jumps around −24…+45 cents every interrupt.
+    Song 9 selects it at depth 0, so it's silent there. The XM export still leaves it out.
   - Even numbers (and 14) fade in over four cycles at ¼, ½ and ¾ scale, then repeat the full-scale one.
 - **Vibrato depth:**
   - `+0x7C` = (d & 0x7F) × pitch × (1 if d's top bit is set, else 15/256) ÷ 128.
