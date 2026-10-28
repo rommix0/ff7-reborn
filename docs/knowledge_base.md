@@ -175,6 +175,16 @@ starts:
     change (the drum-kit path does the same per note).
   - **In the songs:** `AD` in 47 songs, `B1` in 35, `AF` in 7, `AE` in 5 and `B2` in 1: 476 overrides in all.
   - **Mode commands:** `B7`, `BB` and `BF` (the envelope modes) never occur.
+- **`F8 n`: overlap** (`0x80033128`).
+  - **Release rate:** sets the channel's release rate to `n`.
+  - **Second voice:** on first use, reserves a free SPU voice for the channel (`+0x28`, flag `0x200`). From then
+    on, every key-on toggles flag `0x400` in the voice update (`0x8002FA74`), so notes take turns between the two
+    voices. Each note rings on in its release while the next one starts, like a plucked string. With `0x200`
+    set, a program change keeps the release rate (the update mask `0x1BB80` leaves it out), and so does a
+    drum-kit note.
+  - **`F9` ends it** (`0x800331CC`): frees the second voice and takes the release rate from the instrument again.
+  - **In the songs:** 48 uses in 18 songs, almost all `F8 0C` (about a 2-second ring). Song 96's plucked part
+    (channels 11–13, instrument 21 with `AD 20` and `B1 33`) is one. `F9` is used once, in song 2.
 
 ### Timing, loops and MIDI export
 
@@ -301,7 +311,8 @@ the XM's compromises with the driver's own behaviour.
   - The SPU ADSR at 44.1 kHz, worked out per stretch between interrupts.
   - **Speed and output:** numpy mixes 8–12× faster than real time. The output matches the earlier browser version
     (commit 72514b8, the one checked by ear) to within 0.01 in peak and RMS.
-- **Articulation and envelopes follow the driver:** early key-off, slurs, and the channel's own envelope settings.
+- **Articulation and envelopes follow the driver:** early key-off, slurs, the channel's own envelope settings, and
+  `F8` overlap (the previous note rings on in its release on a second voice).
 - **Instrument bank 2:** song 82 gets it (`"bank": 2`). See the sound files table.
 - **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
   tables at `0x80049C44`/`0x80049E44` aren't read yet), and voice volume taken as volume × expression ÷ 127² ×
@@ -365,8 +376,8 @@ instruments sound like the game rather than General MIDI.
   - **Key-offs:** placed after the channel's other events, 2 ticks before the next note as the driver does. Where a
     note already starts in that row, the key-off is skipped, since the note retriggers anyway. Where the row's
     effect column is taken, it moves to the row's start, so bends keep their cells.
-  - **Not carried:** slurs (every note retriggers) and the channel envelope overrides, since an XM instrument has
-    one fixed envelope.
+  - **Not carried:** slurs (every note retriggers), the channel envelope overrides (an XM instrument has one fixed
+    envelope), and `F8` overlap (an XM channel plays one note at a time).
 - **Events:** each channel starts from the driver's defaults (instrument 5, octave 2, volume 100, `A3` 120).
   - Notes carry the voice volume: 64 × `A8` × `A3` ÷ 127². Global master volume and the pan law are left out.
   - Slides become per-tick volume/pan values.

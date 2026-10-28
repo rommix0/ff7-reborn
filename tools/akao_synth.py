@@ -67,7 +67,9 @@ class Channel:
     vibrato: list | None = None
     tremolo: list | None = None
     adsr: list = field(default_factory=lambda: [0, 0x0F, 0x0F, 0x7F, 0x06, 1, 3, 3])  # the instrument's, or AD/B1...
+    overlap: int | None = None  # F8's release rate while two voices take turns, None when off
     voice: Voice | None = None
+    tail: Voice | None = None  # the previous note, ringing on in its release while overlap is on
 
 
 ENVELOPE_FIELDS = {"ar": 0, "dr": 1, "sl": 2, "sr": 3, "rr": 4}  # cell field -> index in the ADSR bytes
@@ -142,6 +144,8 @@ class Synth:
         ch.inst = slot
         if slot in self.instruments:
             ch.adsr = list(self.instruments[slot].adsr)
+        if ch.overlap is not None:  # F8's release rate survives program changes
+            ch.adsr[4] = ch.overlap
 
     def seek(self, target: int):
         """Run the sequence silently up to the tick before `target`, so its state is right and notes on it play."""
@@ -150,7 +154,7 @@ class Synth:
         while self.tick < target - 1 and not self.ended:
             self.step_tick()
         for ch in self.channels:
-            ch.voice = None
+            ch.voice = ch.tail = None
         self.playing = playing
 
     def pitch_of(self, ch: Channel, key: int) -> float:
@@ -174,6 +178,11 @@ class Synth:
         if not inst:
             ch.voice = None
             return
+        if ch.overlap is not None and ch.voice:
+            # The new note takes the channel's other voice; this one goes on in its release.
+            if ch.voice.phase < RELEASE:
+                ch.voice.released_from, ch.voice.phase = ch.voice.phase, RELEASE
+            ch.tail = ch.voice
         pitch = self.pitch_of(ch, key)
         vibrato = self.start_lfo(ch.vibrato)
         if vibrato:
@@ -216,6 +225,10 @@ class Synth:
             for name in ("volume", "expression", "pan", "detune", "vibrato", "tremolo"):
                 if name in f:
                     setattr(ch, name, f[name])
+            if "overlap" in f:
+                ch.overlap = f["overlap"]
+                inst = self.instruments.get(ch.inst)
+                ch.adsr[4] = ch.overlap if ch.overlap is not None else inst.adsr[4] if inst else ch.adsr[4]
             for name, index in ENVELOPE_FIELDS.items():
                 if name in f:
                     ch.adsr[index] = f[name]
@@ -296,43 +309,43 @@ class Synth:
     def mix(self, out: np.ndarray):
         n = len(out)
         for c, ch in enumerate(self.channels):
-            v = ch.voice
-            if not v or v.phase == OFF:
-                continue
-            env = self.envelope(v, n)
-            pitch = min(0x3FFF, max(0.0, v.pitch + self.vibrato_offset(v)))
-            step = pitch / 4096 * SPU_HZ / self.rate
-            pcm, length = v.inst.pcm, len(v.inst.pcm)
-            pos = v.pos + step * np.arange(n)
-            index = pos.astype(np.int64)
-            frac = (pos - index).astype(np.float32)
-            nxt = index + 1
-            if v.inst.loops:
-                span = length - v.inst.loop_start
-                index = np.where(index >= length, v.inst.loop_start + (index - v.inst.loop_start) % span, index)
-                nxt = np.where(nxt >= length, v.inst.loop_start + (nxt - v.inst.loop_start) % span, nxt)
-                v.pos += step * n
-                if v.pos >= length:
-                    v.pos = v.inst.loop_start + (v.pos - v.inst.loop_start) % span
-                ended = None
-            else:
-                ended = index >= length
-                index, nxt = np.minimum(index, length - 1), np.minimum(nxt, length - 1)
-                v.pos += step * n
-                if v.pos >= length:
-                    v.phase = OFF
-            sample = pcm[index] + (pcm[nxt] - pcm[index]) * frac
-            if ended is not None:
-                sample[ended] = 0
-            if self.muted >> c & 1:
-                continue
-            gain = ch.volume * ch.expression / (127 * 127) * 0.5
-            if v.tremolo:
-                gain *= max(0.0, 1 + v.tremolo.depth / 128 * v.tremolo.value / 32768)
-            angle = ch.pan / 127 * math.pi / 2
-            voiced = sample * env * gain
-            out[:, 0] += voiced * math.cos(angle)
-            out[:, 1] += voiced * math.sin(angle)
+            for v in (ch.voice, ch.tail):
+                if not v or v.phase == OFF:
+                    continue
+                env = self.envelope(v, n)
+                pitch = min(0x3FFF, max(0.0, v.pitch + self.vibrato_offset(v)))
+                step = pitch / 4096 * SPU_HZ / self.rate
+                pcm, length = v.inst.pcm, len(v.inst.pcm)
+                pos = v.pos + step * np.arange(n)
+                index = pos.astype(np.int64)
+                frac = (pos - index).astype(np.float32)
+                nxt = index + 1
+                if v.inst.loops:
+                    span = length - v.inst.loop_start
+                    index = np.where(index >= length, v.inst.loop_start + (index - v.inst.loop_start) % span, index)
+                    nxt = np.where(nxt >= length, v.inst.loop_start + (nxt - v.inst.loop_start) % span, nxt)
+                    v.pos += step * n
+                    if v.pos >= length:
+                        v.pos = v.inst.loop_start + (v.pos - v.inst.loop_start) % span
+                    ended = None
+                else:
+                    ended = index >= length
+                    index, nxt = np.minimum(index, length - 1), np.minimum(nxt, length - 1)
+                    v.pos += step * n
+                    if v.pos >= length:
+                        v.phase = OFF
+                sample = pcm[index] + (pcm[nxt] - pcm[index]) * frac
+                if ended is not None:
+                    sample[ended] = 0
+                if self.muted >> c & 1:
+                    continue
+                gain = ch.volume * ch.expression / (127 * 127) * 0.5
+                if v.tremolo:
+                    gain *= max(0.0, 1 + v.tremolo.depth / 128 * v.tremolo.value / 32768)
+                angle = ch.pan / 127 * math.pi / 2
+                voiced = sample * env * gain
+                out[:, 0] += voiced * math.cos(angle)
+                out[:, 1] += voiced * math.sin(angle)
 
     def render(self, frames: int) -> np.ndarray:
         """The next `frames` stereo samples, (frames, 2) float32."""

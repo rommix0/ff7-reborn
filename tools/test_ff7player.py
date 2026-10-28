@@ -21,6 +21,7 @@ set_cell(p, 24, 1, {})
 assert p["cells"] == [[0, 0, {"note": 62, "len": 12}]]
 assert cell_text({"note": 36, "len": None}, 243.857, 48) == "C-2"
 assert cell_text({"slur": True, "note": 38, "len": 4, "ar": 40, "rr": 18}, 243.857, 48) == "~D-2 ar40 rr18"
+assert cell_text({"overlap": 12}, 243.857, 48) == "o12" and cell_text({"overlap": None}, 243.857, 48) == "o-"
 assert cell_text({"note": 62, "inst": 3, "volume": 90, "tempo": 0x6000}, 243.857, 48) == "D-4 i3 v90 T114"
 
 # Bars: a new bar goes after the chosen one (empty in its time signature, or a copy). Inserting before the loop

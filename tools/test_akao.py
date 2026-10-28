@@ -129,4 +129,8 @@ events, *_ = play_channel(one_channel(bytes([0xA1, 0x03, 0xAD, 0x28, 0xAE, 0x0E,
                                              0x02, 0xA0])), 0x16)
 assert [(e[1], e[2]) for e in events if e[1] in ("ar", "dr", "sl", "sr", "rr")] == [
     ("ar", 0x28), ("dr", 0x0E), ("sl", 0x05), ("sr", 0x40), ("rr", 0x12)]
+# F8 n: overlap mode. Each key-on alternates between two voices, so a note rings on in its release while the next
+# one starts; n is the release rate, kept across program changes. F9 ends it (the release rate is the instrument's).
+events, *_ = play_channel(one_channel(bytes([0xF8, 0x0C, 0x02, 0xF9, 0x02, 0xA0])), 0x16)
+assert at(events, "overlap") == [(0, 0x0C), (48, None)]
 print("ok")

@@ -228,7 +228,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     the sounding voice instead of restarting it, ("program", n), ("volume", n), ("expression", n),
     ("pan", n), ("tempo", t), ("detune", d), ("bend", ticks, semitones), ("vibrato" / "tremolo", delay, rate,
     waveform, depth), ("meter", ticks per beat, beats per bar), and the channel's own envelope settings ("ar", "dr",
-    "sl", "sr", "rr", n) until the next program change. Volume and pan slides become one event per tick that changes the value. Detune d scales the
+    "sl", "sr", "rr", n) until the next program change, ("overlap", n) for F8 (two voices taking turns so each
+    note rings on in its release, release rate n kept across program changes) and ("overlap", None) for F9. Volume and pan slides become one event per tick that changes the value. Detune d scales the
     pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0); a bend slides the pitch linearly in frequency from the held
     note to `semitones` above it. An LFO event gives the settings from then on, depth 0 while it is off.
     Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
@@ -342,6 +343,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "meter", args[0], args[1]])
             case 0xAD | 0xAE | 0xAF | 0xB1 | 0xB2:  # the channel's own envelope, until the next program change
                 events.append([tick, {0xAD: "ar", 0xAE: "dr", 0xAF: "sl", 0xB1: "sr", 0xB2: "rr"}[b], args[0]])
+            case 0xF8 | 0xF9:  # overlap on (release rate) / off
+                events.append([tick, "overlap", args[0] if b == 0xF8 else None])
             case 0xCC:  # slur on; the look-ahead turns it off at a CD
                 mode = 1
             case 0xD0:  # full-length notes; the look-ahead turns it off at a D1

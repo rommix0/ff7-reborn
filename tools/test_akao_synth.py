@@ -80,6 +80,18 @@ first = s.channels[0].voice
 s.render(frames_for(6))
 assert s.channels[0].voice is first and first.key == 62 and first.phase < 3  # not released between the two
 
+# Overlap (F8): the previous note keeps ringing in its release on the channel's second voice while the next starts,
+# with the given release rate, which an instrument change doesn't reset. Without it the new note cuts the old.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "overlap": 0x0C, "note": 60, "len": 4}],
+                [8, 0, {"inst": 0, "note": 62, "len": 4}]]))
+s.render(frames_for(9))
+ch = s.channels[0]
+assert ch.adsr[4] == 0x0C and ch.voice.key == 62 and ch.tail.key == 60 and ch.tail.phase == 3
+assert ch.tail.level > 0x1000  # release rate 0x0C rings on for seconds
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 4}], [8, 0, {"note": 62, "len": 4}]]))
+s.render(frames_for(9))
+assert s.channels[0].tail is None
+
 # A song marked "bank": 2 gets the second bank in slots 53 and up, with nothing of bank 1 left there.
 s = Synth({**BANK, 53: BANK[0], 60: BANK[0]}, {54: BANK[0]}, RATE)
 s.load({**song([]), "bank": 2})

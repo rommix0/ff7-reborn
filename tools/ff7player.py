@@ -19,7 +19,7 @@ from tkinter import messagebox, simpledialog, ttk
 NOTE_NAMES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
 LIST_FIELDS = {"bend": 2, "vibrato": 4, "tremolo": 4}  # fields that hold several numbers
 FIELDS = ["note", "len", "slur", "inst", "volume", "expression", "pan", "detune", "tempo", "bend", "vibrato", "tremolo",
-          "ar", "dr", "sl", "sr", "rr"]
+          "ar", "dr", "sl", "sr", "rr", "overlap"]
 
 
 def note_name(key: int) -> str:
@@ -52,6 +52,8 @@ def cell_text(f: dict, timer_hz: float, ticks_per_quarter: int) -> str:
     for name, letter in (("vibrato", "V"), ("tremolo", "R")):
         if name in f:
             parts.append(f"{letter}{f[name][3] or '-'}")
+    if "overlap" in f:
+        parts.append(f"o{'-' if f['overlap'] is None else f['overlap']}")
     if "tempo" in f:
         parts.append(f"T{bpm(f['tempo'], timer_hz, ticks_per_quarter)}")
     return " ".join(parts)
@@ -461,6 +463,8 @@ class CellDialog:
         rows = [("tick", tick)] + [(name, fields.get(name)) for name in FIELDS]
         if "note" in fields and fields.get("len") is None:
             rows[FIELDS.index("len") + 1] = ("len", "hold")  # held until the channel's next note
+        if "overlap" in fields and fields["overlap"] is None:
+            rows[FIELDS.index("overlap") + 1] = ("overlap", "off")
         for r, (name, value) in enumerate(rows):
             ttk.Label(top, text=name).grid(row=r, column=0, sticky="e", padx=6, pady=2)
             entry = ttk.Entry(top, width=24)
@@ -470,7 +474,7 @@ class CellDialog:
                 entry.insert(0, text)
             entry.grid(row=r, column=1, padx=6, pady=2)
             self.entries[name] = entry
-        hint = "note: C-4 / C#4 · len: ticks, or hold · slur: 1 = no restart · ar…rr: envelope · bend: ticks, semitones · vibrato/tremolo: delay, rate, waveform, depth"
+        hint = "note: C-4 / C#4 · len: ticks, or hold · slur: 1 = no restart · ar…rr: envelope · overlap: release rate, or off · bend: ticks, semitones · vibrato/tremolo: delay, rate, waveform, depth"
         ttk.Label(top, text=hint, foreground="#666").grid(row=len(rows), column=0, columnspan=2, padx=6)
         buttons = ttk.Frame(top)
         buttons.grid(row=len(rows) + 1, column=0, columnspan=2, pady=6)
@@ -494,6 +498,8 @@ class CellDialog:
                 if name == "note":
                     fields[name] = parse_note(text)
                 elif name == "len" and text.lower() == "hold":
+                    fields[name] = None
+                elif name == "overlap" and text.lower() == "off":
                     fields[name] = None
                 elif name == "slur":
                     if int(text):
