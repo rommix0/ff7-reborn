@@ -88,6 +88,3 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 
 LFO details (waveform shapes, depth scaling) are in `knowledge_base.md`, "LFOs: vibrato, tremolo, pan".
 
-## Not carried yet
-
-The SPU's own interpolation (the player uses linear interpolation).

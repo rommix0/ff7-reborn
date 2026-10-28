@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from akao_synth import Instrument, Reverb, Synth, signed, timeline
+from akao_synth import Instrument, Reverb, Synth, gaussian_weights, signed, timeline
 
 RATE = 44100
 TIMER_HZ = 33_868_800 / 8 / 0x43D1
@@ -204,6 +204,13 @@ full = TONE.max() * 127 * 127 * 127 / 128 / 0x4000
 assert abs(peaks[0][0] / (full * 32640 / 32768) - 1) < 0.01 and abs(peaks[0][1] / peaks[0][0] - 128 / 32640) < 1e-3
 assert abs(peaks[64][0] / (full * 16256 / 32768) - 1) < 0.01 and abs(peaks[64][1] / peaks[64][0] - 16512 / 16256) < 1e-3
 assert abs(peaks[127][1] / (full * 32640 / 32768) - 1) < 0.01
+
+# Gaussian interpolation: every step's four weights add up to the hardware's 0x7F80, the curve is symmetric, and
+# it smooths: a signal flipping every sample comes out under half as loud, where linear interpolation passes it.
+w = gaussian_weights()
+assert w.shape == (256, 4) and np.allclose(w.sum(axis=1), 0x7F80 / 0x8000)
+assert np.allclose(w[::-1, ::-1], w) and w[0].argmax() == 1 and w[255].argmax() == 2
+assert abs(w[0] @ [-1, 1, -1, 1]) < 0.45
 
 # Muted channels are silent; the stereo output is (frames, 2).
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 192}]]))

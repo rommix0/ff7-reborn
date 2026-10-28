@@ -391,7 +391,17 @@ the XM's compromises with the driver's own behaviour.
   console clips a loud mix just as the player does: 10 of 98 songs touch full scale in their first 15 s, at most
   0.031% of samples (song 92). Before this, the player used equal-power panning and half the level, so songs now
   play 2.7 dB louder at the centre and 5.8 dB louder panned hard.
-- **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian).
+- **Interpolation:** the SPU's 4-point Gaussian (psx-spx): each output sample weighs the sample before the
+  position, the one at it and the two after, by one of 256 steps between samples.
+  - **The weights:** psx-spx lists the hardware's 512-entry table but gives no formula, so we build our own curve
+    instead of copying it. A Gaussian (σ 0.85 samples) under a (1 − (d/2)²)³ window, scaled so each step's four
+    weights add up to `0x7F80` as the hardware's do. It comes within 17 of the table's 32,768ths, about −63 dB on
+    white noise. A degree-14 polynomial would match it to ±1, but its coefficients would just be the table
+    re-encoded.
+  - **Sound:** it smooths. A signal flipping every sample comes out at 0.4, where linear interpolation passes it
+    whole, so high notes and samples pitched far up sound duller than before.
+  - **Cost:** 4 taps instead of 2, so rendering takes 22–30% of real time on our machine, up from 15–18%. The
+    player has no dropouts.
 
 ### LFOs: vibrato, tremolo, pan
 

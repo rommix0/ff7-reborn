@@ -116,6 +116,22 @@ def timeline(song: dict) -> tuple[list[int], int, list]:
     return starts, t, events
 
 
+def gaussian_weights() -> np.ndarray:
+    """(256, 4): the SPU's 4-point interpolation weights for each step between two samples, applied to the sample
+    before the position, at it, and the two after.
+
+    psx-spx documents the hardware's 512-entry table but no formula. A Gaussian (sigma 0.85 samples) under a
+    (1 - (d/2)^2)^3 window, scaled so each step's weights add up to 0x7F80 as the hardware's do, comes within 17 of
+    its 32,768ths, which differs from it by about -63 dB on white noise.
+    """
+    f = (np.arange(256) + 0.5) / 256  # the middle of each step
+
+    def kernel(d):
+        return np.exp(-d ** 2 / (2 * 0.85 ** 2)) * (1 - (d / 2) ** 2) ** 3
+    weights = np.column_stack([kernel(1 + f), kernel(f), kernel(1 - f), kernel(2 - f)])
+    return weights * (0x7F80 / 0x8000 / weights.sum(axis=1, keepdims=True))
+
+
 def signed(register: int) -> float:
     """A reverb volume register as a fraction, 0x8000 = -1."""
     return (register - 0x10000 if register & 0x8000 else register) / 0x8000
@@ -216,6 +232,7 @@ class Reverb:
 class Synth:
     def __init__(self, bank: dict, bank2: dict | None = None, rate: int = SPU_HZ):
         self.bank, self.bank2, self.rate = bank, bank2 or {}, rate
+        self.gauss = gaussian_weights()
         self.instruments = bank
         self.song = None
         self.tick, self.tempo = -1, 0
@@ -492,24 +509,20 @@ class Synth:
                 pcm, length = v.inst.pcm, len(v.inst.pcm)
                 pos = v.pos + np.cumsum(steps) - steps
                 index = pos.astype(np.int64)
-                frac = (pos - index).astype(np.float32)
-                nxt = index + 1
+                step = ((pos - index) * 256).astype(np.int64)  # the SPU interpolates in 256 steps per sample
+                taps = index[:, None] + np.arange(-1, 3)  # the samples before, at, and the two after the position
                 v.pos += float(steps.sum())
                 if v.inst.loops:
                     span = length - v.inst.loop_start
-                    index = np.where(index >= length, v.inst.loop_start + (index - v.inst.loop_start) % span, index)
-                    nxt = np.where(nxt >= length, v.inst.loop_start + (nxt - v.inst.loop_start) % span, nxt)
+                    taps = np.where(taps >= length, v.inst.loop_start + (taps - v.inst.loop_start) % span, taps)
                     if v.pos >= length:
                         v.pos = v.inst.loop_start + (v.pos - v.inst.loop_start) % span
-                    ended = None
                 else:
-                    ended = index >= length
-                    index, nxt = np.minimum(index, length - 1), np.minimum(nxt, length - 1)
                     if v.pos >= length:
                         v.phase = OFF
-                sample = pcm[index] + (pcm[nxt] - pcm[index]) * frac
-                if ended is not None:
-                    sample[ended] = 0
+                # Before the start (the decoder's history begins at zero) and past a one-shot sample's end: silence.
+                values = np.where((taps < 0) | (taps >= length), 0, pcm[np.clip(taps, 0, length - 1)])
+                sample = (values * self.gauss[step]).sum(axis=1)
                 if v is ch.voice:
                     outputs[c] = sample * env
                 if self.muted >> c & 1:
