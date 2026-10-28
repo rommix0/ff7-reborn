@@ -135,8 +135,11 @@ starts:
 - **Structure quirks:**
   - Channels may fall through into the next channel's bytes (shared tails).
   - Some songs leave trailing bytes after the last channel.
-- **Behaviour notes:** "loop point", "repeat count", "loop back" and "jump" are inferred from the pointer
-  handling and from the `C8`…`C9` pairing seen in the data. Only `A0` and `A5`–`A8` have been read in detail.
+- **Behaviour notes:**
+  - **Read in detail and confirmed by the MIDI loop check (below):** `A0`, `A1`, `A2`, `A5`–`A7`, `C8`–`CA`, `DC`, `E8`,
+    `EE` and `F0`.
+  - **Read but not fully confirmed:** `A8`/`AA` store volume- and pan-like values.
+  - **Not studied yet:** the rest.
 
 ### Timing, loops and MIDI export
 
