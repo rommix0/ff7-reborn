@@ -1,6 +1,6 @@
 import struct
 
-from akao import blocks, channel_starts, disassemble, play_channel, play_song, song_to_midi
+from akao import bar_lines, blocks, channel_starts, disassemble, play_channel, play_song, song_to_midi
 
 # Two channels: ch0 = octave, note C/len0, tie, rest, loop-forever; ch1 = volume, end.
 ch0 = bytes([0xA5, 0x04, 0x00, 0x84, 0x8F, 0xCA])
@@ -75,6 +75,15 @@ channels, loop_start, loop_end, loop_lengths, runaway = play_song(two)
 assert (loop_start, loop_end, loop_lengths, runaway) == (48, 144, [96, 96], False)
 assert [e[0] for e in channels[0] if e[1] == "note"] == [0, 96]  # second pass of channel 0's loop
 assert [(e[0], e[3]) for e in channels[1] if e[1] == "note"] == [(0, 48), (48, 96)]
+# With a time signature the loop moves to the next bar line: channel 0 sets 2/4 (96-tick bars), so the loop that
+# could start at tick 48 starts at 96 instead, and runs one period (96 ticks) from there.
+ch0 = bytes([0xFD, 0x30, 0x02, 0x01, 0xEE, 0xFC, 0xFF])  # 2/4, note C half, EE -4: back to the note
+table = struct.pack("<IHH", 0b11, 2, len(ch0))
+two = b"AKAO" + struct.pack("<HHH", 9, 8 + len(ch0) + len(ch1), 0) + bytes(6) + table + ch0 + ch1
+channels, loop_start, loop_end, loop_lengths, runaway = play_song(two)
+assert (loop_start, loop_end) == (96, 192)
+assert [(e[0], e[3]) for e in channels[1] if e[1] == "note"] == [(0, 48), (48, 96), (144, 48)]
+assert bar_lines([(0, 192), (2, 144), (146, 120)], 400) == [0, 2, 146, 266, 386]  # FD restarts the bar count
 
 # Pitch: C0 transposes keys, D8 sets detune, and A4 n s bends by s semitones over n ticks, starting at the next
 # tie (one-shot). Song 7 channel 16 does exactly this: 2-tick note, A4 04 01, 10-tick tie.
@@ -91,4 +100,8 @@ events, *_ = play_channel(one_channel(bytes([0xB4, 0x60, 0x01, 0x06, 0xB5, 0x0A,
                                              0xB8, 0x00, 0x03, 0x05, 0xB9, 0x78, 0x02, 0xA0])), 0x16)
 assert at(events, "vibrato") == [(0, 0x60, 1, 6, 0), (0, 0x60, 1, 6, 10), (48, 0x60, 1, 6, 0), (48, 0, 256, 7, 10)]
 assert at(events, "tremolo") == [(48, 0, 3, 5, 0), (48, 0, 3, 5, 0x78)]
+
+# FD t n: time signature, n beats of t ticks; the driver restarts its beat count there, so it marks a bar line.
+events, *_ = play_channel(one_channel(bytes([0xFD, 0x18, 0x06, 0x01, 0xFD, 0x18, 0x05, 0xA0])), 0x16)
+assert at(events, "meter") == [(0, 24, 6), (96, 24, 5)]
 print("ok")

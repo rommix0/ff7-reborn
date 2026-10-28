@@ -175,7 +175,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
 
     Events are [tick, kind, ...]: ("note", key, ticks), ("program", n), ("volume", n), ("expression", n),
     ("pan", n), ("tempo", t), ("detune", d), ("bend", ticks, semitones), ("vibrato" / "tremolo", delay, rate,
-    waveform, depth). Volume and pan slides become one event per tick that changes the value. Detune d scales the
+    waveform, depth), ("meter", ticks per beat, beats per bar). Volume and pan slides become one event per tick that changes the value. Detune d scales the
     pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0); a bend slides the pitch linearly in frequency from the held
     note to `semitones` above it. An LFO event gives the settings from then on, depth 0 while it is off.
     Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
@@ -273,6 +273,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                         lfo[3] = False
                 delay, rate, wave, on, depth = lfo
                 events.append([tick, kind, delay, rate, wave, depth if on else 0])
+            case 0xFD:  # time signature; the driver restarts its beat and bar counting here
+                events.append([tick, "meter", args[0], args[1]])
             case 0xA3:  # multiplier on the channel volume: voice volume = A8 volume * A3 / 128
                 events.append([tick, "expression", args[0]])
             case 0xDC:  # fixed length = last length + signed delta, 0 turns it off
@@ -343,13 +345,26 @@ def midi_track(timed: list[tuple[int, int, bytes]]) -> bytes:
     return b"MTrk" + struct.pack(">I", len(data)) + data
 
 
+def bar_lines(meters: list[tuple[int, int]], end: int) -> list[int]:
+    """Ticks where bars start before `end`, from (tick, ticks per bar) time signatures. Bars are 4/4 until the first
+    one; each restarts the count where it stands, cutting the bar before it short."""
+    bars, length, pos = [], 192, 0
+    for tick, new in sorted(m for m in meters if m[0] < end) + [(end, length)]:
+        while pos < tick:
+            bars.append(pos)
+            pos += length
+        pos, length = tick, new
+    return bars
+
+
 def play_song(block: bytes):
     """Play every channel through the song's common loop.
 
     Returns (events per channel, loop start, loop end, each looping channel's loop length, any channel ran away).
     Channels loop on their own in the driver, and some start their loop later than others (song 7: three channels
     two bars later). The song as a whole repeats from the latest channel loop start, every lcm(loop lengths)
-    ticks, so channels that loop earlier are played on until that point and everything is cut there.
+    ticks, so channels that loop earlier are played on until that point and everything is cut there. Once every
+    channel loops, any later point repeats too: with time signatures (FD), the loop starts on the next bar line.
     """
     starts = channel_starts(block)
     first = [play_channel(block, start) for start in starts]
@@ -358,6 +373,9 @@ def play_song(block: bytes):
     if not loops or not all(length for _, length in loops):
         return [events for events, _, _ in first], None, max(end for *_, end in first), [], runaway
     loop_start = max(loop for loop, _ in loops)
+    meters = [(e[0], e[2] * e[3]) for events, _, _ in first for e in events if e[1] == "meter"]
+    if meters:
+        loop_start = next(bar for bar in bar_lines(meters, MAX_TICKS) if bar >= loop_start)
     lengths = [length for _, length in loops]
     period = math.lcm(*lengths)
     # ponytail: a song whose loops don't share a short common period would get a huge file; none on disc does.

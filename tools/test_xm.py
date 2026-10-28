@@ -10,7 +10,7 @@ def walk(xm: bytes) -> dict:
     assert xm[:17] == b"Extended Module: " and xm[37] == 0x1A
     header_size = struct.unpack_from("<I", xm, 60)[0]
     song_len, restart, channels, n_pat, n_inst, flags, speed, bpm = struct.unpack_from("<8H", xm, 64)
-    pos, rows, notes, effects, volumes = 60 + header_size, 0, [], [], []
+    pos, rows, notes, effects, volumes, pattern_rows = 60 + header_size, 0, [], [], [], []
     for _ in range(n_pat):
         plen, _, n_rows, size = struct.unpack_from("<IBHH", xm, pos)
         data, pos, i = xm[pos + plen:pos + plen + size], pos + plen + size, 0
@@ -31,6 +31,7 @@ def walk(xm: bytes) -> dict:
                 effects.append((rows + cell_no // channels, cell_no % channels, fields["fx"], fields.get("param", 0)))
         assert i == size, "pattern data must hold exactly rows x channels cells"
         rows += n_rows
+        pattern_rows.append(n_rows)
     for _ in range(n_inst):
         isize, n_samples = struct.unpack_from("<I", xm, pos)[0], struct.unpack_from("<H", xm, pos + 27)[0]
         shdr = struct.unpack_from("<I", xm, pos + 29)[0]
@@ -45,7 +46,7 @@ def walk(xm: bytes) -> dict:
     assert pos == len(xm), f"{len(xm) - pos} bytes unaccounted for"
     return {"channels": channels, "patterns": n_pat, "restart": restart, "instruments": n_inst, "rows": rows,
             "speed": speed, "bpm": bpm, "notes": notes, "effects": effects,
-            "volumes": volumes}
+            "volumes": volumes, "pattern_rows": pattern_rows}
 
 
 if __name__ == "__main__":
@@ -144,4 +145,14 @@ if __name__ == "__main__":
     # gets the average, about half volume, rather than an aliased wobble.
     levels = volume_curve(lfo_song(bytes([0xB8, 0x00, 0x03, 0x05, 0xB9, 0x78])))
     assert all(25 <= v <= 42 for v in levels[1:]), levels
+
+    # Patterns follow the bars that FD time signatures set, like song 76's alternating 6/8 and 5/8: a 1/4 pickup
+    # bar, then a loop of two 6/8 (144 ticks) + 5/8 (120 ticks) pairs. The pickup is cut off as its own pattern
+    # because the loop starts after it; then each pattern holds a pair, which fits in two bars of 4/4 (384 ticks).
+    pair = bytes([0xFD, 0x18, 0x06, 0xA2, 0x90, 0x00,             # 6/8, note C for 144 ticks
+                  0xFD, 0x18, 0x05, 0xA2, 0x78, 0x00])            # 5/8, note C for 120 ticks
+    seq = bytes([0xFD, 0x30, 0x01, 0x91]) + pair + pair + bytes([0xEE, 0xE5, 0xFF])  # 1/4 rest; EE -27: to pair 1
+    song = b"AKAO" + struct.pack("<HHH", 1, 6 + len(seq), 0) + bytes(6) + struct.pack("<IH", 1, 0) + seq
+    info = walk(song_to_xm(song, bank, "test")[0])
+    assert info["pattern_rows"] == [24, 132, 132] and info["restart"] == 1, info["pattern_rows"]
     print("ok")

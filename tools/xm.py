@@ -5,8 +5,9 @@ usage: python tools/xm.py <file|assets dir> <SOUND dir> <out dir>
 Grid: one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM. Songs without pitch bends use speed 1
 (rows of 2 AKAO ticks, 24 per quarter note). Portamento only runs on a row's later ticks, so songs with bends use
 speed 2 (rows of 4 AKAO ticks; notes on the second XM tick get note delay ED1, so placement stays 2-tick exact).
-Patterns are two bars either way. Event positions are rounded to the grid, never lengths, so nothing drifts. The last channel carries tempo changes. The song's endless loop becomes the XM
-restart point.
+Patterns hold whole bars of the song's time signatures (FD), as many as fit in two bars of 4/4, and one starts at
+the loop. Event positions are rounded to the grid, never lengths, so nothing drifts. The last channel carries
+tempo changes. The song's endless loop becomes the XM restart point.
 
 Vibrato and tremolo are baked per row (pitch: extra-fine portamento X1x/X2x, or E1x/E2x for big steps; tremolo:
 the volume column), because FT2's own 4xy can't go as shallow as the game's usual vibrato and 4xy/7xy don't run
@@ -363,10 +364,16 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections
                         put(row * row_ticks, ch, fx=0x21, param=(0x10 if step > 0 else 0x20) | abs(step))
                     done += step
 
-    # Patterns break at the loop start so the restart position can point at it.
+    # Patterns hold whole bars and break at the loop start so the restart position can point at it. Songs without
+    # a time signature count 4/4 bars from the loop.
+    meters = [(e[0], e[2] * e[3]) for events in channels for e in events if e[1] == "meter"]
+    starts = set(akao.bar_lines(meters or [(loop_start or 0, BAR_TICKS)], end_tick)) | {loop_start or 0}
+    tick_bounds = [0]
+    for bar, nxt in zip(sorted(starts), sorted(starts)[1:] + [end_tick]):
+        if bar and (bar == loop_start or nxt - tick_bounds[-1] > 2 * BAR_TICKS):
+            tick_bounds.append(bar)
+    bounds = sorted({round(t / AKAO_PER_XM) // speed for t in tick_bounds} - {rows_total} | {0})
     loop_row = round(loop_start / AKAO_PER_XM) // speed if loop_start is not None else 0
-    rows_per_pattern = 2 * BAR_TICKS // row_ticks
-    bounds = list(range(0, loop_row, rows_per_pattern)) + list(range(loop_row, rows_total, rows_per_pattern))
     patterns = []
     for start, stop in zip(bounds, bounds[1:] + [rows_total]):
         data = bytearray()
@@ -380,8 +387,8 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections
                 data += bytes(v for v in cell if v)
         patterns.append(struct.pack("<IBHH", 9, 0, stop - start, len(data)) + data)
     restart = bounds.index(loop_row) if loop_start is not None else 0
-    if len(patterns) > 256:
-        raise ValueError(f"{title}: {len(patterns)} patterns, XM allows 256")
+    if len(patterns) > 256 or max(b - a for a, b in zip(bounds, bounds[1:] + [rows_total])) > 256:
+        raise ValueError(f"{title}: XM allows 256 patterns of up to 256 rows")
 
     header = (b"Extended Module: " + title.encode()[:20].ljust(20) + b"\x1a" + b"ff7_psx_recovery".ljust(20)
               + struct.pack("<HI", 0x0104, 276)

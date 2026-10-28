@@ -140,7 +140,16 @@ starts:
     `EE` and `F0`.
   - **Read in detail (volume, drums and pitch, below):** `A3`, `A4`, `A8`, `A9`, `AA`, `AB`, `C0`, `C1`, `D8`, `D9`,
     `DA`, `EC` and `ED`.
+  - **Read in detail (LFOs and bars, below):** `B4`–`B6`, `B8`–`BA`, `BC`, `BD`, `DD`, `DE`, `FD` and `FE`.
   - **Not studied yet:** the rest.
+- **`FD t n`: time signature** (`0x80033548`). It writes ticks per beat (`+0x5A`) and beats per bar (`+0x56`) into
+  the song state and resets the beat and tick counters, so the bar starts where it stands.
+  - **In the songs:** `30 04` (4/4) in 132 places, also 3/4, 2/4, 5/4–8/4 and 3/8–10/8 (`18 n`). Song 76
+    alternates three bars of 6/8 with one of 5/8; song 71 runs through 6/4, 7/4 and 8/4. Songs 1, 66 and 89 have
+    none.
+  - **Lead-ins:** most songs open with a 1–4 tick rest, then `FD` + `FE 01 00`, so their bar lines sit a few ticks
+    after tick 0. Some open with a pickup bar (song 47: `FD 30 01`).
+- **`FE lo hi`: bar number** (`0x80033588`), a `u16` at `+0x5E`. Usually `01 00` at the start of bar 1.
 
 ### Timing, loops and MIDI export
 
@@ -285,7 +294,11 @@ Read from the command handlers, the note path at `0x80031518` and `seq_channel_l
 `python tools/xm.py <file|dir> <SOUND dir> <out>` writes FastTracker 2 modules that play the game's own samples, so
 instruments sound like the game rather than General MIDI.
 - **Grid:** one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM (56–191, inside XM's 32–255).
-  Patterns are two bars of 4/4 (at most 85 per song). Positions round to the grid (±1 AKAO tick), never lengths.
+  Patterns hold whole bars of the song's `FD` time signatures, as many as fit in two bars of 4/4, and one starts
+  at the loop. Positions round to the grid (±1 AKAO tick), never lengths.
+  - **Loops start on a bar line:** once every channel is looping, the song repeats from any later point, so the
+    loop moves to the next bar line. That moved 26 songs, and all 26 were checked to be seamless (the moved stretch
+    repeats exactly one period later).
   - **Songs without bends (83):** speed 1, with rows of 2 AKAO ticks.
   - **Songs with bends (15):** speed 2, with rows of 4 AKAO ticks. Portamento only acts on a row's later XM ticks,
     and notes on the second XM tick get note delay `ED1`.
