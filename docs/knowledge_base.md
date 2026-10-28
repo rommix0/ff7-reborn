@@ -275,6 +275,8 @@ instruments sound like the game rather than General MIDI.
   - Bends: portamento `1xx`/`2xx` (16 units per semitone) on each row's second XM tick, stepping to where the
     driver's frequency-linear slide is by the end of that tick. A bend stops at the next note.
   - The MIDI export doesn't carry bends or detune yet.
+- **Listening check (2026-10-28):** instruments, volume balance, drum kits, the song loop (song 7), bends
+  and detune all sound right. Vibrato/tremolo (`B4`/`B5`/`B8`/`B9`) and reverb aren't exported yet.
   - `AA` becomes `8xx` panning.
   - A note that doesn't run into the next one gets a key-off.
   - Tempo changes go on an extra control channel.
