@@ -181,6 +181,31 @@ Check: in all **98 songs, every looping channel repeats the same length**, or a 
 one-bar drum loop. Echo channels may start a few ticks late. Before `F0` was handled, 5 songs failed this check,
 which is how its meaning was confirmed. No channel runs past 4,000 bars.
 
+### Tracker export (XM)
+
+`python tools/xm.py <file|dir> <SOUND dir> <out>` writes FastTracker 2 modules that play the game's own samples, so
+instruments sound like the game rather than General MIDI.
+- **Grid:** one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM (56–191, inside XM's 32–255). Speed 1
+  gives 24 rows per quarter note in 256-row patterns (at most 64 patterns per song). Positions round to the grid
+  (±1 AKAO tick), never lengths.
+- **Collisions:** 15 events in all 98 songs still land on an occupied cell and are dropped. Colliding 1-tick notes
+  move to the next row instead.
+- **Instruments:** one sample per AKAO instrument, 16-bit with its loop.
+  - **Tuning:** relative note + finetune = 12·log2(44,100 · pitch[C] / 0x1000 / 8,363) − 12·(6 − base − 4), where
+    `base` shifts songs whose octaves exceed XM's 8.
+  - **Why one value per sample is enough:** the pitch tables are equal-tempered to within 0.86 cents.
+  - **Bank choice:** slots in both banks use bank 1, since which songs expect bank 2 isn't known yet.
+- **Events:**
+  - Notes carry the channel volume (`A8` → 0–64).
+  - `AA` becomes `8xx` panning.
+  - A note that doesn't run into the next one gets a key-off.
+  - Tempo changes go on an extra control channel.
+  - The endless loop is the XM restart position, on a pattern boundary.
+- **Approximation:** one fixed volume fadeout after key-off for every instrument. The AKAO ADSR bytes
+  (`INSTR.DAT +0x08`) aren't decoded yet, and decoding them is the next step for closer instrument sound.
+- **Check:** `python tools/test_xm.py assets/xm/*.xm` parses each file back and requires every byte to be
+  accounted for.
+
 Sound files (checked against our disc):
 
 | File | Size | Layout |

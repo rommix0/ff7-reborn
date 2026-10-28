@@ -34,6 +34,13 @@ python tools/akao.py midi assets assets/midi
 `check` parses every song and sound effect it finds and reports anything that doesn't parse (~3 minutes for three
 discs). `midi` writes each distinct song as `song_<id>.mid`, with tempo and `loopStart`/`loopEnd` markers.
 
+Export the songs as FastTracker 2 modules that use the game's own instrument samples (open them in OpenMPT or
+MilkyTracker):
+
+```bash
+python tools/xm.py assets "assets/Final Fantasy VII (USA) (Disc 1)/SOUND" assets/xm
+```
+
 Convert the instrument samples to WAV (with loop points) and a CSV of their settings:
 
 ```bash
