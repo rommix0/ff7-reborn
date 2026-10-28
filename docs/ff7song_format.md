@@ -87,6 +87,7 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 | `adsr_reset` | `true` (`B3`): the channel's envelope goes back to its instrument's |
 | `sr_mode` | `BB`: the sustain mode (1 linear up, 3 linear down, 5 exponential up, 7 exponential down), until the next `inst` |
 | `pitch_follow` | `true` (`D4`): the channel plays at the previous channel's pitch, plus its own vibrato; `false` (`D5`) ends it |
+| `volume_follow` | `true` (`D6`): the channel's volume is the previous channel's pitch register × 2 × `expression` ÷ 128 in place of `volume` × `expression`. Past the SPU's 15-bit volume it wraps round, as on the hardware; `false` (`D7`) ends it |
 | `ar`, `dr`, `sl`, `sr`, `rr` | The channel's own attack rate, decay rate, sustain level, sustain rate, release rate (`AD`, `AE`, `AF`, `B1`, `B2`; the same values as the bank's ADSR bytes), until the next `inst`. They reach a voice that is already sounding |
 | `volume`, `expression` | `A8` volume and `A3` multiplier, 0–127; the voice plays at volume × expression × 127/128 (the driver's master volume) ÷ 16,384 of full scale. Slides arrive as one value per tick |
 | `pan` | 0–127, 64 = centre. Linear, like the driver's tables: left (32,640 − 256 × pan) ÷ 32,768, right (128 + 256 × pan) ÷ 32,768 |

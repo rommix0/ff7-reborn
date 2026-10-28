@@ -404,10 +404,12 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "sr_mode", args[0]])
             case 0xD4 | 0xD5:  # pitch from the previous channel's voice, plus this channel's own vibrato
                 events.append([tick, "pitch_follow", b == 0xD4])
+            case 0xD6 | 0xD7:  # volume from the previous channel's pitch register: 2 x register x A3 / 128
+                events.append([tick, "volume_follow", b == 0xD6])
             case 0xCB:  # all off: noise, FM (and its countdown), reverb, D4/D6, slur and full length
                 fm, fm_due, mode = False, None, mode & ~5
                 events += [[tick, "noise", False], [tick, "fm", False], [tick, "reverb", False],
-                           [tick, "pitch_follow", False]]
+                           [tick, "pitch_follow", False], [tick, "volume_follow", False]]
             case 0xDB:  # glide off
                 glide = 0
             case 0xF4:  # layer: instrument a as usual, instrument b on a second voice playing the same notes

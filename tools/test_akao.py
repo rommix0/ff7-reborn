@@ -168,7 +168,10 @@ assert at(events, "noise") == [(0, True), (48, False), (48, False)]
 assert at(events, "noise_clock") == [(0, 0x32)] and at(events, "noise_clock_add") == [(0, 1)]
 assert at(events, "dr") == [(48, 5)] and at(events, "sl") == [(48, 6)] and at(events, "sr_mode") == [(48, 3)]
 assert at(events, "adsr_reset") == [(48, True)] and at(events, "pitch_follow") == [(48, True), (48, False), (48, False)]
+assert at(events, "volume_follow") == [(48, False)]  # CB clears D6 too
 assert at(events, "fm") == [(48, False), (48, True), (51, False)] and at(events, "reverb") == [(48, False)]
+events, *_ = play_channel(one_channel(bytes([0xD6, 0x02, 0xD7, 0xA0])), 0x16, effect=True)
+assert at(events, "volume_follow") == [(0, True), (48, False)]
 # A4 n s: the pending bend starts on the next note as well as the next tie (both run the same code), then is spent.
 events, *_ = play_channel(one_channel(bytes([0xA4, 0x05, 0x0F, 0x02, 0x86, 0xA4, 0x04, 0x02, 0x86, 0xA0])), 0x16)
 assert at(events, "bend") == [(0, 5, 15), (96, 4, 2)]

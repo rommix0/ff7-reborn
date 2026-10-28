@@ -410,14 +410,46 @@ Read from `seq_step_channel`'s note and tie paths:
     `seq_channel_slides`. `C7` stops the countdown.
   - **`D4`/`D5`:** flag `0x10`. The voice's pitch register becomes the previous channel's (`−0x108 + 0xF8`) plus its
     own vibrato and `+0x36`, instead of its own pitch.
-  - **`D6`/`D7` (not played yet):** flag `0x20`. The voice volume is computed from the previous channel's pitch
-    register × 2 × `A3` instead of its own volume. Only effects 35 and 65 use it, both with FM.
+  - **`D6`/`D7`:** flag `0x20`. The voice volume becomes the previous channel's pitch register × 2 × `A3` ÷ 128
+    instead of `A8` × `A3`, so the volume follows the other voice's pitch. Only effects 35 and 65 use it, both with
+    FM. It can pass the SPU's 15-bit volume. The setter at `0x800393C8` masks with `0x7FFF` and doesn't clamp, so
+    the register wraps round to a small negative volume. The player does the same.
   - **`DB`:** glide off (`+0x6C` = 0). The look-ahead ends a glide there too.
 - **Commands:** none use `E8` (tempo). They use plenty of slurs, detune, bends, LFOs, envelope overrides, FM
   (755) and reverb sends (1,331 `C2`). There are 29 instruments, all in the boot bank.
 - **Our export:** `effects/effect_NNNN.ff7song`, which the player opens like songs
   (`python tools/ff7player.py assets/ff7song/effects`). All 721 render with sound. Half end within 3 s, and the
   longest one-shots (115–117) run 7,080 ticks (72 s).
+- **Audit (everything effects do differently):**
+  - **Commands:** every command in `EFFECT.ALL` is handled. The three without a case need none: `A0` ends a
+    stream, and `CD`/`D1` have empty handlers because the look-ahead does their work.
+  - **Handlers that branch on the effect flag `+0x54`:** `A0`, `A1`, `AC`, `B4`, `B8`, `C2`–`C7`, `F2`, `F3`.
+    - Most only pick the effect copy of a mask or setting: noise (`0x80099FEC`), reverb (`0x80099FF0`), FM
+      (`0x80099FF4`) and the noise clock.
+    - `B4`/`B8` take a depth instead of a delay (done).
+    - `A0` hands the voice back to the music.
+    - `F3` sets the flag on the song and is never used.
+  - **`A1`/`F2` on a sounding note:** the voice's pitch (`+0x30`) is rescaled by the new instrument's C pitch over
+    the old one's (`instrument_table` + 0x10). The voice keeps its sample until the next key-on. Effects 86, 309,
+    412, 435 and 724 change instrument between a note and its tie, and so do songs 38 and 72. The player now
+    rescales.
+  - **Their own voice update** (`func_8002F24C`, run on effect channels by `func_8002F848`):
+    - Vibrato, tremolo and pan LFO match the songs' version.
+    - Volume skips the master volume and uses the channel's own scale (`+0xC6` high byte ÷ 128).
+    - Pitch gets the channel's own scale (`+0x3D`).
+    - The game sets both scales with sound commands (`func_8002BCCC` sets a pair's volume, `func_8002C2CC` the
+      pitch scale), not from the effect data. At boot they're `0x7F00` and 0 (`0x800294A4`'s loop over the effect
+      channels), which is what the player plays: 127/128 and no change.
+  - **Set by the game at play time, not by the effect:**
+    - the pan (the play command's argument; the player uses the centre);
+    - the volume and pitch scales above;
+    - the reverb (the current song's; the player plays effects dry);
+    - stopping the 90 that loop.
+  - **Left to context:**
+    - Effect 419 plays noise before setting the clock, so in the game it uses whatever clock the last effect
+      left. On its own it starts at 0.
+    - 25 effects turn FM on for their first channel, which in the game follows whichever SPU voice comes before
+      it, outside the effect. On their own they play unmodulated.
 
 ### Our song format and player
 

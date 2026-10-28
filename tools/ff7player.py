@@ -25,8 +25,8 @@ LIST_FIELDS = {"bend": 2, "vibrato": 4, "tremolo": 4, "pan_lfo": 4, "vibrato_sli
 FIELDS = ["note", "len", "slur", "inst", "volume", "expression", "pan", "detune", "tempo", "bend", "vibrato", "tremolo",
           "ar", "dr", "sl", "sr", "rr", "overlap", "pan_lfo", "vibrato_slide", "tremolo_slide", "fm", "layer",
           "balance", "balance_slide", "reverb", "reverb_depth", "noise", "noise_clock", "noise_clock_add", "adsr_reset",
-          "sr_mode", "pitch_follow"]
-SWITCHES = ("fm", "reverb", "noise", "adsr_reset", "pitch_follow")  # fields that are true or false, shown as 1/0
+          "sr_mode", "pitch_follow", "volume_follow"]
+SWITCHES = ("fm", "reverb", "noise", "adsr_reset", "pitch_follow", "volume_follow")  # fields that are true or false, shown as 1/0
 
 
 def note_name(key: int) -> str:
@@ -77,6 +77,8 @@ def cell_text(f: dict, timer_hz: float, ticks_per_quarter: int) -> str:
         parts.append("env")
     if "pitch_follow" in f:
         parts.append("PF" if f["pitch_follow"] else "PF-")
+    if "volume_follow" in f:
+        parts.append("VF" if f["volume_follow"] else "VF-")
     if "reverb_depth" in f:
         parts.append(f"Rd{f['reverb_depth']:X}")
     if "layer" in f:
@@ -547,7 +549,7 @@ class CellDialog:
                 "vibrato/tremolo/pan_lfo: delay, rate, waveform, depth · *_slide: ticks, target\n"
                 "layer: instrument, layer instrument, or off · balance: 0–127 (layer share)\n"
                 "reverb: 1/0 (the channel's send) · reverb_depth: song-wide, 32768 = full (the songs use 10240)\n"
-                "noise: 1/0 · noise_clock: 0–63 (+_add wraps) · adsr_reset: 1 · sr_mode: 1/3/5/7 · pitch_follow: 1/0")
+                "noise: 1/0 · noise_clock: 0–63 (+_add wraps) · adsr_reset: 1 · sr_mode: 1/3/5/7 · pitch/volume_follow: 1/0")
         ttk.Label(top, text=hint, foreground="#666").grid(row=len(rows), column=0, columnspan=2, padx=6)
         buttons = ttk.Frame(top)
         buttons.grid(row=len(rows) + 1, column=0, columnspan=2, pady=6)

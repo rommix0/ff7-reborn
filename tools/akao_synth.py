@@ -86,6 +86,7 @@ class Channel:
     reverb: bool = False  # C2/C3: the channel's voices feed the reverb
     noise: bool = False  # C4/C5: the voices play the SPU noise generator instead of their sample
     pitch_follow: bool = False  # D4/D5: the previous channel's pitch, plus this channel's own vibrato
+    volume_follow: bool = False  # D6/D7: the volume from the previous channel's pitch register
 
 
 ENVELOPE_FIELDS = {"ar": 0, "dr": 1, "sl": 2, "sr": 3, "rr": 4, "sr_mode": 6}  # cell field -> ADSR byte
@@ -289,6 +290,7 @@ class Synth:
         self.reverb = Reverb(self.song["reverb"]) if self.song.get("reverb") else None
         self.reverb_depth = 0.0
         self.noise_clock, self.noise_pos = 0, 0.0  # AC's clock (one for all voices) and shifts so far
+        self.pitch_registers = {}  # channel -> its main voice's last pitch, which D6 reads even after the note
         for ch in self.channels:
             self.set_instrument(ch, ch.inst)
 
@@ -393,6 +395,15 @@ class Synth:
             self.next += 1
             ch = self.channels[c]
             if "inst" in f:
+                old, new = self.instruments.get(ch.inst), self.instruments.get(f["inst"])
+                v = ch.voice
+                if v and v.phase != OFF and old and new:
+                    # A1/F2 rescale a sounding voice's pitch by the instruments' C pitches; it keeps its sample.
+                    ratio = new.pitches[0] / old.pitches[0]
+                    v.pitch *= ratio
+                    if v.bend:
+                        v.bend[0] *= ratio
+                        v.bend[1] *= ratio
                 self.set_instrument(ch, f["inst"])
             for name in ("volume", "expression", "pan", "detune", "vibrato", "tremolo", "pan_lfo", "fm", "balance"):
                 if name in f:
@@ -413,6 +424,7 @@ class Synth:
                     ch.layer_adsr = list(self.instruments[ch.layer_inst].adsr)
             ch.noise = f.get("noise", ch.noise)
             ch.pitch_follow = f.get("pitch_follow", ch.pitch_follow)
+            ch.volume_follow = f.get("volume_follow", ch.volume_follow)
             if "noise_clock" in f:
                 self.noise_clock = f["noise_clock"]
             if "noise_clock_add" in f:
@@ -542,7 +554,7 @@ class Synth:
                 if ch.pitch_follow and c - 1 in pitches:
                     pitch = pitches[c - 1] + self.vibrato_offset(source)
                 if v is ch.voice:
-                    pitches[c] = pitch
+                    pitches[c] = self.pitch_registers[c] = pitch
                 pitch *= 2 ** (self.transpose / 12)
                 steps = np.full(n, min(0x3FFF, max(0.0, pitch)) / 4096 * SPU_HZ / self.rate)
                 if ch.fm and c - 1 in outputs:  # SPU pitch modulation: step * (1 + previous voice's output)
@@ -569,7 +581,10 @@ class Synth:
                 if self.muted >> c & 1:
                     continue
                 # The driver's voice volume, A8 x A3 x master 127/128, as SPU volume (0x4000 = full scale).
-                gain = ch.volume * ch.expression * MASTER_VOLUME / 0x4000
+                volume = ch.volume
+                if ch.volume_follow and c - 1 in self.pitch_registers:  # D6: 2 x register x A3 / 128 = A8 x A3
+                    volume = min(0x3FFF, self.pitch_registers[c - 1]) / 64
+                gain = volume * ch.expression * MASTER_VOLUME / 0x4000
                 if ch.layer_inst is not None:  # F4: the balance splits the note between main and layer voice
                     gain *= (ch.balance if v is ch.layer_voice else 127 - ch.balance) / 256
                 if v.tremolo:
@@ -578,6 +593,12 @@ class Synth:
                 # them with (pan + pan LFO) & 0xFF and other data follows entry 127, but no song gets past it.
                 pan = min(127, max(0, ch.pan + self.pan_offset(source)))
                 left, right = (32640 - 256 * pan) / 32768, (128 + 256 * pan) / 32768
+                if ch.volume_follow and c - 1 in self.pitch_registers:
+                    # D6 can pass the SPU's 15-bit volume (0x4000 = full), which libspu writes unclamped: the
+                    # register wraps round to a small negative volume rather than getting louder.
+                    registers = [round(gain * side * 0x4000) for side in (left, right)]
+                    left, right = [(((r + 0x4000) & 0x7FFF) - 0x4000) / 0x4000 for r in registers]
+                    gain = 1.0
                 voiced = sample * env * gain
                 out[:, 0] += voiced * left
                 out[:, 1] += voiced * right

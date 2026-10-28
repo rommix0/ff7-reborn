@@ -122,6 +122,33 @@ for effect, want in ((False, 1.5), (True, 1.0)):
     s.render(frames_for(4))
     assert abs(s.channels[0].voice.pitch / s.pitch_of(s.channels[0], 60, detune=False) - want) < 1e-9
 
+# D6: the volume comes from the previous channel's pitch register (2 x register x A3 / 128): at pitch 0x1000 that
+# is the same as A8 64, so the output matches a plain voice at volume 64.
+def peak(cells):
+    two = song(cells)
+    two["channels"] = 2
+    s = synth(two)
+    s.muted = 1  # hear channel 1 only
+    return np.abs(s.render(frames_for(24))[3000:]).max()
+
+
+lead = [0, 0, {"tempo": 0x6000, "inst": 0, "note": 84, "len": 96}]  # pitch 0x1000
+assert abs(peak([lead, [0, 1, {"inst": 0, "volume_follow": True, "volume": 10, "note": 60, "len": 96}]]) /
+           peak([lead, [0, 1, {"inst": 0, "volume": 64, "note": 60, "len": 96}]]) - 1) < 1e-3
+# Past the 15-bit volume it wraps: register 0x3FFF, A3 120, hard left makes 0x7698, which plays as -0x968 (-0.147),
+# not 1.85 times full scale.
+high = [0, 0, {"tempo": 0x6000, "inst": 0, "note": 108, "len": 96}]  # pitch 0x4000, past the register's 0x3FFF
+wrapped = peak([high, [0, 1, {"inst": 0, "volume_follow": True, "pan": 0, "note": 60, "len": 96}]])
+assert abs(wrapped / TONE.max() - 0x968 / 0x4000) < 1e-3
+
+# An instrument change while a note sounds (A1/F2) rescales its pitch by the two instruments' C pitches.
+bank2 = {0: BANK[0], 1: Instrument(TONE, True, 0, (0x1800,) * 12, STEADY)}
+s = Synth(bank2, None, RATE)
+s.load(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 84, "len": 96}], [24, 0, {"inst": 1}]]))  # 0x1000
+s.playing = True
+s.render(frames_for(30))
+assert s.channels[0].voice.pitch == 0x1800 and s.channels[0].voice.inst is BANK[0]
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)
