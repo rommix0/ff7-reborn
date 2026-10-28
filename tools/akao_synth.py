@@ -147,6 +147,16 @@ def noise_levels() -> np.ndarray:
     return np.array(levels[seen[level]:], np.float64) / 32768
 
 
+def reverb_filter(rate: float) -> np.ndarray:
+    """The low-pass the SPU puts around its 22.05 kHz reverb, for output at `rate`: our own windowed sinc (Kaiser,
+    beta 13) cut off at 11.025 kHz, 39 taps at 44.1 kHz. That is the hardware's half-band in shape (within 0.1 dB to
+    12 kHz), where a plain average or straight-line interpolation lets aliases through."""
+    half = round(19 * rate / SPU_HZ)
+    cutoff = REVERB_HZ / 2 / rate
+    taps = 2 * cutoff * np.sinc(2 * cutoff * np.arange(-half, half + 1)) * np.kaiser(2 * half + 1, 13)
+    return taps / taps.sum()
+
+
 def signed(register: int) -> float:
     """A reverb volume register as a fraction, 0x8000 = -1."""
     return (register - 0x10000 if register & 0x8000 else register) / 0x8000
@@ -161,7 +171,7 @@ class Reverb:
     reading its own last output, is worked out as a filter instead.
     """
 
-    def __init__(self, preset: dict):
+    def __init__(self, preset: dict, rate: float = SPU_HZ):
         r = preset["registers"]
         self.apf_delays = (r[0] * 4, r[1] * 4)  # addresses count 8 bytes, the work area holds 16-bit samples
         self.iir, *self.combs, self.wall, apf1, apf2 = map(signed, r[2:10])
@@ -193,10 +203,12 @@ class Reverb:
         self.ram = np.zeros(self.size)
         self.pos = 0
         self.last = np.zeros(4)  # each filter's last output
-        # Resampling to and from 22.05 kHz: the next reverb sample's time in output frames, the last input frame,
-        # and the last two outputs (time, left, right), placed one reverb sample late so every frame lies between two.
-        self.phase, self.last_in = 0.0, np.zeros(2)
-        self.tail = np.zeros((2, 3))
+        # Resampling to and from 22.05 kHz through the low-pass: the next reverb sample's time in output frames, the
+        # input frames the filter still needs, and the filtered output that runs into the next block.
+        self.rate, self.lowpass = rate, reverb_filter(rate)
+        self.phase = 0.0
+        self.history = np.zeros((len(self.lowpass) - 1, 2))
+        self.carry = np.zeros((len(self.lowpass), 2))
         self.peak = 0.0
 
     def run(self, left: np.ndarray, right: np.ndarray) -> np.ndarray:
@@ -227,19 +239,26 @@ class Reverb:
             self.pos = (self.pos + b) % size
         return out
 
-    def process(self, send: np.ndarray, rate: float) -> np.ndarray:
+    def process(self, send: np.ndarray) -> np.ndarray:
         """The reverb's output for `send` (frames, 2) at the output rate, before the depth is applied."""
-        n, period = len(send), rate / REVERB_HZ
+        n, period = len(send), self.rate / REVERB_HZ
         times = np.arange(self.phase, n, period)
-        # Averaging neighbouring frames keeps the worst of the aliasing out of the half-rate reverb.
-        smooth = (send + np.vstack([self.last_in, send[:-1]])) / 2
+        # Down: low-pass, then take the filtered signal at the reverb's sample times (every other frame at 44.1 kHz).
+        padded = np.vstack([self.history, send])
+        filtered = np.column_stack([np.convolve(padded[:, side], self.lowpass, "valid") for side in (0, 1)])
+        self.history = padded[len(padded) - len(self.history):]
         frames = np.arange(n)
-        wet = self.run(np.interp(times, frames, smooth[:, 0]), np.interp(times, frames, smooth[:, 1]))
-        points = np.vstack([self.tail, np.column_stack([times + period, wet])])
-        out = np.column_stack([np.interp(frames, points[:, 0], points[:, side]) for side in (1, 2)])
-        self.tail = points[-2:] - [n, 0, 0]
+        wet = self.run(np.interp(times, frames, filtered[:, 0]), np.interp(times, frames, filtered[:, 1]))
+        # Up: each reverb sample as an impulse worth `period` frames (zero-stuffing at 44.1 kHz), then the low-pass.
+        at = times.astype(np.int64)
+        share = (times - at)[:, None]
+        impulses = np.zeros((n + 1, 2))
+        np.add.at(impulses, at, wet * (1 - share) * period)
+        np.add.at(impulses, at + 1, wet * share * period)
+        out = np.column_stack([np.convolve(impulses[:, side], self.lowpass) for side in (0, 1)])
+        out[:len(self.carry)] += self.carry
+        out, self.carry = out[:n], out[n:]
         self.phase = (times[-1] + period if len(times) else self.phase) - n
-        self.last_in = send[-1]
         self.peak = float(np.abs(out).max(initial=0))
         return out
 
@@ -287,7 +306,7 @@ class Synth:
         self.ended = False
         self.channels = [Channel() for _ in range(self.song["channels"])]
         # The driver sets the song's reverb mode, clearing the work area, and zeroes the depth (EA sets it).
-        self.reverb = Reverb(self.song["reverb"]) if self.song.get("reverb") else None
+        self.reverb = Reverb(self.song["reverb"], self.rate) if self.song.get("reverb") else None
         self.reverb_depth = 0.0
         self.noise_clock, self.noise_pos = 0, 0.0  # AC's clock (one for all voices) and shifts so far
         self.pitch_registers = {}  # channel -> its main voice's last pitch, which D6 reads even after the note
@@ -628,7 +647,7 @@ class Synth:
             self.mix(out[done:done + n], send[done:done + n] if reverb else None)
             done += n
         if reverb:
-            out += reverb.process(send, self.rate) * self.reverb_depth
+            out += reverb.process(send) * self.reverb_depth
         if self.ended and all(not ch.voice or ch.voice.phase == OFF for ch in self.channels) and \
                 (not reverb or reverb.peak * abs(self.reverb_depth) < 1e-4):  # let the reverb ring out
             self.playing = False

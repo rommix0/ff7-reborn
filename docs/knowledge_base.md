@@ -197,6 +197,18 @@ starts:
     `SpuSetReverbDepth` writes it as the reverb output volume (`vLOUT`/`vROUT`), so `0x2800` = 0.31.
   - **In the player** (`Reverb` in `tools/akao_synth.py`): psx-spx's formula on a copy of the work area, at
     22.05 kHz, resampled to and from the output rate. The sends are the voices' panned outputs, as on the SPU.
+    - **Resampling:** the SPU halves the rate on the way in and doubles it on the way out through a 39-tap
+      half-band low-pass (Mednafen's `spu_reverb.inc`, read to confirm). We use our own windowed sinc (Kaiser,
+      β 13, cut off at 11.025 kHz). Its response matches the hardware's within 0.1 dB up to 12 kHz, and every
+      coefficient is within 13/32768.
+      - **Before:** a 2-sample average going in and straight-line interpolation coming out. That let through
+        aliases only 4 dB down above 12.5 kHz, where the hardware's are 17 dB down at 12.5 kHz and 38 dB down at
+        14 kHz.
+      - **Where it shows:** bright, aliasing voices such as effect 270's FM voice sound much cleaner through the
+        reverb, as they do in the game.
+    - **Aliasing in the voices themselves is real.** Above 44.1 kHz the SPU just skips samples, and the 4-point
+      Gaussian is the only filtering (psx-spx). Neither the driver nor Mednafen adds any. FM voices that swing up
+      to the `0x4000` step limit alias on the console too, and in the game their reverb send softens that.
     - **Speed:** it works a stretch of up to 512 samples at a time. All reads come before the writes, which
       matches the sample-by-sample formula while the stretch is shorter than the shortest delay from a write to a
       read. Each filter's feedback from its own last output is computed as a filter. A test checks it against a

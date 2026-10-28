@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from akao_synth import Instrument, Reverb, Synth, gaussian_weights, signed, timeline
+from akao_synth import Instrument, Reverb, Synth, gaussian_weights, reverb_filter, signed, timeline
 
 RATE = 44100
 TIMER_HZ = 33_868_800 / 8 / 0x43D1
@@ -356,6 +356,19 @@ assert 8 <= unit.block < 64
 got = np.vstack([unit.run(left[i:i + 700], right[i:i + 700]) for i in range(0, 6000, 700)])
 want = reference(left, right)
 assert np.abs(want[3000:]).max() > 0.01 and np.abs(got - want).max() < 1e-9
+
+# The reverb's resampling low-pass: unity gain, flat to 9 kHz, at least 35 dB down from 14 kHz (the 22.05 kHz
+# reverb's alias band), as the SPU's half-band is.
+lowpass = reverb_filter(RATE)
+response = np.abs(np.fft.rfft(lowpass, 8192))
+hz = np.fft.rfftfreq(8192, 1 / RATE)
+assert len(lowpass) == 39 and abs(lowpass.sum() - 1) < 1e-12 and np.allclose(lowpass, lowpass[::-1])
+assert response[hz <= 9000].min() > 10 ** (-0.7 / 20) and response[hz >= 14000].max() < 10 ** (-35 / 20)
+# Block sizes don't matter: the filters carry their state from one block to the next.
+noise = np.random.default_rng(2).uniform(-0.1, 0.1, (4000, 2))
+whole, pieces = Reverb(preset), Reverb(preset)
+in_pieces = np.vstack([pieces.process(noise[i:i + 333]) for i in range(0, 4000, 333)])
+assert np.abs(whole.process(noise) - in_pieces).max() < 1e-9  # only rounding: stretches fall elsewhere
 
 # In the synth: only channels with reverb on feed it, the depth scales what comes back, and the player's switch
 # turns it off. The tail rings on after the note.

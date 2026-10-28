@@ -28,9 +28,9 @@ def impulse_response(preset: dict, left: float, right: float) -> np.ndarray:
     reverb, block = Reverb(preset), 1024
     click = np.zeros((block, 2))
     click[0] = left, right
-    out = [reverb.process(click, SPU_HZ)]
+    out = [reverb.process(click)]
     silence = np.zeros((block, 2))
-    out += [reverb.process(silence, SPU_HZ) for _ in range(LONGEST * SPU_HZ // block)]
+    out += [reverb.process(silence) for _ in range(LONGEST * SPU_HZ // block)]
     out = np.vstack(out)
     return out[:np.flatnonzero(np.abs(out).max(axis=1) >= FLOOR)[-1] + 1]
 
