@@ -2,7 +2,8 @@
 
 usage: python tools/ff7song.py <file|assets dir> <SOUND dir> <out dir>
 
-The reverb presets and the noise LFO come from the executable next to the SOUND folder (SCUS_941.63).
+The reverb presets and the noise LFO come from the executable next to the SOUND folder (SCUS_941.63). The sound
+effects in SOUND/EFFECT.ALL go to <out dir>/effects as effect_NNNN.ff7song.
 """
 import bisect
 import json
@@ -20,6 +21,7 @@ REVERB_WORK_STARTS = 0x8004AB5C  # u32 each: the work area's start in SPU RAM, i
 REVERB_PRESETS = 0x8004ABAC  # 0x44 bytes each: u32 mask, then the 32 reverb registers (0x1F801DC0..0x1F801DFE)
 LFO_WAVEFORMS = 0x8004A5CC  # 16 pointers to the driver's s16 LFO waveforms, each ending 0, 0, -(steps to repeat)
 NOISE_WAVEFORM = 12  # the one waveform that isn't a shape we can rebuild
+EFFECT_TEMPO = 0x66A8  # the effect channels' own tempo, set at boot (0x80099FE0) and never changed
 DEFAULT_METER = (48, 4)  # 4/4 until the first time signature
 # Event kind -> cell field; the rest keep their name.
 FIELD = {"program": "inst"}
@@ -58,6 +60,23 @@ def lfo_noise(exe: bytes) -> list[int]:
 
 def song_to_ff7song(block: bytes, presets: list | None = None, noise: list | None = None) -> dict:
     channels, loop_start, end, _, _ = akao.play_song(block, trim_notes=False)
+    song_id, reverb_mode = struct.unpack_from("<H", block, 4)[0], struct.unpack_from("<H", block, 8)[0]
+    return {"format": "ff7song", "version": 1, "song": song_id, "bank": 2 if song_id in BANK2_SONGS else 1,
+            "reverb": presets[reverb_mode] if presets and reverb_mode else None,
+            **tracker(channels, loop_start, end, noise)}
+
+
+def effect_to_ff7song(data: bytes, effect: int, starts: list[int], noise: list | None = None) -> dict:
+    """One sound effect from SOUND/EFFECT.ALL: its one or two channels, at the effect channels' tempo. Effects
+    play over whatever reverb the current song set up, so they carry none of their own."""
+    channels, loop_start, end, _, _ = akao.play_song(data, trim_notes=False, starts=starts, effect=True)
+    channels[0].insert(0, [0, "tempo", EFFECT_TEMPO])
+    return {"format": "ff7song", "version": 1, "effect": effect, "bank": 1, "reverb": None,
+            **tracker(channels, loop_start, end, noise)}
+
+
+def tracker(channels: list, loop_start: int | None, end: int, noise: list | None) -> dict:
+    """The fields every .ff7song shares: channels, timing, loop, and the events in bars, one pattern per bar."""
     meters = sorted((e[0], e[2], e[3]) for events in channels for e in events if e[1] == "meter")
     bar_meters = [(tick, beat * beats) for tick, beat, beats in meters]
     bars = akao.bar_lines(bar_meters or [(loop_start or 0, DEFAULT_METER[0] * DEFAULT_METER[1])], end) or [0]
@@ -82,12 +101,9 @@ def song_to_ff7song(block: bytes, presets: list | None = None, noise: list | Non
             seen[key] = len(patterns)
             patterns.append(pattern)
         order.append(seen[key])
-    song_id, reverb_mode = struct.unpack_from("<H", block, 4)[0], struct.unpack_from("<H", block, 8)[0]
     uses_noise = any(e[1] in ("vibrato", "tremolo", "pan_lfo") and e[4] == NOISE_WAVEFORM
                      for events in channels for e in events)
-    return {"format": "ff7song", "version": 1, "song": song_id, "bank": 2 if song_id in BANK2_SONGS else 1,
-            "reverb": presets[reverb_mode] if presets and reverb_mode else None,
-            **({"lfo_noise": noise} if noise and uses_noise else {}),
+    return {**({"lfo_noise": noise} if noise and uses_noise else {}),
             "channels": len(channels), "ticks_per_quarter": akao.TICKS_PER_QUARTER, "timer_hz": akao.DRIVER_HZ,
             "loop": {"start": loop_start, "end": end} if loop_start is not None else None,
             "patterns": patterns, "order": order, "restart": bars.index(loop_start) if loop_start is not None else 0}
@@ -107,7 +123,13 @@ def main():
     for name, _, block in songs:
         song = song_to_ff7song(block, presets, noise)
         (out / f"{name}.ff7song").write_text(json.dumps(song, separators=(",", ":")), encoding="utf-8")
-    print(f"{len(songs)} songs and instruments.ff7bank -> {out}")
+    (out / "effects").mkdir(exist_ok=True)
+    data = (sound_dir / "EFFECT.ALL").read_bytes()
+    effects = akao.effects(data)
+    for effect, starts in effects:
+        (out / "effects" / f"effect_{effect:04d}.ff7song").write_text(
+            json.dumps(effect_to_ff7song(data, effect, starts, noise), separators=(",", ":")), encoding="utf-8")
+    print(f"{len(songs)} songs, {len(effects)} effects and instruments.ff7bank -> {out}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import struct
 
-from akao import bar_lines, blocks, channel_starts, disassemble, play_channel, play_song, song_to_midi
+from akao import bar_lines, blocks, channel_starts, disassemble, effects, play_channel, play_song, song_to_midi
 
 # Two channels: ch0 = octave, note C/len0, tie, rest, loop-forever; ch1 = volume, end.
 ch0 = bytes([0xA5, 0x04, 0x00, 0x84, 0x8F, 0xCA])
@@ -146,4 +146,17 @@ assert at(events, "balance") == [(0, 0x20)] and at(events, "balance_slide") == [
 assert at(events, "pan_lfo") == [(0, 0, 0x0C, 1, 0), (0, 0, 0x0C, 1, 0x0A)]
 assert at(events, "vibrato_slide") == [(0, 0x24, 0)] and at(events, "tremolo_slide") == [(0, 256, 0x10)]
 assert at(events, "fm") == [(0, True), (48, False)]
+
+# Sound effects: table entries 2·id and 2·id + 1 are an effect's channels, offsets from 0x1000, 0xFFFF = none.
+table = [0xFFFF] * 2048
+table[0], table[1], table[7] = 0, 1, 2
+assert effects(struct.pack("<2048H", *table)) == [(0, [0x1000, 0x1001]), (3, [0x1002])]
+# Effect channels (flag +0x54): B4/B8 take no delay, and a non-zero first byte is the depth.
+events, *_ = play_channel(one_channel(bytes([0xB4, 0x30, 0x02, 0x06, 0x02, 0xB4, 0x00, 0x01, 0x07, 0x02, 0xA0])),
+                          0x16, effect=True)
+assert at(events, "vibrato") == [(0, 0, 2, 6, 0x30), (48, 0, 1, 7, 0x30)]
+# DA n: glide. Slur mode, and each note starts on the last note's key and bends to its own over n ticks. The
+# look-ahead ends it before a rest, as it ends slurs, so the note just before the rest doesn't glide.
+events, *_ = play_channel(one_channel(bytes([0xDA, 0x08, 0x02, 0x18, 0x2E, 0x91, 0xA0])), 0x16, effect=True)
+assert [key for _, key, _ in at(events, "note")] == [36, 36, 40] and at(events, "bend") == [(48, 8, 2)]
 print("ok")

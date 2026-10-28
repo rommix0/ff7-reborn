@@ -356,8 +356,31 @@ Read from `seq_step_channel`'s note and tie paths:
   - **One-shot:** the amount is then cleared, and later ties hold the new pitch.
   - **Song 7 channel 16:** a 2-tick note, `A4 04 01`, a 10-tick tie, repeated.
   - **Scale:** 321 bends in the songs, from ±1 semitone over 4 ticks up to +65 over 8.
-- **`DA n` (`seq_cmd_glide`):** a glide (portamento) from the previous note's key. No song uses it, only sound
-  effects.
+- **`DA n` (`seq_cmd_glide`, `0x8003257C`):** a glide (portamento). No song uses it, only sound effects (43 uses).
+  - **Setting it:** the glide time `+0x6C` = n (0 = 256), and slur mode on (`+0x6E` = 1, as `CC`).
+  - **On each note** (`seq_step_channel`, `0x8003131C`): with a glide time and a last key (`+0x6A`, 0 = none), the
+    note starts on the last key and bends to its own over the glide time, through the bend fields `+0x68`/`+0xD2`.
+    The last key is then this note's.
+  - **Ending:** the look-ahead clears the glide time wherever it ends slur mode. It runs before the glide check, so
+    the note just before a rest doesn't glide.
+
+### Sound effects
+
+- **The data:** `SOUND/EFFECT.ALL`. Its table's entries 2·id and 2·id + 1 (`func_8002A6C4`) are an effect's two
+  channels, as offsets from `0x1000` (`0xFFFF` = none). That gives 721 effects: 702 with two channels and 19 with
+  one, the 1,423 streams. 90 loop forever (ambient sounds).
+- **Playing one:** the sound commands around `0x20`–`0x34` (we read the handlers at `0x8002B6AC` and
+  `0x8002B8B4`) look up the id and hand both streams to `func_8002A094`. It sets up a pair of effect channels (`0x80096608` + slot × `0x108`): the
+  pan from the command, and flag `+0x54` = 1.
+- **Flag `+0x54`:** `B4`/`B8` (vibrato/tremolo on) take no delay, and a non-zero first byte becomes the depth
+  instead.
+- **Tempo:** effect channels tick on their own accumulator (`0x80099FE8`), at tempo `0x66A8` (`0x80099FE0`, set
+  at boot and never changed): about 97.8 ticks a second, 122 BPM.
+- **Commands:** none use `E8` (tempo). They use plenty of slurs, detune, bends, LFOs, envelope overrides, FM
+  (755) and reverb sends (1,331 `C2`). There are 29 instruments, all in the boot bank.
+- **Our export:** `effects/effect_NNNN.ff7song`, which the player opens like songs
+  (`python tools/ff7player.py assets/ff7song/effects`). All 721 render with sound. Half end within 3 s, and the
+  longest one-shots (115–117) run 7,080 ticks (72 s).
 
 ### Our song format and player
 

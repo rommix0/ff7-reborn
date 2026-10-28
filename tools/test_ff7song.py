@@ -2,8 +2,8 @@ import struct
 import tempfile
 from pathlib import Path
 
-from ff7song import (EXE_BASE, LFO_WAVEFORMS, REVERB_PRESETS, REVERB_WORK_STARTS, lfo_noise, reverb_presets,
-                     song_to_ff7song, write_bank)
+from ff7song import (EFFECT_TEMPO, EXE_BASE, LFO_WAVEFORMS, REVERB_PRESETS, REVERB_WORK_STARTS, effect_to_ff7song,
+                     lfo_noise, reverb_presets, song_to_ff7song, write_bank)
 
 
 def song(*channels: bytes) -> bytes:
@@ -73,6 +73,15 @@ noise = lfo_noise(bytes(exe))
 assert noise == [0, 500, -700, 0, 0]
 assert song_to_ff7song(song(bytes([0xB4, 0, 1, 12, 0x02, 0xA0])), None, noise)["lfo_noise"] == noise
 assert "lfo_noise" not in song_to_ff7song(song(bytes([0xB4, 0, 1, 6, 0x02, 0xA0])), None, noise)
+
+# A sound effect: its channels at the effect tempo, from tick 0; no reverb of its own.
+table = [0xFFFF] * 2048
+table[10], table[11] = 0, 2
+data = struct.pack("<2048H", *table) + bytes([0x02, 0xA0, 0x18, 0xA0])
+out = effect_to_ff7song(data, 5, [0x1000, 0x1002])
+assert out["effect"] == 5 and "song" not in out and out["channels"] == 2 and out["reverb"] is None
+cells = {(tick, ch): fields for tick, ch, fields in out["patterns"][0]["cells"]}
+assert cells[0, 0]["tempo"] == EFFECT_TEMPO == 0x66A8 and cells[0, 1]["note"] == 38
 
 # Bank: header, 68-byte entries, then each instrument's samples.
 with tempfile.TemporaryDirectory() as tmp:

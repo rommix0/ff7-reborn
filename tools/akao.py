@@ -92,6 +92,14 @@ def effect_starts(data: bytes) -> list[int]:
     return sorted({EFFECT_BASE + o for o in offsets if o != 0xFFFF})
 
 
+def effects(data: bytes) -> list[tuple[int, list[int]]]:
+    """(effect id, its stream offsets) for every effect in SOUND/EFFECT.ALL. Table entries 2·id and 2·id + 1 are
+    the effect's two channels (func_8002A6C4), and an empty entry leaves that channel out."""
+    offsets = struct.unpack_from("<2048H", data)
+    pairs = [(i, [EFFECT_BASE + o for o in offsets[2 * i:2 * i + 2] if o != 0xFFFF]) for i in range(1024)]
+    return [(i, streams) for i, streams in pairs if streams]
+
+
 def sequences(root: Path):
     """Yield (name, block) for every distinct AKAO block in any extracted file, LZS files decompressed first."""
     seen = set()
@@ -221,7 +229,7 @@ def look_ahead(block: bytes, pos: int, loops: list) -> tuple[int, bool]:
     return 0xA0, True
 
 
-def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: int | None = None):
+def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: int | None = None, effect: bool = False):
     """Follow one channel like the driver does, once through. Returns (events, loop_start_tick, end_tick).
 
     Events are [tick, kind, ...]: ("note", key, ticks until key-off), ("slur",) just before a note that takes over
@@ -237,6 +245,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     note to `semitones` above it. An LFO event gives the settings from then on, depth 0 while it is off.
     Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
     the tick its target was first reached at. With `until`, the endless loop is followed instead, up to that tick.
+    `effect` plays a sound-effect channel, whose flag +0x54 makes B4/B8 take no delay and a non-zero first byte
+    as the depth.
     """
     pos, tick = start, 0
     # The driver's channel reset: instrument 5, octave 2, volume 100, A3 multiplier 120.
@@ -248,6 +258,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     lfos = {kind: [0, 1, 0, False, 0] for kind in ("vibrato", "tremolo", "pan_lfo")}  # delay rate waveform on depth
     # The driver's note mode (+0x6E): bit 0 slur (CC), bit 1 "this note slurs from the last", bit 2 full length (D0).
     mode, cut = 0, 0
+    glide, last_key = 0, 0  # DA's glide ticks (+0x6C) and the last note's key (+0x6A), 0 = none
     loops = []  # [loop start pos, pass count]; the driver keeps 4 levels
     first_seen, last_note = {}, None
     events = [[0, "program", 5], [0, "volume", 100], [0, "expression", 120]]
@@ -284,6 +295,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
             following, ends = look_ahead(block, pos + 1, loops)
             if ends:
                 mode &= ~5
+                glide = 0
             # Key-off comes 2 ticks before the next event, unless a tie follows or slur/full-length mode is on.
             early = 2 if last_len > 2 and not 0x84 <= following < 0x8F and not mode & 5 else 0
             if semitone < 12 and mode & 2:
@@ -298,9 +310,13 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 last_note = [tick, "note", min(127, key + 12), last_len - early]
                 events.append(last_note)
             elif semitone < 12:
-                last_note = [tick, "note", max(0, min(127, 12 * (octave + 1) + semitone + transpose)),
-                             last_len - early]
+                key = max(0, min(127, 12 * (octave + 1) + semitone + transpose))
+                # A glide starts the note on the last one's key and bends to its own over the glide time.
+                last_note = [tick, "note", last_key if glide and last_key else key, last_len - early]
                 events.append(last_note)
+                if glide and last_key and key != last_key:
+                    events.append([tick, "bend", glide, key - last_key])
+                last_key = key
             elif semitone == 12 and last_note:
                 last_note[3] += cut + last_len - early  # tie: the last segment's early key-off didn't happen
                 if bend:  # a pending A4 bend starts on the tie, then is spent
@@ -334,6 +350,9 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 kind = "vibrato" if b < 0xB8 else "tremolo"
                 lfo = lfos[kind]
                 match b - (0xB4 if kind == "vibrato" else 0xB8):
+                    case 0 if effect:
+                        lfo[:4] = [0, args[1] or 256, args[2], True]
+                        lfo[4] = args[0] or lfo[4]
                     case 0:
                         lfo[:4] = [args[0], args[1] or 256, args[2], True]
                     case 1:
@@ -377,6 +396,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "reverb_depth", args[0] | args[1] << 8])
             case 0xCC:  # slur on; the look-ahead turns it off at a CD
                 mode = 1
+            case 0xDA:  # glide over n ticks (0 = 256) from each note to the next; slur mode, ended the same way
+                glide, mode = args[0] or 256, 1
             case 0xD0:  # full-length notes; the look-ahead turns it off at a D1
                 mode = 4
             case 0xA3:  # multiplier on the channel volume: voice volume = A8 volume * A3 / 128
@@ -461,7 +482,7 @@ def bar_lines(meters: list[tuple[int, int]], end: int) -> list[int]:
     return bars
 
 
-def play_song(block: bytes, trim_notes: bool = True):
+def play_song(block: bytes, trim_notes: bool = True, starts: list[int] | None = None, effect: bool = False):
     """Play every channel through the song's common loop.
 
     Returns (events per channel, loop start, loop end, each looping channel's loop length, any channel ran away).
@@ -471,10 +492,10 @@ def play_song(block: bytes, trim_notes: bool = True):
     channel loops, any later point repeats too: with time signatures (FD), the loop starts on the next bar line.
     `trim_notes` cuts notes at the loop end; without it they keep their full length, as the driver holds them on,
     including ties that come from the start of the next pass; a note still held after that whole extra pass is
-    tied on forever (a drone) and gets length None.
+    tied on forever (a drone) and gets length None. `starts` and `effect` play a sound effect's channels instead.
     """
-    starts = channel_starts(block)
-    first = [play_channel(block, start) for start in starts]
+    starts = starts or channel_starts(block)
+    first = [play_channel(block, start, effect=effect) for start in starts]
     runaway = any(end >= MAX_TICKS for *_, end in first)
     loops = [(loop, end - loop) for _, loop, end in first if loop is not None]
     if not loops or not all(length for _, length in loops):
@@ -494,7 +515,7 @@ def play_song(block: bytes, trim_notes: bool = True):
     play_to = loop_end if trim_notes else loop_end + period
     for start, (events, loop, end) in zip(starts, first):
         if loop is not None and end < play_to:
-            events, _, _ = play_channel(block, start, until=play_to)
+            events, _, _ = play_channel(block, start, until=play_to, effect=effect)
         kept = [e for e in events if e[0] < loop_end]
         for e in kept:
             if e[1] == "note" and trim_notes:

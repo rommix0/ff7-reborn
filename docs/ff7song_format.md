@@ -6,7 +6,8 @@ parameters (the player emulates the driver rather than translating effects). Son
 instrument slots in one shared bank file.
 
 `python tools/ff7song.py <file|assets dir> <SOUND dir> <out dir>` writes `instruments.ff7bank` and one
-`song_NNN.ff7song` per song. The reverb presets are read from `SCUS_941.63` next to the `SOUND` folder.
+`song_NNN.ff7song` per song. The reverb presets are read from `SCUS_941.63` next to the `SOUND` folder. The sound
+effects in `SOUND/EFFECT.ALL` go to `effects/effect_NNNN.ff7song` (721 of them), in the same format.
 
 ## Instrument bank (`instruments.ff7bank`, binary, little-endian)
 
@@ -52,6 +53,9 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
   signature count 4/4 bars from the loop start.
 - **`order`** lists the bars in time order; identical bars share a pattern. `restart` is the order index the song
   jumps back to when it reaches `loop.end`. `loop` is `null` for songs that end.
+- **`effect`:** in place of `song`, a sound effect's id (0–1023, the id the game's play-effect commands take). An
+  effect has one or two channels, runs at the effect channels' fixed tempo `0x66A8` (a `tempo` cell at tick 0),
+  and has `"reverb": null`: in the game it plays through whatever reverb the current song set up.
 - **`bank`:** 1 for the instruments loaded at boot. With 2 (song 82), the second bank replaces slots 53 and up, and
   only its own instruments are left there, as when the game loads `INSTR2`.
 - **`reverb`:** the SPU reverb the song sets up (the header's mode), or `null` for none. `mode` is libspu's
@@ -83,7 +87,7 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 | `pan` | 0–127, 64 = centre. Linear, like the driver's tables: left (32,640 − 256 × pan) ÷ 32,768, right (128 + 256 × pan) ÷ 32,768 |
 | `tempo` | New tempo for the whole song |
 | `detune` | Scales the pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0) |
-| `bend` | `[ticks, semitones]`: from this tick, slide linearly in frequency to `semitones` above the held note |
+| `bend` | `[ticks, semitones]`: from this tick, slide linearly in frequency to `semitones` above the held note. In the same cell as a note (an effect's `DA` glide), it bends that note |
 | `vibrato`, `tremolo` | `[delay, rate, waveform, depth]` from now on; depth 0 = off. Each note restarts them: after `delay` ticks the LFO takes its next waveform step every `rate` timer interrupts |
 
 LFO details (waveform shapes, depth scaling) are in `knowledge_base.md`, "LFOs: vibrato, tremolo, pan".

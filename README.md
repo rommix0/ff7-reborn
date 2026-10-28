@@ -61,6 +61,12 @@ In the player:
   the loop. Bars that share a pattern (shown as `×2` and so on) change together until **Own copy** splits one off.
 - **Saving:** Ctrl+S writes the `.ff7song` back.
 
+The export also writes the game's 721 sound effects to `assets/ff7song/effects`. Open them in the same player:
+
+```bash
+python tools/ff7player.py assets/ff7song/effects
+```
+
 Record the game's nine SPU reverb types as impulse-response WAVs for a convolution reverb (24-bit stereo, 44.1 kHz;
 a centred one per type, plus left-in and right-in files for true stereo):
 

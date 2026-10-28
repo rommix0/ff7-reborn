@@ -77,6 +77,13 @@ s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "vibrato": [0, 1, 12, 0x7F],
 s.render(64)
 assert s.channels[0].voice.vibrato is None
 
+# A bend in a note's own cell (a glide, DA) bends that note: the slurred note starts on 60 and reaches 62.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 96}],
+                [48, 0, {"slur": True, "note": 60, "len": 48, "bend": [8, 2]}]]))
+s.render(frames_for(58))
+v = s.channels[0].voice
+assert v.key == 62 and abs(v.pitch - s.pitch_of(s.channels[0], 62)) < 1e-6
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)

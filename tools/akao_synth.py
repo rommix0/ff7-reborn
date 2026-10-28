@@ -408,10 +408,6 @@ class Synth:
             ch.reverb = f.get("reverb", ch.reverb)
             if "reverb_depth" in f:
                 self.reverb_depth = signed(f["reverb_depth"])
-            if "bend" in f and ch.voice:
-                ticks, semitones = f["bend"]
-                ch.voice.bend = [ch.voice.pitch, self.pitch_of(ch, ch.voice.key + semitones), ticks, 0]
-                ch.voice.key += semitones
             if "note" in f and f.get("slur") and ch.voice:
                 # A slurred note takes over the sounding voices (and a layer's): new key and length, no key-on.
                 for v in (ch.voice, ch.layer_voice):
@@ -424,6 +420,10 @@ class Synth:
                 ch.voice.pitch = self.pitch_of(ch, f["note"])  # a layer voice follows the main voice's pitch
             elif "note" in f:
                 self.key_on(ch, f["note"], f["len"])
+            if "bend" in f and ch.voice:  # after the note: a glide (DA) bends the note it starts
+                ticks, semitones = f["bend"]
+                ch.voice.bend = [ch.voice.pitch, self.pitch_of(ch, ch.voice.key + semitones), ticks, 0]
+                ch.voice.key += semitones
 
     def interrupt(self):
         for ch in self.channels:

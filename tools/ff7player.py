@@ -1,6 +1,9 @@
 """Play and edit .ff7song files (docs/ff7song_format.md) with the game's own instruments.
 
-usage: python tools/ff7player.py [folder]    # holds instruments.ff7bank and .ff7song files; default assets/ff7song
+usage: python tools/ff7player.py [folder]    # holds .ff7song files; default assets/ff7song
+       python tools/ff7player.py assets/ff7song/effects    # the sound effects
+
+instruments.ff7bank is found in the folder or the one above it.
 
 Needs numpy and sounddevice (pip install -r tools/requirements-player.txt).
 Space plays/pauses, Ctrl+S saves. Tempo % and Transpose change playback only, not the song. Click a cell to select it, double-click to edit, Delete clears it. Double-click a
@@ -159,7 +162,7 @@ class PlayerWindow:
         from akao_synth import SPU_HZ, Synth, read_bank
 
         self.root, self.folder = root, folder
-        self.synth = Synth(*read_bank(folder / "instruments.ff7bank"))
+        self.synth = Synth(*read_bank(find_bank(folder)))
         self.paths = sorted(folder.glob("*.ff7song"))
         self.song, self.path, self.dirty = None, None, False
         self.shown_bar, self.row_ticks, self.selected = -1, [], None
@@ -590,11 +593,16 @@ class CellDialog:
         self.window.changed()
 
 
+def find_bank(folder: Path) -> Path | None:
+    """The instrument bank in `folder`, or in its parent (effects sit in a subfolder of the songs)."""
+    return next((p for p in (folder / "instruments.ff7bank", folder.parent / "instruments.ff7bank") if p.exists()), None)
+
+
 def main():
     folder = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("assets/ff7song")
-    if not (folder / "instruments.ff7bank").exists():
+    if not find_bank(folder):
         print(__doc__)
-        print(f"No instruments.ff7bank in {folder}; export with tools/ff7song.py first.")
+        print(f"No instruments.ff7bank in {folder} or above it; export with tools/ff7song.py first.")
         return
     root = tk.Tk()
     PlayerWindow(root, folder)
