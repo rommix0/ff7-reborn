@@ -256,6 +256,21 @@ Read from `seq_step_channel`'s note and tie paths:
 - **`DA n` (`seq_cmd_glide`):** a glide (portamento) from the previous note's key. No song uses it, only sound
   effects.
 
+### Our song format and player
+
+`tools/ff7song.py` and `player/` (spec: [`ff7song_format.md`](ff7song_format.md)) replace the XM's compromises with
+the driver's own behaviour.
+- **Patterns are bars**, so any `FD` time signature works. Identical bars share a pattern: 81 of 98 songs reuse
+  some. The 98 songs come to 9.8 MB of JSON plus a 1.7 MB bank (93 instruments).
+- **Events sit at exact ticks**, and effects keep the driver's parameters. Notes keep their full length across the
+  loop end, as the driver holds them.
+- **The player runs the driver's timing:** 243.86 Hz interrupts, the tempo accumulator, per-tick note lengths,
+  bends and LFO delays, per-interrupt LFO steps, and the SPU ADSR at 44.1 kHz. In Node it renders about 50× faster
+  than real time.
+- **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
+  tables at `0x80049C44`/`0x80049E44` aren't read yet), and voice volume taken as volume × expression ÷ 127² ×
+  ½. There's no reverb, pan LFO, LFO depth slide or noise waveform.
+
 ### LFOs: vibrato, tremolo, pan
 
 Read from the command handlers, the note path at `0x80031518` and `seq_channel_lfo` (`0x8002ED34`):

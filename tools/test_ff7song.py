@@ -1,0 +1,50 @@
+import struct
+import tempfile
+from pathlib import Path
+
+from ff7song import song_to_ff7song, write_bank
+
+
+def song(*channels: bytes) -> bytes:
+    table = struct.pack("<I", (1 << len(channels)) - 1)
+    rel = 2 * len(channels)
+    for ch in channels[:-1]:  # each offset is relative to the byte after itself
+        table += struct.pack("<H", rel - 2)
+        rel += len(ch) - 2
+    table += struct.pack("<H", rel - 2)
+    body = table + b"".join(channels)
+    return b"AKAO" + struct.pack("<HHH", 76, len(body), 0) + bytes(6) + body
+
+
+# One bar per pattern, in the song's own time signatures (song 76 alternates 6/8 and 5/8): a 1/4 pickup, then a loop
+# of two identical 6/8 + 5/8 pairs. Identical bars share a pattern; the loop restarts at the first 6/8 bar.
+pair = bytes([0xFD, 0x18, 0x06, 0xA2, 0x90, 0x00, 0xFD, 0x18, 0x05, 0xA2, 0x78, 0x00])
+out = song_to_ff7song(song(bytes([0xFD, 0x30, 0x01, 0x91]) + pair + pair + bytes([0xEE, 0xE5, 0xFF])))
+assert out["song"] == 76 and out["channels"] == 1 and out["loop"] == {"start": 48, "end": 576}
+assert [(p["ticks"], p["beat"], p["beats"]) for p in out["patterns"]] == [(48, 48, 1), (144, 24, 6), (120, 24, 5)]
+assert out["order"] == [0, 1, 2, 1, 2] and out["restart"] == 1
+# Events on one tick and channel share a cell; the driver's channel defaults come first.
+assert out["patterns"][0]["cells"] == [[0, 0, {"inst": 5, "volume": 100, "expression": 120}]]
+assert out["patterns"][1]["cells"] == [[0, 0, {"note": 36, "len": 144}]]  # C, driver default octave 2
+
+# Notes keep their full length across the loop end, as the driver holds them into the next pass. Channel 1 loops a
+# whole note from tick 0, channel 0 from tick 48, so the song loops 48..240 and channel 1's note at 192 runs on.
+ch0 = bytes([0x91, 0x00, 0xEE, 0xFC, 0xFF])  # quarter rest, then whole note C forever
+ch1 = bytes([0x00, 0xEE, 0xFC, 0xFF])        # whole note C forever
+out = song_to_ff7song(song(ch0, ch1))
+assert out["loop"] == {"start": 48, "end": 240}
+assert [p["ticks"] for p in out["patterns"]] == [48, 192]  # no time signature: 4/4 bars counted from the loop
+assert [144, 1, {"note": 36, "len": 192}] in out["patterns"][1]["cells"]  # tick 192, untrimmed (not 48)
+
+# Bank: header, 68-byte entries, then each instrument's samples.
+with tempfile.TemporaryDirectory() as tmp:
+    path = Path(tmp) / "test.ff7bank"
+    write_bank({3: ([0, 100, -100], 1, tuple(range(0x1000, 0x100C)), bytes(range(8))),
+                9: ([7], None, (0x2000,) * 12, bytes(8))}, path)
+    data = path.read_bytes()
+assert data[:12] == b"FF7BANK\0" + struct.pack("<HH", 1, 2) and len(data) == 12 + 2 * 68 + 4 * 2
+slot, flags, length, loop, *rest = struct.unpack_from("<HHII12I8s", data, 12)
+assert (slot, flags, length, loop, rest[0], rest[11], rest[12]) == (3, 1, 3, 1, 0x1000, 0x100B, bytes(range(8)))
+assert struct.unpack_from("<HHII", data, 12 + 68) == (9, 0, 1, 0)
+assert struct.unpack_from("<4h", data, 12 + 2 * 68) == (0, 100, -100, 7)
+print("ok")

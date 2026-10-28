@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FF7 Music Player</title>
+<style>
+  :root {
+    --bg: #f6f6f4; --panel: #ffffff; --line: #e2e2dc; --text: #1d1d1b; --muted: #6b6b66;
+    --accent: #2f6fd1; --accent-soft: #e3ecfa; --beat: #f0f0ec; --now: #fff2c2; --off: #b9b9b3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141517; --panel: #1c1d20; --line: #2c2e33; --text: #e6e6e3; --muted: #8d8f94;
+      --accent: #6ea2ff; --accent-soft: #22324d; --beat: #212226; --now: #4a4120; --off: #55575c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif;
+         height: 100vh; display: flex; flex-direction: column; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px;
+           border-bottom: 1px solid var(--line); background: var(--panel); }
+  h1 { font-size: 16px; margin: 0 12px 0 0; }
+  button, label.button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+                         border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+  button:hover, label.button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { color: var(--muted); }
+  main { display: grid; grid-template-columns: 180px 1fr; flex: 1; min-height: 0; }
+  #songs { overflow-y: auto; border-right: 1px solid var(--line); padding: 6px 0; margin: 0; list-style: none; }
+  #songs li { padding: 4px 16px; cursor: pointer; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  #songs li:hover { background: var(--beat); }
+  #songs li.current { background: var(--accent-soft); color: var(--accent); }
+  #view { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  #transport { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 10px 16px;
+               border-bottom: 1px solid var(--line); }
+  #transport .info { font-variant-numeric: tabular-nums; color: var(--muted); }
+  #transport .info b { color: var(--text); font-weight: 600; }
+  #bars { display: flex; flex-wrap: wrap; gap: 3px; padding: 8px 16px; border-bottom: 1px solid var(--line);
+          max-height: 92px; overflow-y: auto; position: relative; }
+  #bars button { padding: 1px 6px; font-size: 11px; font-variant-numeric: tabular-nums; border-radius: 4px; }
+  #bars button.loop { border-left: 3px solid var(--accent); }
+  #bars button.current { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #grid { overflow: auto; flex: 1; position: relative; }
+  table { border-collapse: separate; border-spacing: 0; font: 12px/1.5 ui-monospace, Consolas, monospace; }
+  th, td { padding: 0 8px; white-space: nowrap; border-right: 1px solid var(--line); }
+  thead th { position: sticky; top: 0; background: var(--panel); border-bottom: 1px solid var(--line);
+             cursor: pointer; user-select: none; z-index: 1; }
+  thead th.muted { color: var(--off); text-decoration: line-through; }
+  tbody th { position: sticky; left: 0; background: var(--panel); color: var(--muted); font-weight: normal;
+             text-align: right; }
+  thead th:first-child { left: 0; z-index: 2; cursor: default; }
+  tr.beat td, tr.beat th { background: var(--beat); }
+  tr.now td, tr.now th { background: var(--now); }
+  td .n { color: var(--accent); font-weight: 600; }
+  td .fx { color: var(--muted); }
+  #empty { padding: 32px 16px; color: var(--muted); max-width: 60ch; }
+  code { font-family: ui-monospace, Consolas, monospace; }
+  @media (max-width: 700px) {
+    body { height: auto; }
+    main { grid-template-columns: 1fr; grid-template-rows: 140px 1fr; }
+    #songs { border-right: 0; border-bottom: 1px solid var(--line); }
+    #grid { max-height: 70vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>FF7 Music Player</h1>
+  <label class="button">Open files…<input id="files" type="file" multiple accept=".ff7bank,.ff7song" hidden></label>
+  <span id="status">Choose <code>instruments.ff7bank</code> and some <code>.ff7song</code> files.</span>
+</header>
+<main>
+  <ul id="songs"></ul>
+  <section id="view">
+    <div id="transport">
+      <button id="play" disabled>Play</button>
+      <span class="info" id="info"></span>
+    </div>
+    <div id="bars"></div>
+    <div id="grid"><p id="empty">Export the songs with <code>python tools/ff7song.py assets
+      "assets/Final Fantasy VII (USA) (Disc 1)/SOUND" assets/ff7song</code>, then either open the files here, or serve
+      the repo (<code>python -m http.server</code> in its root) and open <code>/player/</code>, which loads
+      <code>assets/ff7song/</code> by itself.</p></div>
+  </section>
+</main>
+<script src="synth.js"></script>
+<script>
+const NOTE_NAMES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"];
+const $ = (id) => document.getElementById(id);
+let bank = null, songs = [], song = null, barStarts = [], muted = 0, playing = false, ctx = null, node = null;
+let shownBar = -1, rowTicks = [];
+
+function parseBank(buffer) {
+  const dv = new DataView(buffer);
+  if (new TextDecoder().decode(new Uint8Array(buffer, 0, 7)) !== "FF7BANK") throw new Error("not an .ff7bank file");
+  const count = dv.getUint16(10, true), instruments = [];
+  let at = 12 + count * 68;
+  for (let i = 0; i < count; i++) {
+    const e = 12 + i * 68, length = dv.getUint32(e + 4, true);
+    instruments.push({
+      slot: dv.getUint16(e, true), loops: !!(dv.getUint16(e + 2, true) & 1), loopStart: dv.getUint32(e + 8, true),
+      pitches: Array.from({ length: 12 }, (_, k) => dv.getUint32(e + 12 + 4 * k, true)),
+      adsr: Array.from(new Uint8Array(buffer, e + 60, 8)),
+      pcm: new Int16Array(buffer.slice(at, at + 2 * length)),
+    });
+    at += 2 * length;
+  }
+  return instruments;
+}
+
+async function audio() {
+  if (node) return;
+  ctx = new AudioContext({ sampleRate: 44100 });
+  const source = `${AkaoPlayer}
+    class AkaoProcessor extends AudioWorkletProcessor {
+      constructor() {
+        super();
+        this.player = new AkaoPlayer(sampleRate);
+        this.frames = 0;
+        this.port.onmessage = ({ data: m }) => {
+          const p = this.player;
+          if (m.type === "bank") p.setBank(m.instruments);
+          else if (m.type === "song") p.load(m.song);
+          else if (m.type === "play") { if (p.ended) p.seek(0); p.playing = true; }
+          else if (m.type === "pause") p.playing = false;
+          else if (m.type === "seek") p.seek(m.tick);
+          else if (m.type === "mute") p.muted = m.mask;
+        };
+      }
+      process(_, outputs) {
+        const [left, right] = outputs[0];
+        this.player.render(left, right || left, left.length);
+        if ((this.frames += left.length) >= 2048 && this.player.song) {
+          this.frames = 0;
+          this.port.postMessage({ tick: this.player.tick, tempo: this.player.tempo, playing: this.player.playing });
+        }
+        return true;
+      }
+    }
+    registerProcessor("akao", AkaoProcessor);`;
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([source], { type: "text/javascript" })));
+  node = new AudioWorkletNode(ctx, "akao", { outputChannelCount: [2] });
+  node.connect(ctx.destination);
+  node.port.onmessage = ({ data }) => position(data);
+  node.port.postMessage({ type: "bank", instruments: bank });
+}
+
+// Scroll `box` just enough to show `el`, without moving the page around it.
+function reveal(box, el) {
+  if (!el) return;
+  const top = el.offsetTop - (box === $("grid") ? box.querySelector("thead").offsetHeight : 0);
+  if (top < box.scrollTop) box.scrollTop = top;
+  else if (el.offsetTop + el.offsetHeight > box.scrollTop + box.clientHeight)
+    box.scrollTop = el.offsetTop + el.offsetHeight - box.clientHeight;
+}
+
+function setStatus(text) { $("status").textContent = text; }
+
+function listSongs(entries) {
+  songs = entries.sort((a, b) => a.name.localeCompare(b.name));
+  $("songs").replaceChildren(...entries.map((entry, i) => {
+    const li = document.createElement("li");
+    li.textContent = entry.name.replace(/\.ff7song$/, "");
+    li.onclick = () => openSong(i);
+    return li;
+  }));
+  setStatus(`${entries.length} songs` + (bank ? `, ${bank.length} instruments` : " — no instrument bank yet"));
+}
+
+async function openSong(i) {
+  if (!bank) return setStatus("Open instruments.ff7bank first.");
+  song = JSON.parse(await songs[i].text());
+  [...$("songs").children].forEach((li, k) => li.classList.toggle("current", k === i));
+  barStarts = [];
+  let t = 0;
+  for (const p of song.order) { barStarts.push(t); t += song.patterns[p].ticks; }
+  muted = 0;
+  shownBar = -1;
+  drawBars();
+  await audio();
+  await ctx.resume();
+  node.port.postMessage({ type: "song", song });
+  node.port.postMessage({ type: "mute", mask: 0 });
+  node.port.postMessage({ type: "play" });
+  $("play").disabled = false;
+  showBar(0, -1);
+}
+
+function meterText(p) { return `${p.beats}/${192 / p.beat}`; }
+
+function drawBars() {
+  let last = "";
+  $("bars").replaceChildren(...song.order.map((p, i) => {
+    const b = document.createElement("button"), meter = meterText(song.patterns[p]);
+    b.textContent = meter !== last ? `${i + 1} · ${meter}` : `${i + 1}`;
+    b.title = `bar ${i + 1}, pattern ${p}, ${meter}, ${song.patterns[p].ticks} ticks`;
+    b.classList.toggle("loop", !!song.loop && i === song.restart);
+    b.onclick = () => node.port.postMessage({ type: "seek", tick: barStarts[i] });
+    last = meter;
+    return b;
+  }));
+}
+
+function noteName(key) { return NOTE_NAMES[key % 12] + (Math.floor(key / 12) - 1); }
+
+function cellHtml(f) {
+  const parts = [];
+  if ("note" in f) parts.push(`<span class="n">${noteName(f.note)}</span>`);
+  const fx = [];
+  if ("inst" in f) fx.push(`i${f.inst}`);
+  if ("volume" in f) fx.push(`v${f.volume}`);
+  if ("expression" in f) fx.push(`x${f.expression}`);
+  if ("pan" in f) fx.push(`p${f.pan}`);
+  if ("detune" in f) fx.push(`d${f.detune}`);
+  if ("bend" in f) fx.push(`b${f.bend[1] > 0 ? "+" : ""}${f.bend[1]}/${f.bend[0]}`);
+  if ("vibrato" in f) fx.push(f.vibrato[3] ? `V${f.vibrato[3]}` : "V-");
+  if ("tremolo" in f) fx.push(f.tremolo[3] ? `R${f.tremolo[3]}` : "R-");
+  if ("tempo" in f) fx.push(`T${bpm(f.tempo)}`);
+  if (fx.length) parts.push(`<span class="fx">${fx.join(" ")}</span>`);
+  return parts.join(" ");
+}
+
+function bpm(tempo) { return Math.round((song.timer_hz * tempo / 65536) * 60 / song.ticks_per_quarter); }
+
+function showBar(i, tickInBar) {
+  if (i !== shownBar) {
+    shownBar = i;
+    const p = song.patterns[song.order[i]];
+    const byTick = new Map();
+    for (let t = 0; t < p.ticks; t += p.beat) byTick.set(t, []);
+    for (const [t, ch, f] of p.cells) (byTick.get(t) || byTick.set(t, []).get(t))[ch] = f;
+    rowTicks = [...byTick.keys()].sort((a, b) => a - b);
+    const head = `<tr><th>beat</th>${Array.from({ length: song.channels }, (_, c) =>
+      `<th data-ch="${c}" class="${(muted >> c) & 1 ? "muted" : ""}" title="click to mute">${c + 1}</th>`).join("")}</tr>`;
+    const body = rowTicks.map((t) => {
+      const cells = byTick.get(t);
+      const label = `${Math.floor(t / p.beat) + 1}.${String(t % p.beat).padStart(2, "0")}`;
+      return `<tr class="${t % p.beat ? "" : "beat"}"><th>${label}</th>${Array.from({ length: song.channels }, (_, c) =>
+        `<td title="${cells[c] ? JSON.stringify(cells[c]).replace(/"/g, "&quot;") : ""}">${cells[c] ? cellHtml(cells[c]) : ""}</td>`).join("")}</tr>`;
+    }).join("");
+    $("grid").innerHTML = `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+    $("grid").querySelectorAll("thead th[data-ch]").forEach((th) => th.onclick = () => {
+      muted ^= 1 << th.dataset.ch;
+      th.classList.toggle("muted");
+      node.port.postMessage({ type: "mute", mask: muted });
+    });
+    [...$("bars").children].forEach((b, k) => b.classList.toggle("current", k === i));
+    $("grid").scrollTop = 0;
+    reveal($("bars"), $("bars").children[i]);
+  }
+  const now = rowTicks.findLastIndex((t) => t <= tickInBar);
+  $("grid").querySelectorAll("tbody tr").forEach((tr, k) => tr.classList.toggle("now", k === now));
+  reveal($("grid"), $("grid").querySelector("tr.now"));
+}
+
+function position({ tick, tempo, playing: on }) {
+  if (!song) return;
+  playing = on;
+  $("play").textContent = on ? "Pause" : "Play";
+  if (tick < 0) return;
+  let i = barStarts.length - 1;
+  while (i > 0 && barStarts[i] > tick) i--;
+  const p = song.patterns[song.order[i]];
+  $("info").innerHTML = `<b>${$("songs").querySelector(".current")?.textContent}</b> · bar <b>${i + 1}</b> of
+    ${song.order.length} · <b>${meterText(p)}</b> · <b>${tempo ? bpm(tempo) : "–"}</b> BPM ·
+    ${song.loop ? `loops to bar ${song.restart + 1}` : "no loop"}`;
+  showBar(i, tick - barStarts[i]);
+}
+
+$("play").onclick = async () => {
+  await ctx.resume();
+  node.port.postMessage({ type: playing ? "pause" : "play" });
+};
+
+$("files").onchange = async (e) => {
+  const files = [...e.target.files];
+  const bankFile = files.find((f) => f.name.endsWith(".ff7bank"));
+  if (bankFile) {
+    bank = parseBank(await bankFile.arrayBuffer());
+    node?.port.postMessage({ type: "bank", instruments: bank });
+  }
+  const songFiles = files.filter((f) => f.name.endsWith(".ff7song"));
+  listSongs(songFiles.length ? songFiles : songs);
+};
+
+// Served over http: load an exported folder by itself (?dir=..., default the repo's assets/ff7song/).
+if (location.protocol.startsWith("http")) {
+  const dir = new URLSearchParams(location.search).get("dir") || "../assets/ff7song/";
+  fetch(dir + "index.json").then((r) => r.ok ? r.json() : Promise.reject(r.status)).then(async (index) => {
+    bank = parseBank(await (await fetch(dir + index.bank)).arrayBuffer());
+    listSongs(index.songs.map((name) => ({ name, text: () => fetch(dir + name).then((r) => r.text()) })));
+  }).catch(() => {});
+}
+</script>
+</body>
+</html>

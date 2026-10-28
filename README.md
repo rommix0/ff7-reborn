@@ -41,6 +41,19 @@ MilkyTracker):
 python tools/xm.py assets "assets/Final Fantasy VII (USA) (Disc 1)/SOUND" assets/xm
 ```
 
+Or export them in our own format and play them in the browser player, which emulates the game's sound driver
+(time signatures, vibrato, tremolo, bends and loops as the game plays them). The songs hold no samples; they share
+one instrument bank file. The format is described in `docs/ff7song_format.md`.
+
+```bash
+python tools/ff7song.py assets "assets/Final Fantasy VII (USA) (Disc 1)/SOUND" assets/ff7song
+python -m http.server 8000
+```
+
+Then open <http://localhost:8000/player/>: it loads `assets/ff7song/` by itself (or pass `?dir=`). Opening
+`player/index.html` straight from disk also works with **Open files…** (pick the bank and the songs). Click a bar
+to jump there, and a channel number to mute it.
+
 Convert the instrument samples to WAV (with loop points) and a CSV of their settings:
 
 ```bash
@@ -73,6 +86,7 @@ name to `config/symbols.main.txt`. Then `make split && make`.
 - `config/`: splat configs and symbol names (`main.yaml` for the boot exe)
 - `include/`: headers and the assembler macros splat expects
 - `tools/`: extractor scripts and the build/match tooling
+- `player/`: the browser music player (`synth.js` is the driver emulation; `node player/test_synth.js` tests it)
 - `docs/knowledge_base.md`: what we know about the discs, overlays, sound engine and what is left to recover
 - `REFERENCES.md`: every source studied, its license, and what we may reuse
 

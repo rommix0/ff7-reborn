@@ -23,7 +23,6 @@ from pathlib import Path
 
 import akao
 from instruments import BANKS, decode_adpcm
-from unpack import lzs
 
 AKAO_PER_XM = 2    # AKAO ticks per XM tick
 BAR_TICKS = 192    # AKAO ticks in a bar of 4/4; patterns hold two
@@ -38,7 +37,7 @@ def bpm(tempo: int) -> int:
 
 
 def load_bank_instruments(sound_dir: Path) -> dict:
-    """slot -> (samples, loop_start or None, pitch for C at octave 6, ADSR bytes +0x08..+0x0F).
+    """slot -> (samples, loop_start or None, pitches of C..B at octave 6, ADSR bytes +0x08..+0x0F).
 
     Bank 1 wins where both banks define a slot.
     """
@@ -52,8 +51,8 @@ def load_bank_instruments(sound_dir: Path) -> dict:
             if base <= sample_addr < base + length:
                 pcm, repeats = decode_adpcm(samples_file[16:16 + length], sample_addr - base)
                 loop = (loop_addr - sample_addr) // 16 * 28 if repeats and loop_addr >= sample_addr else None
-                pitch = struct.unpack_from("<I", table, i * 64 + 16)[0]
-                slots[first_slot + i] = (pcm, loop, pitch, table[i * 64 + 8:i * 64 + 16])
+                pitches = struct.unpack_from("<12I", table, i * 64 + 16)
+                slots[first_slot + i] = (pcm, loop, pitches, table[i * 64 + 8:i * 64 + 16])
     return slots
 
 
@@ -128,11 +127,11 @@ def adsr_envelope(adsr: bytes, bpm: int) -> tuple[list[tuple[int, int]], int, in
     return points[:12], min(sustain_index, 11), fadeout
 
 
-def xm_instrument(name: str, pcm: list[int], loop: int | None, pitch_c6: int, adsr: bytes, octave_base: int,
+def xm_instrument(name: str, pcm: list[int], loop: int | None, pitches: tuple, adsr: bytes, octave_base: int,
                   bpm: int) -> bytes:
     # XM plays C-4 (note 49) at 8363 Hz. We write AKAO octave o as XM octave o - octave_base, and the game plays
     # C of octave 6 at 44100 * pitch / 0x1000 Hz, so shift the sample by the difference in semitones.
-    semis = 12 * math.log2(44100 * pitch_c6 / 0x1000 / 8363) - 12 * (6 - octave_base - 4)
+    semis = 12 * math.log2(44100 * pitches[0] / 0x1000 / 8363) - 12 * (6 - octave_base - 4)
     relative = math.floor(semis)
     finetune = min(127, round((semis - relative) * 128))
     deltas, prev = bytearray(), 0
@@ -407,23 +406,12 @@ def main():
     source, sound_dir, out = map(Path, sys.argv[1:])
     out.mkdir(parents=True, exist_ok=True)
     bank = load_bank_instruments(sound_dir)
-    if source.is_dir():
-        found = list(akao.sequences(source))
-    else:
-        data = source.read_bytes()
-        if len(data) > 4 and int.from_bytes(data[:4], "little") == len(data) - 4:
-            data = lzs(data)
-        found = [(source.name, block) for _, block in akao.blocks(data)]
-    names, total_dropped = set(), collections.Counter()
-    for origin, block in found:
-        name = f"song_{struct.unpack_from('<H', block, 4)[0]:03d}"
-        while name in names:
-            name += "b"
-        names.add(name)
+    songs, total_dropped = akao.named_songs(source), collections.Counter()
+    for name, _, block in songs:
         xm, dropped = song_to_xm(block, bank, name)
         total_dropped += dropped
         (out / f"{name}.xm").write_bytes(xm)
-    print(f"{len(names)} songs -> {out}; dropped where two landed in one cell: {dict(total_dropped) or 'nothing'}")
+    print(f"{len(songs)} songs -> {out}; dropped where two landed in one cell: {dict(total_dropped) or 'nothing'}")
 
 
 if __name__ == "__main__":

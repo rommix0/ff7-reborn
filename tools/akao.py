@@ -106,6 +106,25 @@ def sequences(root: Path):
                 yield f"{path.relative_to(root)}@{off:#x}", block
 
 
+def named_songs(source: Path) -> list[tuple[str, str, bytes]]:
+    """(song_NNN name, where it was found, block) for every distinct song in a folder, or in one file."""
+    if source.is_dir():
+        found = list(sequences(source))
+    else:
+        data = source.read_bytes()
+        if len(data) > 4 and int.from_bytes(data[:4], "little") == len(data) - 4:
+            data = lzs(data)
+        found = [(f"{source.name}@{off:#x}", block) for off, block in blocks(data)]
+    names, songs = set(), []
+    for origin, block in found:
+        name = f"song_{struct.unpack_from('<H', block, 4)[0]:03d}"
+        while name in names:  # same id, different data
+            name += "b"
+        names.add(name)
+        songs.append((name, origin, block))
+    return songs
+
+
 def check_streams(name: str, data: bytes, starts: list[int], problems: dict) -> tuple[int, int]:
     """Parse each stream to the end of `data`; return (clean, ending at the next stream's start)."""
     clean = exact = 0
@@ -357,7 +376,7 @@ def bar_lines(meters: list[tuple[int, int]], end: int) -> list[int]:
     return bars
 
 
-def play_song(block: bytes):
+def play_song(block: bytes, trim_notes: bool = True):
     """Play every channel through the song's common loop.
 
     Returns (events per channel, loop start, loop end, each looping channel's loop length, any channel ran away).
@@ -365,6 +384,7 @@ def play_song(block: bytes):
     two bars later). The song as a whole repeats from the latest channel loop start, every lcm(loop lengths)
     ticks, so channels that loop earlier are played on until that point and everything is cut there. Once every
     channel loops, any later point repeats too: with time signatures (FD), the loop starts on the next bar line.
+    `trim_notes` cuts notes at the loop end; without it they keep their length, as the driver holds them on.
     """
     starts = channel_starts(block)
     first = [play_channel(block, start) for start in starts]
@@ -388,7 +408,7 @@ def play_song(block: bytes):
             events, _, _ = play_channel(block, start, until=loop_end)
         kept = [e for e in events if e[0] < loop_end]
         for e in kept:
-            if e[1] == "note":
+            if e[1] == "note" and trim_notes:
                 e[3] = min(e[3], loop_end - e[0])
         channels.append(kept)
     return channels, loop_start, loop_end, lengths, runaway
@@ -425,27 +445,15 @@ def song_to_midi(block: bytes) -> tuple[bytes, list[int], bool]:
 
 def export_midi(source: Path, out: Path):
     out.mkdir(parents=True, exist_ok=True)
-    if source.is_dir():
-        found = list(sequences(source))
-    else:
-        data = source.read_bytes()
-        if len(data) > 4 and int.from_bytes(data[:4], "little") == len(data) - 4:
-            data = lzs(data)
-        found = [(f"{source.name}@{off:#x}", block) for off, block in blocks(data)]
-    names, uneven = set(), []
-    for origin, block in found:
-        song_id = struct.unpack_from("<H", block, 4)[0]
-        name = f"song_{song_id:03d}"
-        while name in names:  # same id, different data
-            name += "b"
-        names.add(name)
+    songs, uneven = named_songs(source), []
+    for name, origin, block in songs:
         midi, loop_lengths, runaway = song_to_midi(block)
         (out / f"{name}.mid").write_bytes(midi)
         # Looping channels of a song repeat the same length (echo channels may start a little late, and a short
         # pattern like a one-bar drum loop divides it); anything else points at a misread length or loop command.
         if runaway or loop_lengths and any(not n or max(loop_lengths) % n for n in loop_lengths):
             uneven.append(f"{name} ({origin}): loop lengths {sorted(set(loop_lengths))}" + (" + runaway" if runaway else ""))
-    print(f"{len(names)} songs -> {out}; {len(names) - len(uneven)} with every looping channel the same length")
+    print(f"{len(songs)} songs -> {out}; {len(songs) - len(uneven)} with every looping channel the same length")
     for line in uneven:
         print("  " + line)
 

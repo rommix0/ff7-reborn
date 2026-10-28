@@ -58,7 +58,7 @@ if __name__ == "__main__":
     # One channel: tempo, instrument 0, C quarter, rest quarter, then an endless jump back to the start.
     seq = bytes([0xE8, 0x00, 0x60, 0xA1, 0x00, 0xA5, 0x04, 0x02, 0x91, 0xEE, 0xF7, 0xFF])  # EE -9: back to A1
     song = b"AKAO" + struct.pack("<HHH", 1, 6 + len(seq), 0) + bytes(6) + struct.pack("<IH", 1, 0) + seq
-    bank = {0: ([0, 1000, -1000, 0] * 10, 8, 0x1000, bytes([0, 0x0F, 0x0F, 0x7F, 0x06, 1, 3, 3]))}
+    bank = {0: ([0, 1000, -1000, 0] * 10, 8, (0x1000,) * 12, bytes([0, 0x0F, 0x0F, 0x7F, 0x06, 1, 3, 3]))}
     xm, dropped = song_to_xm(song, bank, "test")
     info = walk(xm)
     assert not dropped
@@ -81,7 +81,7 @@ if __name__ == "__main__":
     def note_volume(a3):
         seq = bytes([0xA1, 0x00, 0xA8, 0x7F, 0xA3, a3, 0x02, 0xA0])
         song = b"AKAO" + struct.pack("<HHH", 1, 6 + len(seq), 0) + bytes(6) + struct.pack("<IH", 1, 0) + seq
-        xm, _ = song_to_xm(song, {0: ([0, 1000, -1000, 0] * 10, 8, 0x1000, steady)}, "test")
+        xm, _ = song_to_xm(song, {0: ([0, 1000, -1000, 0] * 10, 8, (0x1000,) * 12, steady)}, "test")
         cell = xm.index(bytes([0x80 | 0b111, 25]))  # first note cell: C-2 (driver default octave 2), instr, volume
         return xm[cell + 3] - 0x10
     assert note_volume(127) == 64 and note_volume(64) == 32
