@@ -6,3 +6,4 @@ disks/
 *.iso
 build/
 __pycache__/
+toolchain/

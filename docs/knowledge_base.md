@@ -149,6 +149,73 @@ start with `C:\`. Error strings such as `ACCESS.CPP::SOUND_SIDE_SWITCH` also sur
   `tools/test_unpack.py` is the LZS self-check.
 - A matching decomp needs the original compiler era: PsyQ's gcc 2.x for mipsel. The open-source matching tools
   (splat, maspsx, m2c, asm-differ) are separate projects; check each one's license before vendoring it.
+  rabbitizer (MIPS/GTE disassembler) is MIT.
+
+## 7. Toolchain: what built the game, and what our SDK has
+
+### What's in the game (checked on `SCUS_941.63`)
+
+- Linked PsyQ libraries carry CVS stamps from 1995–96: `libetc intr.c 1.73` (1995-11-10), `libcd bios.c 1.76`
+  (1996-04-03), `libgpu sys.c 1.115` (1995-11-29). That's roughly PsyQ library 3.3–3.5.
+- Game code shows the SN assembler's signature. Indexed global access expands through `$at`
+  (`lui $at,hi; addu $at,$at,$a0; lw $v0,lo($at)`), load-delay `nop`s are inserted, and branch delay slots are
+  filled only from instructions *before* the branch, never copied from the branch target.
+
+### What the PsyQ SDK has (PsyQ runtime library 4.4, "DTL-S2350")
+
+| Tool | Version | Runs on Win10 x64? |
+|---|---|---|
+| `pssn/bin/CC1PSX.EXE` | GCC **2.8.1** SN32 build 4.0.0010 | Yes (Win32) |
+| `pssn/bin/ASPSX.EXE` | ASPSX 2.79 | Yes (needs absolute paths) |
+| `pssn/bin/PSYLINK.EXE` | Psylink 2.73 (`/p` = raw binary at `/o` org) | Yes |
+| `pssn/bin/DOS/CC1PSX.EXE` | GCC **2.6.3** (go32 DOS) | No, needs DOSBox |
+| `pssn/bin/DOS/ASPSXD.EXE` | ASPSX 2.79D (DOS) | No, needs DOSBox |
+| `psx/lib`, `zips/Lib44`, `zips/Lib45` | libs 4.4/4.5, stamps from 1997–98 | n/a |
+
+**Test result.** I wrote C for three back-to-back leaf functions at `80014A00`–`80014A80` from our own disassembly,
+then built them with the Win32 `CC1PSX` → `ASPSX` → `PSYLINK /p`:
+
+- Instruction selection and register allocation match the game.
+- They are **not byte-identical**. GCC 2.8.1 fills a loop branch's delay slot by copying an instruction from the branch
+  target; the game leaves a `nop` there. `-fno-delayed-branch` overshoots: then nothing fills any slot, and ASPSX 2.79
+  doesn't fill them either.
+- One function also has an empty 8-byte stack frame in the game that our build omits *(cause unknown, probably
+  compiler version)*.
+
+**Conclusions about the SDK:**
+
+- The SDK's **libraries can't be used** for matching: they're two years newer than what's linked. Library code in
+  the exe stays as bytes taken from the user's own disc, which also keeps Sony code out of the repo.
+- The SDK's **Win32 compiler is the wrong version** (2.8.1) for byte-matching. It's still handy for quick "does
+  this C produce the same instructions" checks.
+- The SDK's **DOS GCC 2.6.3 is the right version family**, but it needs DOSBox to run, and it's untested so far.
+- SDK headers (`psx/include`, `LIBSPU.H`, …) and `Devrefs/Libref.pdf` give the library function signatures and
+  structs. Use them to name the library functions in the exe.
+
+### Our build toolchain (open, runs in WSL/Linux)
+
+`tools/setup_toolchain.sh` fetches everything into the git-ignored `toolchain/` folder. Nothing gets vendored.
+
+| Piece | Source | License | Role |
+|---|---|---|---|
+| GCC 2.6.3 / 2.7.2 "Sony Playstation" `cc1`, `cpp` | decompals/old-gcc release `0.17`, SHA256-pinned in `tools/toolchain.sha256` | GPL (GCC) | Compiler |
+| maspsx | mkst/maspsx at commit `4ffa8b51` | MIT | Rewrites GCC output the way SN's ASPSX would: delay slots, `$at` expansions, `nop`s |
+| GNU binutils (`mipsel-linux-gnu-*`) | Ubuntu package `binutils-mipsel-linux-gnu` | GPL | Assemble, link, objdump |
+
+Pipeline: `cpp` → `cc1 -O2 -G0` → `maspsx --aspsx-version=2.79` → `as -march=r3000 -G0 -O1` → `ld` at the exact address →
+`objcopy -O binary`. `tools/match.sh <file.c> <addr> [gcc]` runs it and either prints `MATCH` or diffs the disassembly
+against your exe.
+
+**Proven:** `src/main/bitops.c` (3 functions, `80014A00`–`80014A84`, 132 bytes) is **byte-identical** to the game
+with GCC 2.7.2. GCC 2.6.3 matches only one of the three, so that part of the exe was built with 2.7.2.
+
+Lessons from getting it to match:
+- **Link address:** `ld` aligns `.text` to 16 bytes, so link with an explicit section address and `SUBALIGN(4)`.
+  `match.sh` does this.
+- **Loop shape matters:** a `while` loop gets rotated by GCC, while the original `highest_bit` loop needed a
+  `goto` to come out unrotated.
+- **Assembler version:** `--aspsx-version` made no difference for these simple leaf functions (2.21–2.79 all
+  match). Recheck it on functions with `div`, `li` or `$gp` access.
 - `psx-spx.txt`: hardware reference (SPU, GPU, GTE, CD-ROM, MDEC). Use for SPU ADPCM and register layouts.
 - PsyQ SDK: Sony PsyQ docs (`Devrefs/Libref.pdf`, `Filefrmt.pdf` for TIM/TMD/VAG/VAB) and libs. The game
   links PsyQ `libspu`, `libcd`, `libgpu`, `libgte`, `libpress`, `libetc`, `libc2`.

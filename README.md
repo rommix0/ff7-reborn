@@ -22,9 +22,21 @@ Then decompress what you need (overlays, `KERNEL.BIN`, field maps). The format i
 python tools/unpack.py "assets/Final Fantasy VII (USA) (Disc 1)/BATTLE/BATTLE.X"
 ```
 
+## Build toolchain (Linux or WSL)
+
+```bash
+sudo apt install binutils-mipsel-linux-gnu python3 curl git
+sh tools/setup_toolchain.sh
+bash tools/match.sh src/main/bitops.c 80014A00
+```
+
+`match.sh` compiles a C file with the period compiler and checks it byte-for-byte against your extracted
+`SCUS_941.63`.
+
 ## Layout
 
-- `tools/`: extractor scripts
+- `src/`: recovered C source, one folder per executable or overlay
+- `tools/`: extractor scripts and the build/match tooling
 - `docs/knowledge_base.md`: what we know about the discs, overlays, sound engine and what is left to recover
 - `REFERENCES.md`: every source studied, its license, and what we may reuse
 
