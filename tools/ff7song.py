@@ -1,6 +1,8 @@
 """Export AKAO songs in our own tracker format (docs/ff7song_format.md): one instrument bank, sample-free songs.
 
 usage: python tools/ff7song.py <file|assets dir> <SOUND dir> <out dir>
+
+The reverb presets come from the executable next to the SOUND folder (SCUS_941.63).
 """
 import bisect
 import json
@@ -12,6 +14,10 @@ import akao
 from instruments import BANK2_SONGS
 from xm import load_bank_instruments
 
+EXE_BASE = 0x80010000 - 0x800  # load address minus the PS-X EXE header
+# libspu's tables in SCUS_941.63, indexed by reverb mode (0 off, 1 Room ... 9 Pipe).
+REVERB_WORK_STARTS = 0x8004AB5C  # u32 each: the work area's start in SPU RAM, in 8-byte units
+REVERB_PRESETS = 0x8004ABAC  # 0x44 bytes each: u32 mask, then the 32 reverb registers (0x1F801DC0..0x1F801DFE)
 DEFAULT_METER = (48, 4)  # 4/4 until the first time signature
 # Event kind -> cell field; the rest keep their name.
 FIELD = {"program": "inst"}
@@ -28,7 +34,15 @@ def write_bank(bank: dict, path: Path, bank2: dict | None = None):
     path.write_bytes(b"FF7BANK\0" + struct.pack("<HH", 1, len(sets)) + entries + samples)
 
 
-def song_to_ff7song(block: bytes) -> dict:
+def reverb_presets(exe: bytes) -> list[dict]:
+    """The SPU reverb settings for each libspu reverb mode, read from the game's executable."""
+    starts = struct.unpack_from("<10I", exe, REVERB_WORK_STARTS - EXE_BASE)
+    return [{"mode": mode, "start": starts[mode],
+             "registers": list(struct.unpack_from("<32H", exe, REVERB_PRESETS - EXE_BASE + mode * 0x44 + 4))}
+            for mode in range(10)]
+
+
+def song_to_ff7song(block: bytes, presets: list | None = None) -> dict:
     channels, loop_start, end, _, _ = akao.play_song(block, trim_notes=False)
     meters = sorted((e[0], e[2], e[3]) for events in channels for e in events if e[1] == "meter")
     bar_meters = [(tick, beat * beats) for tick, beat, beats in meters]
@@ -54,8 +68,9 @@ def song_to_ff7song(block: bytes) -> dict:
             seen[key] = len(patterns)
             patterns.append(pattern)
         order.append(seen[key])
-    song_id = struct.unpack_from("<H", block, 4)[0]
+    song_id, reverb_mode = struct.unpack_from("<H", block, 4)[0], struct.unpack_from("<H", block, 8)[0]
     return {"format": "ff7song", "version": 1, "song": song_id, "bank": 2 if song_id in BANK2_SONGS else 1,
+            "reverb": presets[reverb_mode] if presets and reverb_mode else None,
             "channels": len(channels), "ticks_per_quarter": akao.TICKS_PER_QUARTER, "timer_hz": akao.DRIVER_HZ,
             "loop": {"start": loop_start, "end": end} if loop_start is not None else None,
             "patterns": patterns, "order": order, "restart": bars.index(loop_start) if loop_start is not None else 0}
@@ -69,9 +84,10 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     bank2 = {slot: v for slot, v in load_bank_instruments(sound_dir, bank2=True).items() if slot >= 53}
     write_bank(load_bank_instruments(sound_dir), out / "instruments.ff7bank", bank2)
+    presets = reverb_presets((sound_dir.parent / "SCUS_941.63").read_bytes())
     songs = akao.named_songs(source)
     for name, _, block in songs:
-        (out / f"{name}.ff7song").write_text(json.dumps(song_to_ff7song(block), separators=(",", ":")),
+        (out / f"{name}.ff7song").write_text(json.dumps(song_to_ff7song(block, presets), separators=(",", ":")),
                                              encoding="utf-8")
     print(f"{len(songs)} songs and instruments.ff7bank -> {out}")
 

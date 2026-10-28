@@ -371,6 +371,10 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "balance_slide", args[0] or 256, args[1]])
             case 0xF8 | 0xF9:  # overlap on (release rate) / off
                 events.append([tick, "overlap", args[0] if b == 0xF8 else None])
+            case 0xC2 | 0xC3:  # the channel's reverb send on / off
+                events.append([tick, "reverb", b == 0xC2])
+            case 0xEA:  # the song's reverb depth (output volume, 0x8000 = 1)
+                events.append([tick, "reverb_depth", args[0] | args[1] << 8])
             case 0xCC:  # slur on; the look-ahead turns it off at a CD
                 mode = 1
             case 0xD0:  # full-length notes; the look-ahead turns it off at a D1

@@ -2,7 +2,7 @@ import struct
 import tempfile
 from pathlib import Path
 
-from ff7song import song_to_ff7song, write_bank
+from ff7song import EXE_BASE, REVERB_PRESETS, REVERB_WORK_STARTS, reverb_presets, song_to_ff7song, write_bank
 
 
 def song(*channels: bytes) -> bytes:
@@ -49,6 +49,19 @@ assert out["patterns"][0]["cells"][0][2]["len"] is None
 out = song_to_ff7song(song(bytes([0xAD, 0x28, 0xCC, 0x02, 0x02, 0xCD, 0xA0])))
 cells = {tick: fields for tick, _, fields in out["patterns"][0]["cells"]}
 assert cells[0]["ar"] == 0x28 and cells[48] == {"slur": True, "note": 36, "len": 46} and out["bank"] == 1
+
+# Reverb: the header's mode picks one of libspu's presets from the executable; C2/C3 and EA become cell fields.
+exe = bytearray(REVERB_PRESETS - EXE_BASE + 10 * 0x44)
+struct.pack_into("<I", exe, REVERB_WORK_STARTS - EXE_BASE + 3 * 4, 0xF6F8)
+struct.pack_into("<32H", exe, REVERB_PRESETS - EXE_BASE + 3 * 0x44 + 4, *range(32))
+block = bytearray(song(bytes([0xC2, 0xEA, 0x00, 0x28, 0x02, 0xC3, 0x02, 0xA0])))
+block[8] = 3
+out = song_to_ff7song(bytes(block), reverb_presets(bytes(exe)))
+assert out["reverb"] == {"mode": 3, "start": 0xF6F8, "registers": list(range(32))}
+cells = {tick: fields for tick, _, fields in out["patterns"][0]["cells"]}
+assert cells[0]["reverb"] is True and cells[0]["reverb_depth"] == 0x2800 and cells[48]["reverb"] is False
+block[8] = 0
+assert song_to_ff7song(bytes(block), reverb_presets(bytes(exe)))["reverb"] is None
 
 # Bank: header, 68-byte entries, then each instrument's samples.
 with tempfile.TemporaryDirectory() as tmp:

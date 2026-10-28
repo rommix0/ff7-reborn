@@ -16,6 +16,7 @@ import numpy as np
 from xm import lfo_wave
 
 SPU_HZ = 44100
+REVERB_HZ = SPU_HZ / 2  # the SPU runs its reverb on every other sample
 ATTACK, DECAY, SUSTAIN, RELEASE, OFF = range(5)
 
 
@@ -81,6 +82,7 @@ class Channel:
     voice: Voice | None = None
     tail: Voice | None = None  # the previous note, ringing on in its release while overlap is on
     layer_voice: Voice | None = None
+    reverb: bool = False  # C2/C3: the channel's voices feed the reverb
 
 
 ENVELOPE_FIELDS = {"ar": 0, "dr": 1, "sl": 2, "sr": 3, "rr": 4}  # cell field -> index in the ADSR bytes
@@ -113,6 +115,103 @@ def timeline(song: dict) -> tuple[list[int], int, list]:
     return starts, t, events
 
 
+def signed(register: int) -> float:
+    """A reverb volume register as a fraction, 0x8000 = -1."""
+    return (register - 0x10000 if register & 0x8000 else register) / 0x8000
+
+
+class Reverb:
+    """The SPU reverb (psx-spx, "SPU Reverb Formula") on its own work area, running at 22.05 kHz.
+
+    The SPU works sample by sample. Here a stretch of `block` samples goes at once in numpy: every read comes from
+    the work area as it was before the stretch, then the writes follow. That matches the SPU while the stretch is no
+    longer than the shortest delay from a write to a read of the same place. The one shorter loop, each filter
+    reading its own last output, is worked out as a filter instead.
+    """
+
+    def __init__(self, preset: dict):
+        r = preset["registers"]
+        self.apf_delays = (r[0] * 4, r[1] * 4)  # addresses count 8 bytes, the work area holds 16-bit samples
+        self.iir, *self.combs, self.wall, apf1, apf2 = map(signed, r[2:10])
+        self.apf = (apf1, apf2)
+        m = {name: v * 4 for name, v in zip(
+            "lsame rsame lcomb1 rcomb1 lcomb2 rcomb2 dlsame drsame ldiff rdiff lcomb3 rcomb3 lcomb4 rcomb4 dldiff "
+            "drdiff lapf1 rapf1 lapf2 rapf2".split(), r[10:30])}
+        self.vlin, self.vrin = signed(r[30]), signed(r[31])
+        # (write, read, input side) for the four filters: same-side and cross-side reflections.
+        self.filters = ((m["lsame"], m["dlsame"], 0), (m["rsame"], m["drsame"], 1),
+                        (m["ldiff"], m["drdiff"], 0), (m["rdiff"], m["dldiff"], 1))
+        self.comb_taps = ([m[f"lcomb{i}"] for i in range(1, 5)], [m[f"rcomb{i}"] for i in range(1, 5)])
+        self.apf_taps = ((m["lapf1"], m["rapf1"]), (m["lapf2"], m["rapf2"]))
+        self.size = (0x10000 - preset["start"]) * 4  # from the work area's start to the end of SPU RAM
+        writes = [f[0] for f in self.filters] + [tap for taps in self.apf_taps for tap in taps]  # in formula order
+        reads = [f[1] for f in self.filters] + self.comb_taps[0] + self.comb_taps[1] + \
+            [tap - delay for taps, delay in zip(self.apf_taps, self.apf_delays) for tap in taps]
+        # Two writes to one place within a stretch must land in time order: the smaller address writes later. Writes
+        # go in address order, counted from just after the widest gap between them, so only a pair across that gap
+        # could swap.
+        offsets = sorted(set(writes))
+        gap, self.cut = max(((b - a) % self.size or self.size, b) for a, b in zip(offsets, offsets[1:] + offsets[:1]))
+        delays = [(w - r) % self.size for w in writes for r in reads]  # from a write to a read of the same place
+        self.block = min([d for d in delays if d] + [gap, 512])
+        c = 1 - self.iir
+        powers = c ** np.arange(self.block)
+        self.kernel = self.iir * powers[np.abs(powers) > 1e-10]  # the filter's response; older input has died out
+        self.decay = c ** np.arange(1, self.block + 1)
+        self.ram = np.zeros(self.size)
+        self.pos = 0
+        self.last = np.zeros(4)  # each filter's last output
+        # Resampling to and from 22.05 kHz: the next reverb sample's time in output frames, the last input frame,
+        # and the last two outputs (time, left, right), placed one reverb sample late so every frame lies between two.
+        self.phase, self.last_in = 0.0, np.zeros(2)
+        self.tail = np.zeros((2, 3))
+        self.peak = 0.0
+
+    def run(self, left: np.ndarray, right: np.ndarray) -> np.ndarray:
+        ram, size = self.ram, self.size
+        out = np.empty((len(left), 2))
+        for start in range(0, len(left), self.block):
+            b = min(self.block, len(left) - start)
+            at = np.arange(self.pos, self.pos + b)
+            inputs = (self.vlin * left[start:start + b], self.vrin * right[start:start + b])
+            reflections = [ram[(at + read) % size] for _, read, _ in self.filters]
+            sides = [sum(v * ram[(at + tap) % size] for v, tap in zip(self.combs, taps)) for taps in self.comb_taps]
+            backs = [[ram[(at + tap - delay) % size] for tap in taps]
+                     for taps, delay in zip(self.apf_taps, self.apf_delays)]
+            written = []  # (address, samples) in formula order
+            for k, ((write, _, side), reflection) in enumerate(zip(self.filters, reflections)):
+                x = inputs[side] + reflection * self.wall
+                y = np.clip(np.convolve(x, self.kernel)[:b] + self.decay[:b] * self.last[k], -1, 1)
+                written.append((write, y))
+                self.last[k] = y[-1]
+            for taps, back, v in zip(self.apf_taps, backs, self.apf):
+                for side, tap in enumerate(taps):
+                    sides[side] = sides[side] - v * back[side]
+                    written.append((tap, np.clip(sides[side], -1, 1)))
+                    sides[side] = sides[side] * v + back[side]
+            for write, samples in sorted(written, key=lambda w: -((w[0] - self.cut) % size)):  # stable: ties in order
+                ram[(at + write) % size] = samples
+            out[start:start + b] = np.column_stack(sides)
+            self.pos = (self.pos + b) % size
+        return out
+
+    def process(self, send: np.ndarray, rate: float) -> np.ndarray:
+        """The reverb's output for `send` (frames, 2) at the output rate, before the depth is applied."""
+        n, period = len(send), rate / REVERB_HZ
+        times = np.arange(self.phase, n, period)
+        # Averaging neighbouring frames keeps the worst of the aliasing out of the half-rate reverb.
+        smooth = (send + np.vstack([self.last_in, send[:-1]])) / 2
+        frames = np.arange(n)
+        wet = self.run(np.interp(times, frames, smooth[:, 0]), np.interp(times, frames, smooth[:, 1]))
+        points = np.vstack([self.tail, np.column_stack([times + period, wet])])
+        out = np.column_stack([np.interp(frames, points[:, 0], points[:, side]) for side in (1, 2)])
+        self.tail = points[-2:] - [n, 0, 0]
+        self.phase = (times[-1] + period if len(times) else self.phase) - n
+        self.last_in = send[-1]
+        self.peak = float(np.abs(out).max(initial=0))
+        return out
+
+
 class Synth:
     def __init__(self, bank: dict, bank2: dict | None = None, rate: int = SPU_HZ):
         self.bank, self.bank2, self.rate = bank, bank2 or {}, rate
@@ -122,6 +221,8 @@ class Synth:
         self.muted = 0
         self.tempo_scale = 1.0  # master tempo, on top of the song's own
         self.transpose = 0  # master transpose in semitones
+        self.reverb_on = True  # the player's switch; the song still sets mode, depth and sends
+        self.reverb = None
         self.playing = False
         # Commands from the UI thread, run at the start of the next audio block so state only changes there.
         self.commands = collections.deque()
@@ -151,6 +252,9 @@ class Synth:
         self.until_interrupt = 0.0
         self.ended = False
         self.channels = [Channel() for _ in range(self.song["channels"])]
+        # The driver sets the song's reverb mode, clearing the work area, and zeroes the depth (EA sets it).
+        self.reverb = Reverb(self.song["reverb"]) if self.song.get("reverb") else None
+        self.reverb_depth = 0.0
         for ch in self.channels:
             self.set_instrument(ch, ch.inst)
 
@@ -284,6 +388,9 @@ class Synth:
                     if ch.layer_adsr:  # the driver writes them to the layer voice's channel too
                         ch.layer_adsr[index] = f[name]
             self.tempo = f.get("tempo", self.tempo)
+            ch.reverb = f.get("reverb", ch.reverb)
+            if "reverb_depth" in f:
+                self.reverb_depth = signed(f["reverb_depth"])
             if "bend" in f and ch.voice:
                 ticks, semitones = f["bend"]
                 ch.voice.bend = [ch.voice.pitch, self.pitch_of(ch, ch.voice.key + semitones), ticks, 0]
@@ -368,7 +475,8 @@ class Synth:
             v.phase = {ATTACK: DECAY, DECAY: SUSTAIN, SUSTAIN: SUSTAIN, RELEASE: OFF}[v.phase]
         return np.clip(levels, 0, 0x7FFF) / 0x7FFF
 
-    def mix(self, out: np.ndarray):
+    def mix(self, out: np.ndarray, send: np.ndarray | None):
+        """Add the voices to `out`, and those of channels with reverb on to `send` as well."""
         n = len(out)
         outputs = {}  # channel -> its main voice's output this stretch, for FM on the next channel
         for c, ch in enumerate(self.channels):
@@ -415,6 +523,9 @@ class Synth:
                 voiced = sample * env * gain
                 out[:, 0] += voiced * math.cos(angle)
                 out[:, 1] += voiced * math.sin(angle)
+                if send is not None and ch.reverb:
+                    send[:, 0] += voiced * math.cos(angle)
+                    send[:, 1] += voiced * math.sin(angle)
 
     def render(self, frames: int) -> np.ndarray:
         """The next `frames` stereo samples, (frames, 2) float32."""
@@ -424,6 +535,8 @@ class Synth:
         if not self.song or not self.playing:
             return out
         per_interrupt = self.rate / self.song["timer_hz"]
+        reverb = self.reverb if self.reverb_on else None
+        send = np.zeros((frames, 2)) if reverb else None
         done = 0
         while done < frames:
             if self.until_interrupt <= 0:
@@ -431,8 +544,11 @@ class Synth:
                 self.interrupt()
             n = min(frames - done, max(1, math.ceil(self.until_interrupt)))
             self.until_interrupt -= n
-            self.mix(out[done:done + n])
+            self.mix(out[done:done + n], send[done:done + n] if reverb else None)
             done += n
-        if self.ended and all(not ch.voice or ch.voice.phase == OFF for ch in self.channels):
+        if reverb:
+            out += reverb.process(send, self.rate) * self.reverb_depth
+        if self.ended and all(not ch.voice or ch.voice.phase == OFF for ch in self.channels) and \
+                (not reverb or reverb.peak * abs(self.reverb_depth) < 1e-4):  # let the reverb ring out
             self.playing = False
         return np.clip(out, -1, 1, out=out)

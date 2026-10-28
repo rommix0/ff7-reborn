@@ -180,12 +180,33 @@ starts:
     and song 85 at tick 72.
   - **Player bug this caused:** the player used to start at tempo 0, so those two songs never got past tick 0.
 - **Reverb.** The PS1's notes mostly die at key-off: most instruments have release rate 5, linear, about 1.5 ms.
-  The tail you hear in the game is SPU reverb, which we don't emulate yet.
+  The tail you hear in the game is SPU reverb.
   - **Mode:** the song header's `u16` at `+8`. The song-start code (`func_8002DA7C`) passes it to
     `snd_set_reverb_mode` (`0x80029AF0`), which sets libspu's reverb type. 45 songs use 1 (Room), 40 use 3
     (Studio B, medium), and 13 use 4 (Studio C, large).
+  - **Setting the mode:** only when it changes. It calls `SpuSetReverbModeParam` with mask 1 and mode
+    `| 0x100` (clear the work area), turning reverb off around it.
+  - **Presets:** libspu's tables in the executable. `spu_reverb_work_starts` (`0x8004AB5C`) is ten `u32`s, the work
+    area start per mode in 8-byte units (Room `0xFB28`: 4,960 samples; Studio B `0xF6F8`: 9,248; Studio C `0xF204`:
+    14,320). `spu_reverb_presets` (`0x8004ABAC`) is ten 0x44-byte entries: a `u32` mask, then the 32 registers
+    `0x1F801DC0`–`0x1F801DFE`. All three presets FF7 uses take `vLIN`/`vRIN` = `0x8000` (−1).
   - **Depth:** `EA lo hi` (`seq_cmd_reverb_depth`, `0x80031BA0`) sets it to `(hi << 8 | lo) << 16`. It's zeroed at
     song start and used in 93 songs, mostly `EA 00 28` (`0x2800`).
+  - **Depth to the SPU:** `func_8002F848` takes the top half (`0x8009A146`), scales it by the game's sound setting
+    `0x80062FB8` (0 at boot: unchanged) and pans it by `0x80062F70` (`0x40` at boot: both sides equal). Then
+    `SpuSetReverbDepth` writes it as the reverb output volume (`vLOUT`/`vROUT`), so `0x2800` = 0.31.
+  - **In the player** (`Reverb` in `tools/akao_synth.py`): psx-spx's formula on a copy of the work area, at
+    22.05 kHz, resampled to and from the output rate. The sends are the voices' panned outputs, as on the SPU.
+    - **Speed:** it works a stretch of up to 512 samples at a time. All reads come before the writes, which
+      matches the sample-by-sample formula while the stretch is shorter than the shortest delay from a write to a
+      read. Each filter's feedback from its own last output is computed as a filter. A test checks it against a
+      plain per-sample version to within 1e-9.
+    - **Cost:** about 2% CPU for the presets FF7 uses. Echo and Delay have 4-sample delays, so they run slowly,
+      but no song uses them.
+    - **What it changes:** over 20 s, reverb adds 4–17% RMS: song 42 (Room) 0.086 → 0.089, song 96 (Studio B)
+      0.047 → 0.051, song 82 (Studio C) 0.067 → 0.078.
+    - **Known gap:** Room's two "diff" filters both write offset 0, so the SPU's left filter reads the right
+      one's last output. Ours uses its own. Nothing reaches the output from there (`vCOMB3`/`vCOMB4` are 0).
   - **Per channel:** `C2` turns a channel's reverb send on and `C3` turns it off (1,876 and 59 uses). Song 42
     turns it on for all 16 channels.
 - **`F4 a b` / `F5`: layer** (`0x80031D6C` / `0x80031E98`).
@@ -204,7 +225,7 @@ starts:
     (1 + output).
   - **In the songs:** 53, 66 and 89.
 - **Opcode audit (98 songs).**
-  - **Handled:** every command a song uses is handled, except reverb (`C2`/`C3`/`EA`).
+  - **Handled:** every command a song uses is handled.
   - **No audio effect:** `FE` is a bar counter for the game.
   - **Never used in songs:** `AC B0 B3 B7 BB BE BF C4 C5 CB CE CF D2–D7 D9 DA DB DF E9 EB EF F1 F3` and the unused
     `E0–E7 FA–FC FF`. `DA` (glide) appears only in sound effects.
@@ -350,9 +371,10 @@ the XM's compromises with the driver's own behaviour.
 - **Tempo:** songs start at the driver's tempo `0xFFFF` until their first `E8`.
 - **Other driver features:** the layered second instrument with its balance (`F4`–`F7`), the pan LFO (`BC`/`BD`),
   LFO depth slides (`DD`/`DE`), and FM (`C6`/`C7`).
-- **Approximations:** no SPU reverb yet (see "Reverb"), linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
+- **Reverb:** SPU reverb with the song's preset, depth and sends (see "Reverb").
+- **Approximations:** linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
   tables at `0x80049C44`/`0x80049E44` aren't read yet), and voice volume taken as volume × expression ÷ 127² ×
-  ½. There's no reverb, pan LFO, LFO depth slide or noise waveform.
+  ½. There's no noise waveform.
 
 ### LFOs: vibrato, tremolo, pan
 

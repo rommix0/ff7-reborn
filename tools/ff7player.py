@@ -21,7 +21,7 @@ LIST_FIELDS = {"bend": 2, "vibrato": 4, "tremolo": 4, "pan_lfo": 4, "vibrato_sli
                "layer": 2, "balance_slide": 2}  # fields that hold several numbers
 FIELDS = ["note", "len", "slur", "inst", "volume", "expression", "pan", "detune", "tempo", "bend", "vibrato", "tremolo",
           "ar", "dr", "sl", "sr", "rr", "overlap", "pan_lfo", "vibrato_slide", "tremolo_slide", "fm", "layer",
-          "balance", "balance_slide"]
+          "balance", "balance_slide", "reverb", "reverb_depth"]
 
 
 def note_name(key: int) -> str:
@@ -61,6 +61,10 @@ def cell_text(f: dict, timer_hz: float, ticks_per_quarter: int) -> str:
             parts.append(f"{letter}>{f[name][1]}/{f[name][0]}")
     if "fm" in f:
         parts.append("FM" if f["fm"] else "FM-")
+    if "reverb" in f:
+        parts.append("Rv" if f["reverb"] else "Rv-")
+    if "reverb_depth" in f:
+        parts.append(f"Rd{f['reverb_depth']:X}")
     if "layer" in f:
         parts.append(f"L{f['layer'][1]}" if f["layer"] else "L-")
     if "balance" in f:
@@ -160,6 +164,7 @@ class PlayerWindow:
         self.song, self.path, self.dirty = None, None, False
         self.shown_bar, self.row_ticks, self.selected = -1, [], None
         self.follow = tk.BooleanVar(value=True)
+        self.reverb = tk.BooleanVar(value=True)
         self.row_step = tk.StringVar(value="auto")
         self.tempo_percent = tk.IntVar(value=100)
         self.transpose = tk.IntVar(value=0)
@@ -183,6 +188,8 @@ class PlayerWindow:
         self.play_button.pack(side="left")
         ttk.Button(bar, text="Save", command=self.save).pack(side="left", padx=4)
         ttk.Checkbutton(bar, text="Follow playback", variable=self.follow).pack(side="left", padx=8)
+        ttk.Checkbutton(bar, text="Reverb", variable=self.reverb,
+                        command=lambda: setattr(self.synth, "reverb_on", self.reverb.get())).pack(side="left")
         # Master tempo and transpose: playback only, the song file doesn't change.
         for label, var, low, high, step, unit in (("Tempo", self.tempo_percent, 25, 400, 5, "%"),
                                                  ("Transpose", self.transpose, -24, 24, 1, "st")):
@@ -509,8 +516,9 @@ class CellDialog:
         for name in ("overlap", "layer"):
             if name in fields and fields[name] is None:
                 rows[FIELDS.index(name) + 1] = (name, "off")
-        if "fm" in fields:
-            rows[FIELDS.index("fm") + 1] = ("fm", int(fields["fm"]))
+        for name in ("fm", "reverb"):
+            if name in fields:
+                rows[FIELDS.index(name) + 1] = (name, int(fields[name]))
         for r, (name, value) in enumerate(rows):
             ttk.Label(top, text=name).grid(row=r, column=0, sticky="e", padx=6, pady=2)
             entry = ttk.Entry(top, width=24)
@@ -523,7 +531,8 @@ class CellDialog:
         hint = ("note: C-4 / C#4 · len: ticks, or hold · slur: 1 = no restart · ar…rr: envelope\n"
                 "overlap: release rate, or off · bend: ticks, semitones · fm: 1/0\n"
                 "vibrato/tremolo/pan_lfo: delay, rate, waveform, depth · *_slide: ticks, target\n"
-                "layer: instrument, layer instrument, or off · balance: 0–127 (layer share)")
+                "layer: instrument, layer instrument, or off · balance: 0–127 (layer share)\n"
+                "reverb: 1/0 (the channel's send) · reverb_depth: song-wide, 32768 = full (the songs use 10240)")
         ttk.Label(top, text=hint, foreground="#666").grid(row=len(rows), column=0, columnspan=2, padx=6)
         buttons = ttk.Frame(top)
         buttons.grid(row=len(rows) + 1, column=0, columnspan=2, pady=6)
@@ -550,7 +559,7 @@ class CellDialog:
                     fields[name] = None
                 elif name in ("overlap", "layer") and text.lower() == "off":
                     fields[name] = None
-                elif name == "fm":
+                elif name in ("fm", "reverb"):
                     fields[name] = bool(int(text))
                 elif name == "slur":
                     if int(text):

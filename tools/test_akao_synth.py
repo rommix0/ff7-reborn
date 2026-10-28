@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from akao_synth import Instrument, Synth, timeline
+from akao_synth import Instrument, Reverb, Synth, signed, timeline
 
 RATE = 44100
 TIMER_HZ = 33_868_800 / 8 / 0x43D1
@@ -190,4 +190,60 @@ two = song([[0, 0, {"inst": 0}], [10, 0, {"note": 60, "len": 5}]], ticks=96)
 two["order"] = [0, 0]
 starts, end, events = timeline(two)
 assert starts == [0, 96] and end == 192 and [e[0] for e in events] == [0, 10, 96, 106]
+
+# Reverb: the stretch-at-a-time unit matches the psx-spx formula worked one sample at a time. A made-up preset with
+# a 2048-sample work area whose taps sit close together, cross its end, and have two writes 8 samples apart.
+registers = [0x20, 0x18, 0x6000, 0x5000, 0xC000, 0x3000, 0xD000, 0xB000, 0x5800, 0x5000,
+             0x1F0, 0x1A0, 0x150, 0x140, 0x120, 0x110, 0x0F0, 0x0C0, 0x1EE, 0x0A0, 0x090, 0x080, 0x070, 0x060,
+             0x050, 0x1FF, 0x040, 0x030, 0x020, 0x010, 0x8000, 0x7000]
+preset = {"mode": 3, "start": 0x10000 - 0x200, "registers": registers}
+
+
+def reference(left, right):
+    s16 = [signed(v) for v in registers]
+    dapf1, dapf2 = registers[0] * 4, registers[1] * 4
+    viir, c1, c2, c3, c4, wall, apf1, apf2 = s16[2:10]
+    (lsame, rsame, lc1, rc1, lc2, rc2, dlsame, drsame, ldiff, rdiff, lc3, rc3, lc4, rc4, dldiff, drdiff,
+     lapf1, rapf1, lapf2, rapf2) = [v * 4 for v in registers[10:30]]
+    size, ram, pos, out = 0x200 * 4, np.zeros(0x200 * 4), 0, []
+    for lin, rin in zip(left * s16[30], right * s16[31]):
+        def at(a):
+            return (pos + a) % size
+        for m, d, x in ((lsame, dlsame, lin), (rsame, drsame, rin), (ldiff, drdiff, lin), (rdiff, dldiff, rin)):
+            ram[at(m)] = (x + ram[at(d)] * wall - ram[at(m - 1)]) * viir + ram[at(m - 1)]
+        sides = []
+        for combs, (t1, t2) in (((lc1, lc2, lc3, lc4), (lapf1, lapf2)), ((rc1, rc2, rc3, rc4), (rapf1, rapf2))):
+            sides.append(sum(v * ram[at(t)] for v, t in zip((c1, c2, c3, c4), combs)))
+        for (lt, rt), d, v in (((lapf1, rapf1), dapf1, apf1), ((lapf2, rapf2), dapf2, apf2)):
+            for side, t in enumerate((lt, rt)):
+                back = ram[at(t - d)]
+                sides[side] -= v * back
+                ram[at(t)] = sides[side]
+                sides[side] = sides[side] * v + back
+        out.append(sides)
+        pos = (pos + 1) % size
+    return np.array(out)
+
+
+rng = np.random.default_rng(1)
+left, right = rng.uniform(-0.1, 0.1, 6000) * (np.arange(6000) < 300), rng.uniform(-0.1, 0.1, 6000) * (np.arange(6000) < 300)
+unit = Reverb(preset)
+assert 8 <= unit.block < 64
+got = np.vstack([unit.run(left[i:i + 700], right[i:i + 700]) for i in range(0, 6000, 700)])
+want = reference(left, right)
+assert np.abs(want[3000:]).max() > 0.01 and np.abs(got - want).max() < 1e-9
+
+# In the synth: only channels with reverb on feed it, the depth scales what comes back, and the player's switch
+# turns it off. The tail rings on after the note.
+cells = [[0, 0, {"tempo": 0x6000, "inst": 0, "reverb_depth": 0x4000, "note": 60, "len": 24}]]
+dry = synth(song(cells))
+dry.song["reverb"] = preset
+dry.reset()
+assert not np.abs(dry.render(frames_for(48))[frames_for(30):]).any()  # reverb off for the channel: no tail
+cells[0][2]["reverb"] = True
+wet = synth(song(cells) | {"reverb": preset})
+assert np.abs(wet.render(frames_for(48))[frames_for(30):]).max() > 0.001
+off = synth(song(cells) | {"reverb": preset})
+off.reverb_on = False
+assert not np.abs(off.render(frames_for(48))[frames_for(30):]).any()
 print("ok")

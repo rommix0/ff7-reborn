@@ -6,7 +6,7 @@ parameters (the player emulates the driver rather than translating effects). Son
 instrument slots in one shared bank file.
 
 `python tools/ff7song.py <file|assets dir> <SOUND dir> <out dir>` writes `instruments.ff7bank` and one
-`song_NNN.ff7song` per song.
+`song_NNN.ff7song` per song. The reverb presets are read from `SCUS_941.63` next to the `SOUND` folder.
 
 ## Instrument bank (`instruments.ff7bank`, binary, little-endian)
 
@@ -36,6 +36,7 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 ```json
 {
   "format": "ff7song", "version": 1, "song": 76, "bank": 1, "channels": 13,
+  "reverb": {"mode": 1, "start": 64296, "registers": ["…32 numbers from the executable…"]},
   "ticks_per_quarter": 48, "timer_hz": 243.856,
   "loop": {"start": 144, "end": 3504},
   "patterns": [{"ticks": 144, "beat": 24, "beats": 6, "cells": [[0, 0, {"note": 62, "len": 72, "inst": 34}]]}],
@@ -53,6 +54,13 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
   jumps back to when it reaches `loop.end`. `loop` is `null` for songs that end.
 - **`bank`:** 1 for the instruments loaded at boot. With 2 (song 82), the second bank replaces slots 53 and up, and
   only its own instruments are left there, as when the game loads `INSTR2`.
+- **`reverb`:** the SPU reverb the song sets up (the header's mode), or `null` for none. `mode` is libspu's
+  reverb type (1 Room, 3 Studio B, 4 Studio C in the songs). `start` is the work area's start in SPU RAM in 8-byte
+  units; the area runs from there to the end of the 512 KB, and its size sets the longest echo. `registers` are the
+  32 reverb registers `0x1F801DC0`–`0x1F801DFE` in order (`dAPF1`, `dAPF2`, `vIIR`, `vCOMB1`–`4`, `vWALL`,
+  `vAPF1`, `vAPF2`, `mLSAME`, `mRSAME`, `mLCOMB1`, `mRCOMB1`, `mLCOMB2`, `mRCOMB2`, `dLSAME`, `dRSAME`, `mLDIFF`,
+  `mRDIFF`, `mLCOMB3`, `mRCOMB3`, `mLCOMB4`, `mRCOMB4`, `dLDIFF`, `dRDIFF`, `mLAPF1`, `mRAPF1`, `mLAPF2`,
+  `mRAPF2`, `vLIN`, `vRIN`), as psx-spx names them. The player runs psx-spx's reverb formula on them at 22.05 kHz.
 - **Cells** are `[tick within the bar, channel, fields]`. Each channel is one voice. All fields are optional:
 
 | Field | Meaning |
@@ -66,6 +74,8 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 | `pan_lfo` | `[delay, rate, waveform, depth]` like `vibrato` (`BC`/`BD`): the pan moves by (depth >> 1) × step >> 15 |
 | `vibrato_slide`, `tremolo_slide` | `[ticks, depth]` (`DD`/`DE`): slide the LFO depth there, one step per tick |
 | `fm` | `true` (`C6`): the voice's pitch follows the previous channel's output (SPU pitch modulation); `false` (`C7`) ends it |
+| `reverb` | `true` (`C2`): the channel's voices feed the reverb; `false` (`C3`) stops it. Off at song start |
+| `reverb_depth` | `EA`: the reverb's output volume for the whole song, signed 16-bit, `0x8000` = −1 (most songs use `0x2800`). 0 at song start |
 | `ar`, `dr`, `sl`, `sr`, `rr` | The channel's own attack rate, decay rate, sustain level, sustain rate, release rate (`AD`, `AE`, `AF`, `B1`, `B2`; the same values as the bank's ADSR bytes), until the next `inst`. They reach a voice that is already sounding |
 | `volume`, `expression` | `A8` volume and `A3` multiplier, 0–127; the voice plays at volume × expression ÷ 127² of full scale. Slides arrive as one value per tick |
 | `pan` | 0–127, 64 = centre |
@@ -78,5 +88,4 @@ LFO details (waveform shapes, depth scaling) are in `knowledge_base.md`, "LFOs: 
 
 ## Not carried yet
 
-Reverb (`C2`/`C3`/`EA` and the song's reverb mode), and the SPU's own interpolation and pan law (the player uses linear
-interpolation and equal-power panning).
+The SPU's own interpolation and pan law (the player uses linear interpolation and equal-power panning).

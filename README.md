@@ -54,7 +54,7 @@ python tools/ff7player.py assets/ff7song
 
 In the player:
 - **Playback:** Space plays and pauses. **Tempo** (25–400%) and **Transpose** (±24 semitones) change playback only,
-  not the song; **Reset** puts them back. Double-click a bar in the order list to jump there; click a channel
+  not the song; **Reset** puts them back. **Reverb** switches the SPU reverb on and off. Double-click a bar in the order list to jump there; click a channel
   heading to mute it.
 - **Cells:** click a cell to select it, double-click to edit its note and effects, and press Delete to clear it.
 - **Bars:** the buttons under the order list insert, duplicate or delete bars, change a time signature, and move
