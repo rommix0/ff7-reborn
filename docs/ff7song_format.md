@@ -78,6 +78,7 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 | `layer` | `[a, b]` (`F4`): instrument `a` as usual, and instrument `b` on a second voice playing the same notes at the main voice's pitch. `null` (`F5`) ends it |
 | `balance`, `balance_slide` | Layer balance 0–127 (`F6`): main voice at (127 − n)/256, layer at n/256. `[ticks, n]` (`F7`) slides it there |
 | `pan_lfo` | `[delay, rate, waveform, depth]` like `vibrato` (`BC`/`BD`): the pan moves by (depth >> 1) × step >> 15 |
+| `vibrato_on`, `tremolo_on`, `pan_lfo_on` | `true` where the LFO was switched on (`B4`/`B8`/`BC`): it restarts on the sounding note too. Without it, a change to the LFO's list is a depth change (it keeps its place) or, at depth 0, off (it stops at once) |
 | `vibrato_slide`, `tremolo_slide` | `[ticks, depth]` (`DD`/`DE`): slide the LFO depth there, one step per tick |
 | `fm` | `true` (`C6`): the voice's pitch follows the previous channel's output (SPU pitch modulation); `false` (`C7`) ends it |
 | `reverb` | `true` (`C2`): the channel's voices feed the reverb; `false` (`C3`) stops it. Off at song start |
@@ -94,7 +95,7 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 | `tempo` | New tempo for the whole song |
 | `detune` | Scales the pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0) |
 | `bend` | `[ticks, semitones]`: from this tick, slide linearly in frequency to `semitones` above the held note. In the same cell as a note (an effect's `DA` glide), it bends that note |
-| `vibrato`, `tremolo` | `[delay, rate, waveform, depth]` from now on; depth 0 = off. Each note restarts them: after `delay` ticks the LFO takes its next waveform step every `rate` timer interrupts |
+| `vibrato`, `tremolo` | `[delay, rate, waveform, depth]` from now on; depth 0 = off. Each note restarts them, and so does `vibrato_on`/`tremolo_on`: after `delay` ticks the LFO takes its next waveform step every `rate` timer interrupts |
 
 LFO details (waveform shapes, depth scaling) are in `knowledge_base.md`, "LFOs: vibrato, tremolo, pan".
 

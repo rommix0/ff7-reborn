@@ -175,6 +175,29 @@ s.render(frames_for(25))
 lfo = s.channels[0].voice.vibrato
 assert s.tick == 24 and lfo.depth == 0xA3 and lfo.delay == 4 and lfo.value == 0 and s.channels[0].voice.phase < 3
 
+# The LFO commands reach a sounding voice at once (effect 302 switches vibrato on during a tied note): on starts
+# it from its first step, a depth change keeps its place, and off stops it.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 84, "len": 96}],
+                [8, 0, {"vibrato": [0, 1, 1, 0x60], "vibrato_on": True}],
+                [16, 0, {"vibrato": [0, 1, 1, 0x8C]}],
+                [24, 0, {"vibrato": [0, 1, 1, 0], "tremolo": [0, 1, 1, 0x40], "tremolo_on": True}]]))
+s.render(frames_for(9))
+v = s.channels[0].voice
+assert s.tick == 8 and v.vibrato.depth == 0x60 and v.vibrato.amount > 0
+s.render(frames_for(8))
+assert s.tick == 16 and v.vibrato.depth == 0x8C and v.vibrato.index > 0 and v.tremolo is None
+s.render(frames_for(8))
+assert s.tick == 24 and v.vibrato is None and v.tremolo.depth == 0x40 and s.vibrato_offset(v) == 0
+
+# Key-off takes a voice out of the driver's update mask: through its release the pitch (and volume) stays where
+# it was. Effect 447's cymbal keys off before its swoop would pass 0x3FFF and wrap round.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "rr": 20, "note": 72, "len": 4, "bend": [8, 12]}]]))
+s.render(frames_for(5))
+held = s.pitch_registers[0]
+assert s.channels[0].voice.phase == 3 and 0x800 < held < 0x1000
+s.render(frames_for(3))
+assert s.channels[0].voice.phase == 3 and s.pitch_registers[0] == held and s.channels[0].voice.pitch > held
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)

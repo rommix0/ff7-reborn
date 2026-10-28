@@ -57,6 +57,8 @@ class Voice:
     bend: list | None = None  # [from, to, ticks, done]
     phase: int = ATTACK
     released_from: int = ATTACK  # the phase a key-off interrupted, for a slur that lands on the same tick
+    held_pitch: int | None = None  # the last pitch register written, which the SPU keeps through the release
+    held_mix: tuple | None = None  # likewise (gain, left, right)
     level: float = 0.0
     env_count: float = 0.0
 
@@ -427,6 +429,17 @@ class Synth:
             for name in ("volume", "expression", "pan", "detune", "vibrato", "tremolo", "pan_lfo", "fm", "balance"):
                 if name in f:
                     setattr(ch, name, list(f[name]) if isinstance(f[name], list) else f[name])
+            for kind in ("vibrato", "tremolo", "pan_lfo"):
+                # The LFO commands reach a sounding voice at once: on restarts it, off stops it, depth applies now.
+                if kind not in f or not ch.voice:
+                    continue
+                v, settings = ch.voice, getattr(ch, kind)
+                if f.get(f"{kind}_on") or not settings[3]:
+                    setattr(v, kind, self.start_lfo(settings))
+                elif getattr(v, kind):
+                    getattr(v, kind).depth = settings[3]
+                if kind == "vibrato" and v.vibrato:
+                    self.set_vibrato_amount(v.vibrato, v.pitch)
             for kind in ("vibrato", "tremolo"):
                 if f"{kind}_slide" in f:
                     ticks, target = f[f"{kind}_slide"]
@@ -574,11 +587,17 @@ class Synth:
                     continue
                 env = self.envelope(v, n)
                 source = v.follow or v
-                pitch = source.pitch + self.vibrato_offset(source)
-                if ch.pitch_follow and c - 1 in pitches:
-                    pitch = pitches[c - 1] + self.vibrato_offset(source)
-                # The driver writes the pitch register masked to 14 bits, so a pitch past 0x3FFF wraps round.
-                pitch = int(max(0.0, pitch)) & 0x3FFF
+                # Key-off also takes the voice out of the driver's update mask, so through the release the SPU
+                # keeps the pitch, volume and pan written last: bends, slides and LFOs stop there.
+                released = v.phase == RELEASE
+                if released and v.held_pitch is not None:
+                    pitch = v.held_pitch
+                else:
+                    pitch = source.pitch + self.vibrato_offset(source)
+                    if ch.pitch_follow and c - 1 in pitches:
+                        pitch = pitches[c - 1] + self.vibrato_offset(source)
+                    # The driver writes the pitch register masked to 14 bits, so a pitch past 0x3FFF wraps round.
+                    pitch = v.held_pitch = int(max(0.0, pitch)) & 0x3FFF
                 if v is ch.voice:
                     pitches[c] = self.pitch_registers[c] = pitch
                 steps = np.full(n, pitch * 2 ** (self.transpose / 12))
@@ -606,25 +625,29 @@ class Synth:
                     outputs[c] = sample * env
                 if self.muted >> c & 1:
                     continue
-                # The driver's voice volume, A8 x A3 x master 127/128, as SPU volume (0x4000 = full scale).
-                volume = ch.volume
-                if ch.volume_follow and c - 1 in self.pitch_registers:  # D6: 2 x register x A3 / 128 = A8 x A3
-                    volume = min(0x3FFF, self.pitch_registers[c - 1]) / 64
-                gain = volume * ch.expression * MASTER_VOLUME / 0x4000
-                if ch.layer_inst is not None:  # F4: the balance splits the note between main and layer voice
-                    gain *= (ch.balance if v is ch.layer_voice else 127 - ch.balance) / 256
-                if v.tremolo:
-                    gain *= max(0.0, 1 + v.tremolo.depth / 128 * v.tremolo.value / 32768)
-                # The driver's pan tables (stereo mode): linear, so each side is -6 dB at the centre. It indexes
-                # them with (pan + pan LFO) & 0xFF and other data follows entry 127, but no song gets past it.
-                pan = min(127, max(0, ch.pan + self.pan_offset(source)))
-                left, right = (32640 - 256 * pan) / 32768, (128 + 256 * pan) / 32768
-                if ch.volume_follow and c - 1 in self.pitch_registers:
-                    # D6 can pass the SPU's 15-bit volume (0x4000 = full), which libspu writes unclamped: the
-                    # register wraps round to a small negative volume rather than getting louder.
-                    registers = [round(gain * side * 0x4000) for side in (left, right)]
-                    left, right = [(((r + 0x4000) & 0x7FFF) - 0x4000) / 0x4000 for r in registers]
-                    gain = 1.0
+                if released and v.held_mix:
+                    gain, left, right = v.held_mix
+                else:
+                    # The driver's voice volume, A8 x A3 x master 127/128, as SPU volume (0x4000 = full scale).
+                    volume = ch.volume
+                    if ch.volume_follow and c - 1 in self.pitch_registers:  # D6: 2 x register x A3 / 128
+                        volume = min(0x3FFF, self.pitch_registers[c - 1]) / 64
+                    gain = volume * ch.expression * MASTER_VOLUME / 0x4000
+                    if ch.layer_inst is not None:  # F4: the balance splits the note between main and layer voice
+                        gain *= (ch.balance if v is ch.layer_voice else 127 - ch.balance) / 256
+                    if v.tremolo:
+                        gain *= max(0.0, 1 + v.tremolo.depth / 128 * v.tremolo.value / 32768)
+                    # The driver's pan tables (stereo mode): linear, so each side is -6 dB at the centre. It indexes
+                    # them with (pan + pan LFO) & 0xFF and other data follows entry 127, but no song gets past it.
+                    pan = min(127, max(0, ch.pan + self.pan_offset(source)))
+                    left, right = (32640 - 256 * pan) / 32768, (128 + 256 * pan) / 32768
+                    if ch.volume_follow and c - 1 in self.pitch_registers:
+                        # D6 can pass the SPU's 15-bit volume (0x4000 = full), which libspu writes unclamped: the
+                        # register wraps round to a small negative volume rather than getting louder.
+                        registers = [round(gain * side * 0x4000) for side in (left, right)]
+                        left, right = [(((r + 0x4000) & 0x7FFF) - 0x4000) / 0x4000 for r in registers]
+                        gain = 1.0
+                    v.held_mix = gain, left, right
                 voiced = sample * env * gain
                 out[:, 0] += voiced * left
                 out[:, 1] += voiced * right

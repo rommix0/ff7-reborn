@@ -135,6 +135,12 @@ if __name__ == "__main__":
     # The game's usual vibrato, B4 60 01 06 + B5 0A: starts a half note (48 rows) in, fades in, about 8 cents up.
     curve = pitch_curve(lfo_song(bytes([0xB4, 0x60, 0x01, 0x06, 0xB5, 0x0A])))
     assert curve and min(curve) >= 48 and max(abs(v) for v in curve.values()) <= 0.14
+    # B4 under a tied note (effect 302) starts the vibrato there, and B6 stops it there: a whole note is 96 rows.
+    tied = bytes([0xE8, 0x00, 0x60, 0xA1, 0x00, 0xA8, 0x7F, 0xA3, 0x7F, 0xA5, 0x04, 0x00])
+    curve = pitch_curve(tied + bytes([0xB4, 0x00, 0x01, 0x07, 0xB5, 0x7F, 0x84, 0xA0]))
+    assert curve and min(curve) >= 96
+    curve = pitch_curve(bytes([0xB4, 0x00, 0x01, 0x07, 0xB5, 0x7F]) + tied + bytes([0xB6, 0x84, 0xA0]))
+    assert curve and max(curve) <= 97 and curve[max(curve)] == 0
 
     def volume_curve(seq):
         song = b"AKAO" + struct.pack("<HHH", 1, 6 + len(seq), 0) + bytes(6) + struct.pack("<IH", 1, 0) + seq

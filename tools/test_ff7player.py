@@ -25,6 +25,7 @@ assert cell_text({"overlap": 12}, 243.857, 48) == "o12" and cell_text({"overlap"
 assert cell_text({"layer": [84, 83], "balance": 32, "balance_slide": [24, 96], "pan_lfo": [0, 12, 1, 10], "fm": True},
                  243.857, 48) == "P10 bal>96/24 FM L83 bal32"
 assert cell_text({"note": 62, "inst": 3, "volume": 90, "tempo": 0x6000}, 243.857, 48) == "D-4 i3 v90 T114"
+assert cell_text({"vibrato": [0, 1, 0, 96], "vibrato_on": True, "tremolo": [0, 1, 0, 0]}, 243.857, 48) == "V!96 R-"
 
 # Bars: a new bar goes after the chosen one (empty in its time signature, or a copy). Inserting before the loop
 # shifts it, and the loop always runs to the end of the song.

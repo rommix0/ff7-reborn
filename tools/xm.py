@@ -327,16 +327,30 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections
         control = {k: ([e[0] for e in timeline if e[1] == k], [e[2] for e in timeline if e[1] == k])
                    for k in ("volume", "expression")}
         spans = [(e[0], e[3]) for e in timeline if e[1] == "note"]
+        note_ticks = [tick for tick, _ in spans]
         for kind in ("tremolo", "vibrato"):
             states = [e for e in timeline if e[1] == kind]
-            for n, (tick, length) in enumerate(spans):
-                state = next((s for s in reversed(states) if s[0] <= tick), None)
-                if not state or not state[5]:
+            # An "on" (B4/B8) under a sounding note restarts the LFO there too, and "off" stops it at once.
+            restarts = sorted(set(note_ticks) | {e[0] for e in timeline if e[1] == f"{kind}_on"}
+                              | {s[0] for s in states if not s[5]})
+            done, previous = 0, None
+            for n, tick in enumerate(restarts):
+                k = bisect.bisect_right(note_ticks, tick) - 1
+                if k < 0:
                     continue
-                delay, rate, wave_no, depth = state[2:]
-                wave = lfo_wave(wave_no)
-                if not wave:
-                    dropped[f"{kind} on the noise waveform"] += 1
+                note_tick, length = spans[k]
+                if tick == note_tick:
+                    done, previous = 0, None  # a note starts from its own pitch and volume
+                state = next((s for s in reversed(states) if s[0] <= tick), None)
+                if state and state[5]:
+                    delay, rate, wave_no, depth = state[2:]
+                    wave = lfo_wave(wave_no)
+                    if not wave:
+                        dropped[f"{kind} on the noise waveform"] += 1
+                        continue
+                elif done or previous is not None:  # off under a note: back to the plain pitch or volume
+                    delay, rate, wave_no, depth, wave = 0, 1, 0, 0, ([0], 0)
+                else:
                     continue
                 steps, loop = wave
                 if kind == "vibrato":
@@ -345,9 +359,8 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections
                     shape = [max(0.0, 1 + depth / 128 * v / 32768) for v in steps]
                 prefix = list(itertools.accumulate(shape, initial=0.0))
                 start = tick + delay
-                stop = min(tick + length, spans[n + 1][0] if n + 1 < len(spans) else end_tick)
+                stop = min(note_tick + length, restarts[n + 1] if n + 1 < len(restarts) else end_tick)
                 per_tick = timer_steps_per_tick(start)
-                done, previous = 0, None
                 for row in range(start // row_ticks, min(rows_total, -(-stop // row_ticks))):
                     a, b = max(row * row_ticks, start), min((row + 1) * row_ticks, stop)
                     first, last = round((a - start) * per_tick), round((b - start) * per_tick)

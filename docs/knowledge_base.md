@@ -259,6 +259,15 @@ starts:
     the `0x3FFF` we used to clamp to.
   - **Effects:** 87 have such notes.
   - **XM export:** it still gives those notes their unwrapped pitch.
+- **Key-off freezes the voice.** A key-off also clears the voice's bit in the update mask (songs: `seq_song + 0xC`,
+  set at key-on in `seq_step_channel`, cleared in `seq_tick`; effects: `0x80099FD4`). `func_8002F848` only runs
+  the voice update (`seq_channel_lfo` / `func_8002F24C`) and `snd_update_voice` for voices in that mask.
+  - **So:** through the release the SPU keeps the pitch, volume and pan it was last given. Bends, volume slides
+    and LFOs stop where the key-off found them, and the LFOs stop stepping. FM still applies, since the chip does
+    that itself.
+  - **Before:** the player kept updating released voices. Effect 447's cymbal keys off mid-swoop, and we kept
+    bending it towards a pitch that would have wrapped. Its release is over by then, so it made no audible
+    difference there, but slower releases under a bend, slide or LFO now hold still as on the console.
 - **Opcode audit (98 songs).**
   - **Handled:** every command a song uses is handled.
   - **No audio effect:** `FE` is a bar counter for the game.
@@ -477,6 +486,11 @@ Read from `seq_step_channel`'s note and tie paths:
       export now leaves their pan alone).
     - It has no LFO delay countdown, which effects never need since `B4`/`B8` start them with no delay, and no
       layer balance slide.
+    - `func_8002F24C` steps the effect LFOs itself (songs do it in `seq_channel_lfo`), on every interrupt while
+      the voice is keyed on.
+  - **Effect 302's tremolo** (`B8 1F 02 00` on the cymbal, ±24% at 61 Hz) sounds wrong to the ear: without it the
+    effect sounds right. The driver's math and timing for it match ours as far as we've read, so it stays until
+    a recording from the game settles it.
   - **Effect 270** was checked step by step against all of the above and against FM in psx-spx and Mednafen. Its
     commands come out as the driver plays them: a 58-semitone swoop and a +16 bend on the modulator, a 1-tick blip
     then a long note with a square vibrato on the FM voice, and their envelopes.
@@ -542,10 +556,20 @@ Read from the command handlers, the note path at `0x80031518` and `seq_channel_l
   - `B4 delay rate wave` turns vibrato on (`seq_cmd_vibrato`), `B5 d` sets its depth, `B6` turns it off but keeps
     the depth, and `DD n d` slides the depth.
   - `B8`/`B9`/`BA`/`DE` do the same for tremolo.
-  - `BC rate wave` and `BD d` are the pan LFO. `BE` is probably its "off", but we haven't read it.
+  - `BC rate wave` and `BD d` are the pan LFO, and `BE` (`0x80032A98`) turns it off.
   - A channel with flag `+0x54` set (by `func_8002A094`, never by songs) reads `B4`/`B8`'s first byte as the depth
     instead of the delay.
 - **Timing:** each note restarts the LFOs.
+  - **The commands act on the sounding note at once.** `B4`/`B8`/`BC` (`0x80032614`, `0x80032804`, `0x8003298C`)
+    restart their LFO on the spot: delay, a step countdown of 1, the waveform's first step, and for vibrato the
+    amount from the note's pitch (`+0x30`). `B5` (`0x80032718`) recomputes the vibrato amount at the new depth and
+    `B9`/`BD` store theirs, all keeping the LFO's place. `B6`/`BA`/`BE` clear the LFO's flag and zero its offset
+    (`+0xD6`/`+0xD8`/`+0xDA`).
+  - **Before:** the player only started LFOs with a note, so an `on` under a tie did nothing. Effect 302 switches
+    vibrato on during a held note and swaps its depth every 24 ticks. The export marks each `on` with a
+    `vibrato_on`/`tremolo_on`/`pan_lfo_on` field, since only `on` restarts.
+  - **Reach:** 85 songs and 61 effects have a vibrato `on` in a cell without a note, 6 songs and 48 effects a
+    tremolo one, and 4 songs a pan LFO one. Only those under a held note sound different.
   - The delay counts sequence ticks (`seq_channel_slides`).
   - After the delay, the LFO reads its next waveform step every `rate` **timer interrupts** (≈ 243.86 Hz, whatever
     the tempo; 0 = 256). `seq_tick` runs the voice update (`func_8002F848` → `seq_channel_lfo`) on every interrupt,

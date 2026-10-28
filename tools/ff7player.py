@@ -25,8 +25,9 @@ LIST_FIELDS = {"bend": 2, "vibrato": 4, "tremolo": 4, "pan_lfo": 4, "vibrato_sli
 FIELDS = ["note", "len", "slur", "inst", "volume", "expression", "pan", "detune", "tempo", "bend", "vibrato", "tremolo",
           "ar", "dr", "sl", "sr", "rr", "overlap", "pan_lfo", "vibrato_slide", "tremolo_slide", "fm", "layer",
           "balance", "balance_slide", "reverb", "reverb_depth", "noise", "noise_clock", "noise_clock_add", "adsr_reset",
-          "sr_mode", "pitch_follow", "volume_follow"]
-SWITCHES = ("fm", "reverb", "noise", "adsr_reset", "pitch_follow", "volume_follow")  # fields that are true or false, shown as 1/0
+          "sr_mode", "pitch_follow", "volume_follow", "vibrato_on", "tremolo_on", "pan_lfo_on"]
+SWITCHES = ("fm", "reverb", "noise", "adsr_reset", "pitch_follow", "volume_follow", "vibrato_on", "tremolo_on",
+            "pan_lfo_on")  # fields that are true or false, shown as 1/0
 
 
 def note_name(key: int) -> str:
@@ -56,11 +57,9 @@ def cell_text(f: dict, timer_hz: float, ticks_per_quarter: int) -> str:
             parts.append(f"{letter}{f[name]}")
     if "bend" in f:
         parts.append(f"b{f['bend'][1]:+d}/{f['bend'][0]}")
-    for name, letter in (("vibrato", "V"), ("tremolo", "R")):
-        if name in f:
-            parts.append(f"{letter}{f[name][3] or '-'}")
-    if "pan_lfo" in f:
-        parts.append(f"P{f['pan_lfo'][3] or '-'}")
+    for name, letter in (("vibrato", "V"), ("tremolo", "R"), ("pan_lfo", "P")):
+        if name in f:  # "!": switched on here, restarting on the sounding note
+            parts.append(f"{letter}{'!' if f.get(name + '_on') else ''}{f[name][3] or '-'}")
     for name, letter in (("vibrato_slide", "V"), ("tremolo_slide", "R"), ("balance_slide", "bal")):
         if name in f:
             parts.append(f"{letter}>{f[name][1]}/{f[name][0]}")

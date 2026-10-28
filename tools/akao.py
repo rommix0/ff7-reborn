@@ -367,6 +367,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                         lfo[3] = False
                 delay, rate, wave, on, depth = lfo
                 events.append([tick, kind, delay, rate, wave, depth if on else 0])
+                if b in (0xB4, 0xB8):  # "on" also restarts the LFO on a voice that is already sounding
+                    events.append([tick, f"{kind}_on", True])
             case 0xFD:  # time signature; the driver restarts its beat and bar counting here
                 events.append([tick, "meter", args[0], args[1]])
             case 0xAD | 0xAE | 0xAF | 0xB1 | 0xB2:  # the channel's own envelope, until the next program change
@@ -381,6 +383,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                     lfo[3] = False
                 delay, rate, wave, on, depth = lfo
                 events.append([tick, "pan_lfo", delay, rate, wave, depth if on else 0])
+                if b == 0xBC:
+                    events.append([tick, "pan_lfo_on", True])
             case 0xDD | 0xDE:  # slide the vibrato / tremolo depth to d over t ticks (0 = 256)
                 events.append([tick, "vibrato_slide" if b == 0xDD else "tremolo_slide", args[0] or 256, args[1]])
             case 0xC6 | 0xC7:  # FM: pitch follows the previous voice's output; C7 also stops a D2/D3 countdown

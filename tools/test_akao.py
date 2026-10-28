@@ -101,6 +101,8 @@ events, *_ = play_channel(one_channel(bytes([0xB4, 0x60, 0x01, 0x06, 0xB5, 0x0A,
                                              0xB8, 0x00, 0x03, 0x05, 0xB9, 0x78, 0x02, 0xA0])), 0x16)
 assert at(events, "vibrato") == [(0, 0x60, 1, 6, 0), (0, 0x60, 1, 6, 10), (48, 0x60, 1, 6, 0), (48, 0, 256, 7, 10)]
 assert at(events, "tremolo") == [(48, 0, 3, 5, 0), (48, 0, 3, 5, 0x78)]
+# Only "on" (B4/B8/BC) restarts the LFO on a sounding voice, so it gets its own event.
+assert at(events, "vibrato_on") == [(0, True), (48, True)] and at(events, "tremolo_on") == [(48, True)]
 
 # FD t n: time signature, n beats of t ticks; the driver restarts its beat count there, so it marks a bar line.
 events, *_ = play_channel(one_channel(bytes([0xFD, 0x18, 0x06, 0x01, 0xFD, 0x18, 0x05, 0xA0])), 0x16)
@@ -143,7 +145,7 @@ events, *_ = play_channel(one_channel(bytes([0xF4, 0x54, 0x53, 0xF6, 0x20, 0xF7,
                                              0xF5, 0xA0])), 0x16)
 assert at(events, "layer") == [(0, [0x54, 0x53]), (48, None)] and at(events, "program")[-1] == (0, 0x54)
 assert at(events, "balance") == [(0, 0x20)] and at(events, "balance_slide") == [(0, 0x18, 0x60)]
-assert at(events, "pan_lfo") == [(0, 0, 0x0C, 1, 0), (0, 0, 0x0C, 1, 0x0A)]
+assert at(events, "pan_lfo") == [(0, 0, 0x0C, 1, 0), (0, 0, 0x0C, 1, 0x0A)] and at(events, "pan_lfo_on") == [(0, True)]
 assert at(events, "vibrato_slide") == [(0, 0x24, 0)] and at(events, "tremolo_slide") == [(0, 256, 0x10)]
 assert at(events, "fm") == [(0, True), (48, False)]
 
