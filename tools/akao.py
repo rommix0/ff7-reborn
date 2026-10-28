@@ -5,6 +5,7 @@ usage:
   python tools/akao.py dump <file> [index]    # disassemble one .SND file or the AKAO blocks in a field .DAT
   python tools/akao.py midi <file|dir> <out>  # export songs as .mid (a folder exports every distinct song)
 """
+import math
 import struct
 import sys
 from pathlib import Path
@@ -169,13 +170,13 @@ def dump(path: Path, index: int):
 MAX_TICKS = 192 * 4000  # 4000 bars: far past any song; reaching it means a loop was misread
 
 
-def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS):
+def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: int | None = None):
     """Follow one channel like the driver does, once through. Returns (events, loop_start_tick, end_tick).
 
     Events are [tick, kind, ...]: ("note", key, ticks), ("program", n), ("volume", n), ("expression", n),
     ("pan", n), ("tempo", t). Volume and pan slides become one event per tick that changes the value.
     Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
-    the tick its target was first reached at.
+    the tick its target was first reached at. With `until`, the endless loop is followed instead, up to that tick.
     """
     pos, tick = start, 0
     # The driver's channel reset: instrument 5, octave 2, volume 100, A3 multiplier 120.
@@ -205,7 +206,10 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS):
                 if round(levels[kind]) != before:
                     events.append([tick, kind, round(levels[kind])])
 
+    loop_tick = None
     while tick < max_ticks:
+        if until is not None and tick >= until:
+            return events, loop_tick, tick
         first_seen.setdefault(pos, tick)
         b = block[pos]
         if b < 0xA0:
@@ -274,16 +278,21 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS):
                 else:
                     nxt = loops[-1][0]
             case 0xCA | 0xC9 if loops:
-                return events, first_seen.get(loops[-1][0]), tick
+                loop_tick = first_seen.get(loops[-1][0]) if loop_tick is None else loop_tick
+                if until is None:
+                    return events, loop_tick, tick
+                nxt = loops[-1][0]
             case 0xF0 if loops and loops[-1][1] + 1 == (args[0] or 256):  # on pass n of the repeat, jump
                 nxt += struct.unpack("<h", args[1:])[0]
             case 0xEE:
                 target = nxt + struct.unpack("<h", args)[0]
                 if target <= pos:
-                    return events, first_seen.get(target), tick
+                    loop_tick = first_seen.get(target) if loop_tick is None else loop_tick
+                    if until is None:
+                        return events, loop_tick, tick
                 nxt = target
         pos = nxt
-    return events, None, tick
+    return events, loop_tick, tick
 
 
 def vlq(n: int) -> bytes:
@@ -304,12 +313,45 @@ def midi_track(timed: list[tuple[int, int, bytes]]) -> bytes:
     return b"MTrk" + struct.pack(">I", len(data)) + data
 
 
+def play_song(block: bytes):
+    """Play every channel through the song's common loop.
+
+    Returns (events per channel, loop start, loop end, each looping channel's loop length, any channel ran away).
+    Channels loop on their own in the driver, and some start their loop later than others (song 7: three channels
+    two bars later). The song as a whole repeats from the latest channel loop start, every lcm(loop lengths)
+    ticks, so channels that loop earlier are played on until that point and everything is cut there.
+    """
+    starts = channel_starts(block)
+    first = [play_channel(block, start) for start in starts]
+    runaway = any(end >= MAX_TICKS for *_, end in first)
+    loops = [(loop, end - loop) for _, loop, end in first if loop is not None]
+    if not loops or not all(length for _, length in loops):
+        return [events for events, _, _ in first], None, max(end for *_, end in first), [], runaway
+    loop_start = max(loop for loop, _ in loops)
+    lengths = [length for _, length in loops]
+    period = math.lcm(*lengths)
+    # ponytail: a song whose loops don't share a short common period would get a huge file; none on disc does.
+    if period > 8 * max(lengths):
+        period = max(lengths)
+    loop_end = loop_start + period
+    channels = []
+    for start, (events, loop, end) in zip(starts, first):
+        if loop is not None and end < loop_end:
+            events, _, _ = play_channel(block, start, until=loop_end)
+        kept = [e for e in events if e[0] < loop_end]
+        for e in kept:
+            if e[1] == "note":
+                e[3] = min(e[3], loop_end - e[0])
+        channels.append(kept)
+    return channels, loop_start, loop_end, lengths, runaway
+
+
 def song_to_midi(block: bytes) -> tuple[bytes, list[int], bool]:
     """Return (Standard MIDI File bytes, loop length in ticks of each looping channel, any channel ran away)."""
-    channels = [play_channel(block, start) for start in channel_starts(block)]
+    channels, loop_start, loop_end, loop_lengths, runaway = play_song(block)
     conductor = []
     tracks = []
-    for i, (events, _, _) in enumerate(channels):
+    for i, events in enumerate(channels):
         ch = i % 16
         timed = []
         for tick, kind, *rest in events:
@@ -325,14 +367,12 @@ def song_to_midi(block: bytes) -> tuple[bytes, list[int], bool]:
                 usec = round(TICKS_PER_QUARTER * 65536 * 1_000_000 / (DRIVER_HZ * rest[0]))
                 conductor.append((tick, 1, b"\xFF\x51\x03" + usec.to_bytes(3, "big")))
         tracks.append(midi_track(timed))
-    # Loop markers (the convention most game-music players understand) where the endless loop starts and ends.
-    loop_starts = [loop for _, loop, _ in channels if loop is not None]
-    if loop_starts:
-        conductor.append((min(loop_starts), 0, b"\xFF\x06\x09loopStart"))
-        conductor.append((max(end for _, loop, end in channels if loop is not None), 0, b"\xFF\x06\x07loopEnd"))
+    # Loop markers (the convention most game-music players understand) where the song's loop starts and ends.
+    if loop_start is not None:
+        conductor.append((loop_start, 0, b"\xFF\x06\x09loopStart"))
+        conductor.append((loop_end, 0, b"\xFF\x06\x07loopEnd"))
     header = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks) + 1, TICKS_PER_QUARTER)
-    loop_lengths = [end - loop for _, loop, end in channels if loop is not None]
-    return header + midi_track(conductor) + b"".join(tracks), loop_lengths, any(end >= MAX_TICKS for *_, end in channels)
+    return header + midi_track(conductor) + b"".join(tracks), loop_lengths, runaway
 
 
 def export_midi(source: Path, out: Path):

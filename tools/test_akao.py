@@ -1,6 +1,6 @@
 import struct
 
-from akao import blocks, channel_starts, disassemble, play_channel, song_to_midi
+from akao import blocks, channel_starts, disassemble, play_channel, play_song, song_to_midi
 
 # Two channels: ch0 = octave, note C/len0, tie, rest, loop-forever; ch1 = volume, end.
 ch0 = bytes([0xA5, 0x04, 0x00, 0x84, 0x8F, 0xCA])
@@ -63,4 +63,16 @@ assert at(events, "note")[0] == (0, 72, 48)  # drum key 60 is octave 5 C: one oc
 events, *_ = play_channel(one_channel(bytes([0xA3, 0x40, 0xA8, 0x00, 0xA9, 0x04, 0x40, 0x02, 0xA0])), 0x16)
 assert at(events, "expression")[-1] == (0, 64)
 assert at(events, "volume")[2:] == [(1, 16), (2, 32), (3, 48), (4, 64)]
+
+# Channels loop independently. Channel 0 loops a half note from tick 0; channel 1 plays a quarter-note intro and
+# then loops a half note. The song repeats from tick 48 (the later loop start) every 96 ticks, so channel 0 must
+# keep looping until 48 + 96 = 144 and everything stops there.
+ch0 = bytes([0x01, 0xEE, 0xFC, 0xFF])        # note C half, EE -4: back to the note
+ch1 = bytes([0x02, 0x0C, 0xEE, 0xFC, 0xFF])  # note C quarter, note C# half, EE -4: back to the C#
+table = struct.pack("<IHH", 0b11, 2, len(ch0))
+two = b"AKAO" + struct.pack("<HHH", 9, 8 + len(ch0) + len(ch1), 0) + bytes(6) + table + ch0 + ch1
+channels, loop_start, loop_end, loop_lengths, runaway = play_song(two)
+assert (loop_start, loop_end, loop_lengths, runaway) == (48, 144, [96, 96], False)
+assert [e[0] for e in channels[0] if e[1] == "note"] == [0, 96]  # second pass of channel 0's loop
+assert [(e[0], e[3]) for e in channels[1] if e[1] == "note"] == [(0, 48), (48, 96)]
 print("ok")

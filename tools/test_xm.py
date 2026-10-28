@@ -75,4 +75,14 @@ if __name__ == "__main__":
         cell = xm.index(bytes([0x80 | 0b111, 25]))  # first note cell: C-2 (driver default octave 2), instr, volume
         return xm[cell + 3] - 0x10
     assert note_volume(127) == 64 and note_volume(64) == 32
+
+    # Channels that start looping at different ticks: the XM repeats from the later loop start (tick 48, row 24)
+    # for one common loop length (96 ticks), not from the earliest start to the latest end.
+    ch0 = bytes([0x01, 0xEE, 0xFC, 0xFF])
+    ch1 = bytes([0x02, 0x0C, 0xEE, 0xFC, 0xFF])
+    table = struct.pack("<IHH", 0b11, 2, len(ch0))
+    two = b"AKAO" + struct.pack("<HHH", 9, 8 + len(ch0) + len(ch1), 0) + bytes(6) + table + ch0 + ch1
+    xm, _ = song_to_xm(two, bank, "test")
+    info = walk(xm)
+    assert info["patterns"] == 2 and info["restart"] == 1 and info["rows"] == 72
     print("ok")

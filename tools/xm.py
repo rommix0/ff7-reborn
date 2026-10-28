@@ -18,7 +18,7 @@ from unpack import lzs
 
 SPEED = 1          # XM ticks per row
 AKAO_PER_XM = 2    # AKAO ticks per XM tick
-ROWS = 256         # rows per pattern (the XM maximum; keeps long songs under 256 patterns)
+ROWS = 192         # rows per pattern: two bars of 4/4 at 24 rows per quarter note
 KEY_OFF = 97
 SPU_HZ = 44100
 ENVELOPE_SECONDS = 10  # longest stretch of a phase we model; a phase that barely moves in that time is flat
@@ -149,14 +149,14 @@ def level(volume: int, expression: int) -> int:
 
 def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
     """Return (XM file bytes, events dropped because two landed in one cell)."""
-    channels = [akao.play_channel(block, start) for start in akao.channel_starts(block)]
-    notes = [e[2] for events, _, _ in channels for e in events if e[1] == "note"]
+    channels, loop_start, loop_end, _, _ = akao.play_song(block)
+    notes = [e[2] for events in channels for e in events if e[1] == "note"]
     octaves = [k // 12 - 1 for k in notes] or [4]
     octave_base = max(0, max(octaves) - 7)  # XM has 8 octaves; shift the whole song down if it goes higher
-    programs = sorted({e[2] for events, _, _ in channels for e in events if e[1] == "program" and e[2] in bank})
+    programs = sorted({e[2] for events in channels for e in events if e[1] == "program" and e[2] in bank})
     inst_no = {slot: i + 1 for i, slot in enumerate(programs)}
 
-    end_tick = max(end for *_, end in channels) + 1
+    end_tick = loop_end
     rows_total = -(-round(end_tick / AKAO_PER_XM) // SPEED)
     n_chan = len(channels) + 1
     cells = [[None] * n_chan for _ in range(rows_total)]  # [note, instrument, volume, effect, param]
@@ -181,7 +181,7 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
         cells[row][ch] = [note or cell[0], inst or cell[1], vol or cell[2], fx or cell[3], param if fx else cell[4]]
 
     first_tempo = None
-    for ch, (events, _, _) in enumerate(channels):
+    for ch, events in enumerate(channels):
         inst, volume, expression = 0, 100, 120
         timeline = sorted(events, key=lambda e: e[0])
         for i, (tick, kind, *rest) in enumerate(timeline):
@@ -205,8 +205,7 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
                 put(tick, n_chan - 1, fx=0x0F, param=bpm(rest[0]))
 
     # Patterns break at the loop start so the restart position can point at it.
-    loop_ticks = [loop for _, loop, _ in channels if loop is not None]
-    loop_row = round(min(loop_ticks) / AKAO_PER_XM) // SPEED if loop_ticks else 0
+    loop_row = round(loop_start / AKAO_PER_XM) // SPEED if loop_start is not None else 0
     bounds = list(range(0, loop_row, ROWS)) + list(range(loop_row, rows_total, ROWS))
     patterns = []
     for start, stop in zip(bounds, bounds[1:] + [rows_total]):
@@ -220,7 +219,7 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
                 data.append(0x80 | flags)
                 data += bytes(v for v in cell if v)
         patterns.append(struct.pack("<IBHH", 9, 0, stop - start, len(data)) + data)
-    restart = bounds.index(loop_row) if loop_ticks else 0
+    restart = bounds.index(loop_row) if loop_start is not None else 0
     if len(patterns) > 256:
         raise ValueError(f"{title}: {len(patterns)} patterns, XM allows 256")
 

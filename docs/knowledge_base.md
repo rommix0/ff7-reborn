@@ -177,6 +177,14 @@ starts:
 - **Loops:** counted repeats are unrolled, and endless loops play once.
 - **Left out:** vibrato/tremolo/pan LFOs, slides, ADSR, reverb, drum-kit mode and the other effect commands.
 
+**Song loop.** Each channel loops on its own (`EE`/`CA` back to its own target), and in 38 songs the channels don't
+all start looping at the same tick. Song 7 is an example: 13 channels loop from tick 768, three from tick 1152.
+The song as a whole repeats from the **latest** channel loop start, every lcm(loop lengths) ticks (in practice the
+longest loop). `play_song` keeps the earlier channels looping until that point and cuts everything there, and both
+exports use it. No command is involved; it's how the data is laid out. Before this, exports looped from the
+earliest start to the latest end, which added extra bars: song 7 had 5,760 ticks per loop instead of 5,376, and
+song 74 had 6,147 instead of 4,608.
+
 Check: in all **98 songs, every looping channel repeats the same length**, or a length that divides it, such as a
 one-bar drum loop. Echo channels may start a few ticks late. Before `F0` was handled, 5 songs failed this check,
 which is how its meaning was confirmed. No channel runs past 4,000 bars.
@@ -223,8 +231,8 @@ which is how its meaning was confirmed. No channel runs past 4,000 bars.
 `python tools/xm.py <file|dir> <SOUND dir> <out>` writes FastTracker 2 modules that play the game's own samples, so
 instruments sound like the game rather than General MIDI.
 - **Grid:** one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM (56–191, inside XM's 32–255). Speed 1
-  gives 24 rows per quarter note in 256-row patterns (at most 64 patterns per song). Positions round to the grid
-  (±1 AKAO tick), never lengths.
+  gives 24 rows per quarter note, and 192-row patterns are two bars of 4/4 (at most 85 patterns per song).
+  Positions round to the grid (±1 AKAO tick), never lengths.
 - **Collisions:** a second note in a cell moves to the next row, and later volume or pan values in a row replace
   earlier ones. Nothing is dropped in any of the 98 songs.
 - **Instruments:** one sample per AKAO instrument, 16-bit with its loop.
