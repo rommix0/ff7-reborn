@@ -1,3 +1,19 @@
 copy_words = 0x80014A00; // type:func
 highest_bit = 0x80014A38; // type:func
 count_bits = 0x80014A58; // type:func
+
+// Sound driver (0x800293D0-0x80033A90). Names are ours, from reading the code; see docs/knowledge_base.md §4.
+snd_run_command = 0x8002DF88; // type:func
+snd_flush_queue = 0x8002E1A8; // type:func
+seq_step_channel = 0x80030E7C; // type:func
+seq_cmd_set_octave = 0x80032078; // type:func
+seq_cmd_octave_up = 0x80032094; // type:func
+seq_cmd_octave_down = 0x800320AC; // type:func
+seq_cmd_end = 0x80033894; // type:func
+seq_cmd_unknown = 0x80033A70; // type:func
+snd_command_handlers = 0x80049548;
+seq_cmd_handlers = 0x80049AA8;
+seq_note_lengths = 0x80049C28;
+snd_queue_count = 0x80063010;
+instrument_table = 0x80075F28; // absolute:True
+snd_queue = 0x80081DC8; // absolute:True

@@ -24,9 +24,13 @@ split: disks/SCUS_941.63
 build/SCUS_941.63: build/main.elf
 	$(CROSS)objcopy -O binary $< $@
 
-build/main.elf: $(OBJS) build/main.ld
+build/main.elf: $(OBJS) build/main.ld build/absolute_syms.ld
 	$(CROSS)ld -EL -T build/main.ld -T build/undefined_syms_auto.txt -T build/undefined_funcs_auto.txt \
-		--no-check-sections -Map build/main.map -o $@
+		-T build/absolute_syms.ld --no-check-sections -Map build/main.map -o $@
+
+# splat leaves `absolute:True` symbols (BSS past the end of the file) for us to define.
+build/absolute_syms.ld: config/symbols.main.txt
+	grep 'absolute:True' $< | cut -d';' -f1 | sed 's/$$/;/' > $@
 
 build/asm/%.o: asm/%.s
 	@mkdir -p $(dir $@)

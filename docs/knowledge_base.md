@@ -65,8 +65,66 @@ Recovered code: see §7.
 
 ## 4. Sound: the AKAO engine
 
-The PS1 sound driver is Square's **AKAO** sequencer, linked into the main exe. It drives the SPU directly:
-sequences are byte-code that pick instruments, set pitch/volume/pan/ADSR/reverb and play notes on the 24 SPU voices.
+The PS1 sound driver is Square's **AKAO** sequencer, linked into the main exe. Sequences are byte code that picks
+instruments, sets pitch, volume, pan, ADSR and reverb, and plays notes on the 24 SPU voices. It reaches the SPU
+**only through libspu**: no game code writes the SPU registers (`0x1F801C00`–`0x1F801DFF`) itself.
+
+Everything below comes from our own disassembly.
+
+### Driver map (our analysis of `SCUS_941.63`)
+
+How it was found:
+- **libspu callers.** Every game function that calls a named libspu function (§8) sits in `0x8002988C`–`0x8002F848`.
+- **Boundaries from the call graph.** The function before `0x800293D0` is graphics code (`AddPrim`, `GetClut`), and
+  at `0x80033A90` CD code begins (`CdInit`, `CdRead`, `CdReadSync`).
+- **Pointer tables.** Most of the driver's ~330 functions have no direct caller; they're reached through tables.
+
+**Range: `0x800293D0`–`0x80033A90` (~42 KB).**
+
+| Address | Our name | What it is (verified by reading the code) |
+|---|---|---|
+| `0x8002DA7C` | (unnamed) | The only driver function called from all over the game (10 outside callers); a public entry point |
+| `0x8002DF88` | `snd_run_command` | Runs one sound command immediately: remaps `0x9C`/`0x9D`/`0xD5`/`0xD6`, then `snd_command_handlers[cmd](entry)` |
+| `0x8002E1A8` | `snd_flush_queue` | Runs every queued command: entries of 0x24 bytes at `snd_queue` (`0x80081DC8`), count at `snd_queue_count` (`0x80063010`) |
+| `0x8002E23C` | (unnamed) | Calls a run of 8 libspu setters; probably the per-voice SPU update |
+| `0x80030E7C` | `seq_step_channel` | Sequence interpreter for one channel (below) |
+| `0x80049548` | `snd_command_handlers` | 256 handlers indexed by command byte. Live: `10`, `14`, `15`, `18`, `19`, `20`–`23`, `28`–`2B`, `30`, `34`, `80`–`82`, `90`, `92`, `9A`–`9D`, `A0`–`BD`, `C0`–`C2`, `C8`–`CA`, `D0`–`D2`, `D4`–`D6`, `E0`, `E4`, `F0`–`F5`, `F8`–`FA`. Everything else is the no-op `0x8002CF98` |
+| `0x80049AA8` | `seq_cmd_handlers` | 96 handlers for sequence commands `0xA0`–`0xFF`. The code indexes it with the raw byte from base `0x80049828` |
+| `0x80049C28` | `seq_note_lengths` | 11 `u16`: `0xC0C0, 0x6060, 0x3030, 0x1818, 0x0C0C, 0x0606, 0x0303, 0x2020, 0x1010, 0x0808, 0x0404` |
+| `0x80075F28` | `instrument_table` | 128 × 64-byte instruments (= `INSTR.DAT` 8,192 bytes). Field `+0` is the SPU sample address (`0x1010` for entry 0, matching `INSTR.ALL`'s header) |
+
+The command table is presumably what the field opcodes `AKAO`/`AKAO2` feed; command `0x10` is the first live
+handler. *(unverified)*
+
+### Sequence format (from `seq_step_channel`)
+
+Per channel, a state struct whose offset `0x00` is the read pointer into the sequence. Each step:
+1. Read byte `b`, advance the pointer.
+2. If `b >= 0xA0`, call `seq_cmd_handlers[b - 0xA0](channel, …)`. Repeat until a note, or until `b == 0xA0`, which
+   ends the channel.
+3. Otherwise `b` is a **note**: `pitch = b / 11`, `length = seq_note_lengths[b % 11]` (the low byte is used as the tick
+   count: 192 = whole, 96, 48, 24, 12, 6, 3; triplets 32, 16, 8, 4).
+   - `pitch` 0–11 is a semitone in the current octave.
+   - `b` `0x84`–`0x8E` (pitch 12) is a **tie**.
+   - `b` `0x8F`–`0x9F` (pitch 13+) is a **rest**.
+4. When a channel flag (`+0x38` bit 3) is set, the semitone instead indexes a 5-byte-per-key map at `channel+0x14`
+   and picks a per-key instrument from `instrument_table`. That's drum-kit mode *(name is our guess)*.
+
+Commands read so far:
+- **`A0`:** end of channel. Unused bytes `E0`–`E7`, `FA`–`FC` and `FF` all go to `seq_cmd_unknown`, which just calls the `A0` handler.
+- **`A5`, `A6`, `A7`:** `A5 n` sets the octave (`+0x66`); `A6` raises it by one and `A7` lowers it, both masked to 0–15.
+- **`A3 n`, `A8 n`:** store a byte into a channel field and flag it for an SPU update; `A8` stores it sign-extended
+  `<< 23` into `+0x44` (a volume-like value).
+- **`CC`:** sets `+0x6E = 1`.
+
+Argument lengths, from how far each handler advances the read pointer (to confirm with a parser run over the
+~600 sequences on disc):
+- **1 byte:** `A1`–`A3`, `A5`, `A8`, `AA`, `AC`–`AF`, `B1`, `B2`, `B5`, `B7`, `B9`, `BB`, `BD`, `BF`, `C0`, `C1`, `CE`,
+  `CF`, `D2`, `D3`, `D8`–`DA`, `DC`, `F2`, `F6`, `F8`.
+- **2 bytes:** `A4`, `A9`, `AB`, `BC`, `E8`, `F7`, `FD`, `FE`.
+- **None:** `A6`, `A7`, `B3`, `B6`, `BA`, `BE`, `C2`–`C8`, `CB`–`CD`, `D0`, `D1`, `D4`–`D7`, `DB`, `ED`, `F3`, `F5`, `F9`.
+- **Unclear, with branching reads:** `B0`, `B4`, `B8`, `C9`, `DD`–`DF`, `E9`–`EC`, `F4`.
+- **Jumps or loops (set the pointer directly):** `CA`, `EE`, `EF`, `F0`, `F1`.
 
 Sound files (checked against our disc):
 
