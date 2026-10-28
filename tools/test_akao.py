@@ -29,11 +29,38 @@ song = b"AKAO" + struct.pack("<HHH", 7, 6 + len(seq), 0) + bytes(6) + struct.pac
 events, loop_tick, end = play_channel(song, 0x16)
 notes = [(t, key, length) for t, kind, *rest in events if kind == "note" for key, length in [rest]]
 # Passes 1-2: note + rest (96 ticks each); pass 3: note then F0 jumps over the rest to C9, which ends the repeat.
-assert notes[:3] == [(0, 60, 48), (96, 60, 48), (192, 60, 48)]
-assert notes[3] == (240, 61, 96 + 48)  # C# half note tied to a quarter
+assert notes[:3] == [(0, 36, 48), (96, 36, 48), (192, 36, 48)]  # no A5: driver default octave 2
+assert notes[3] == (240, 37, 96 + 48)  # C# half note tied to a quarter
 assert (loop_tick, end) == (240, 384)
 assert [e for e in events if e[1] == "tempo"] == [[0, "tempo", 0x4000]]
 midi, loop_lengths, runaway = song_to_midi(song)
 assert midi[:4] == b"MThd" and struct.unpack(">HHH", midi[8:14]) == (1, 2, 48) and not runaway
 assert loop_lengths == [144]
+
+
+def one_channel(seq: bytes) -> bytes:
+    return b"AKAO" + struct.pack("<HHH", 9, 6 + len(seq), 0) + bytes(6) + struct.pack("<IH", 1, 0) + seq
+
+
+def at(events, kind):
+    return [(e[0], *e[2:]) for e in events if e[1] == kind]
+
+
+# Channel defaults from the driver's channel reset: instrument 5, octave 2, volume 100, A3 multiplier 120.
+events, *_ = play_channel(one_channel(bytes([0x02, 0xA0])), 0x16)
+assert at(events, "program") == [(0, 5)] and at(events, "volume") == [(0, 100)]
+assert at(events, "expression") == [(0, 120)] and at(events, "note") == [(0, 36, 48)]
+
+# Drum-kit mode: EC points at 5-byte entries per semitone (instrument, key, u16 volume, pan); ED switches it off.
+#   0 EC +4 -> map at 7 | 3 note semitone 1 (0x0B), quarter: 0x0B + 2 = 0x0D | 4 ED | 5 note C | 6 A0 | 7 map
+drum_map = bytes([0, 0, 0, 0, 0]) + bytes([9, 60, 0x80, 0x3F, 32])  # semitone 1: instr 9, key 60, vol 0x3F80, pan 32
+events, *_ = play_channel(one_channel(bytes([0xEC, 0x04, 0x00, 0x0D, 0xED, 0x02, 0xA0]) + drum_map), 0x16)
+assert at(events, "program") == [(0, 5), (0, 9)]
+assert at(events, "volume")[-1] == (0, 127) and at(events, "pan") == [(0, 32)]
+assert at(events, "note")[0] == (0, 72, 48)  # drum key 60 is octave 5 C: one octave up like A5's numbering
+
+# A9 n v slides the volume to v over n ticks; A3 n sets the multiplier.
+events, *_ = play_channel(one_channel(bytes([0xA3, 0x40, 0xA8, 0x00, 0xA9, 0x04, 0x40, 0x02, 0xA0])), 0x16)
+assert at(events, "expression")[-1] == (0, 64)
+assert at(events, "volume")[2:] == [(1, 16), (2, 32), (3, 48), (4, 64)]
 print("ok")

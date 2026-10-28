@@ -20,8 +20,8 @@ SPEED = 1          # XM ticks per row
 AKAO_PER_XM = 2    # AKAO ticks per XM tick
 ROWS = 256         # rows per pattern (the XM maximum; keeps long songs under 256 patterns)
 KEY_OFF = 97
-# ponytail: one fixed release for every instrument; decode the AKAO ADSR bytes into envelopes for a closer sound.
-FADEOUT = 2048
+SPU_HZ = 44100
+ENVELOPE_SECONDS = 10  # longest stretch of a phase we model; a phase that barely moves in that time is flat
 
 
 def bpm(tempo: int) -> int:
@@ -29,7 +29,10 @@ def bpm(tempo: int) -> int:
 
 
 def load_bank_instruments(sound_dir: Path) -> dict:
-    """slot -> (samples, loop_start or None, pitch for C at octave 6). Bank 1 wins where both banks define a slot."""
+    """slot -> (samples, loop_start or None, pitch for C at octave 6, ADSR bytes +0x08..+0x0F).
+
+    Bank 1 wins where both banks define a slot.
+    """
     slots = {}
     for all_name, dat_name, first_slot, count in reversed(BANKS):
         samples_file = (sound_dir / all_name).read_bytes()
@@ -40,11 +43,84 @@ def load_bank_instruments(sound_dir: Path) -> dict:
             if base <= sample_addr < base + length:
                 pcm, repeats = decode_adpcm(samples_file[16:16 + length], sample_addr - base)
                 loop = (loop_addr - sample_addr) // 16 * 28 if repeats and loop_addr >= sample_addr else None
-                slots[first_slot + i] = (pcm, loop, struct.unpack_from("<I", table, i * 64 + 16)[0])
+                pitch = struct.unpack_from("<I", table, i * 64 + 16)[0]
+                slots[first_slot + i] = (pcm, loop, pitch, table[i * 64 + 8:i * 64 + 16])
     return slots
 
 
-def xm_instrument(name: str, pcm: list[int], loop: int | None, pitch_c6: int, octave_base: int) -> bytes:
+def spu_phase(level: int, target: int, shift: int, step: int, exponential: bool) -> list[tuple[float, int]]:
+    """(seconds, level) after each SPU envelope step until the level passes target (psx-spx, SPU ADSR)."""
+    increase, t, out = step > 0, 0.0, []
+    while level < target if increase else level > target:
+        cycles = 1 << max(0, shift - 11)
+        if exponential and increase and level > 0x6000:
+            cycles *= 4
+        delta = step << max(0, 11 - shift)
+        if exponential and not increase:
+            delta = delta * level // 0x8000
+        # The slowest rates (e.g. sustain 0x7F: one step every 23.8 s) hold the level in practice.
+        if not delta or t + cycles / SPU_HZ > ENVELOPE_SECONDS:
+            break
+        level = max(0, min(0x7FFF, level + delta))
+        t += cycles / SPU_HZ
+        out.append((t, level))
+    return out
+
+
+def adsr_envelope(adsr: bytes, bpm: int) -> tuple[list[tuple[int, int]], int, int]:
+    """XM volume envelope (points, sustain index, fadeout) from an instrument's SPU ADSR bytes.
+
+    Byte order as the driver hands them to libspu: attack rate, decay rate, sustain level, sustain rate, release
+    rate, then attack / sustain / release modes (1 linear up, 3 linear down, 5 exponential up, 7 exponential down).
+    Attack and sustain rates are shift << 2 | step; decay and release are a shift with step -8.
+    """
+    ar, dr, sl, sr, rr, a_mode, s_mode, r_mode = adsr
+    tick_s = 2.5 / bpm
+
+    def pick(phase, start_t, start_x, count):
+        if not phase:
+            return []
+        chosen = [phase[min(len(phase) - 1, round((i + 1) * len(phase) / count) - 1)] for i in range(count)]
+        return [(start_x + round((start_t + t) / tick_s), round(level * 64 / 0x7FFF)) for t, level in chosen]
+
+    attack = spu_phase(0, 0x7FFF, ar >> 2, 7 - (ar & 3), a_mode == 5)
+    level, t = (attack[-1][1], attack[-1][0]) if attack else (0x7FFF, 0.0)
+    decay = spu_phase(level, min(0x7FFF, (sl + 1) * 0x800), dr, -8, True)
+    points = [(0, 0)] + pick(attack, 0, 0, 2) + pick(decay, t, 0, 2)
+    t += decay[-1][0] if decay else 0
+    level = decay[-1][1] if decay else level
+    increase = s_mode in (1, 5)
+    sustain = spu_phase(level, 0x7FFF if increase else 0, sr >> 2, 7 - (sr & 3) if increase else -8 + (sr & 3),
+                        s_mode in (5, 7))
+    # Slow enough to change by less than one XM volume step over ENVELOPE_SECONDS: the held level stays put.
+    if sustain and abs(sustain[-1][1] - level) * 64 < 0x7FFF:
+        sustain = []
+    release = spu_phase(0x7FFF, 0, rr, -8, r_mode == 7)
+    release_ticks = max(1.0, (release[-1][0] if release else 0) / tick_s)
+    if sustain:
+        # Fades (or swells) while held: put that curve before the sustain point; release becomes the fadeout.
+        points += pick(sustain, t, 0, 5)
+        fadeout = min(0xFFF, math.ceil(65536 / release_ticks))
+    else:
+        fadeout = 0
+    # Keep the last point per tick; XM needs strictly increasing x.
+    by_x = dict(points)
+    points = sorted(by_x.items())
+    sustain_index = len(points) - 1
+    if not sustain:
+        # Held level stays put; after key-off the envelope runs on into the release curve.
+        start_x, start_y = points[-1]
+        release_from = spu_phase(start_y * 0x7FFF // 64, 0, rr, -8, r_mode == 7)
+        # A release shorter than a tick collapses into one step to 0 on the next tick.
+        tail = {max(x, start_x + 1): y for x, y in pick(release_from, 0, start_x, 3)}
+        points += sorted(tail.items()) or [(start_x + 1, 0)]
+        if points[-1][1]:
+            points.append((points[-1][0] + 1, 0))
+    return points[:12], min(sustain_index, 11), fadeout
+
+
+def xm_instrument(name: str, pcm: list[int], loop: int | None, pitch_c6: int, adsr: bytes, octave_base: int,
+                  bpm: int) -> bytes:
     # XM plays C-4 (note 49) at 8363 Hz. We write AKAO octave o as XM octave o - octave_base, and the game plays
     # C of octave 6 at 44100 * pitch / 0x1000 Hz, so shift the sample by the difference in semitones.
     semis = 12 * math.log2(44100 * pitch_c6 / 0x1000 / 8363) - 12 * (6 - octave_base - 4)
@@ -57,13 +133,18 @@ def xm_instrument(name: str, pcm: list[int], loop: int | None, pitch_c6: int, oc
     loop_start, loop_len, kind = (loop * 2, (len(pcm) - loop) * 2, 0x11) if loop is not None else (0, 0, 0x10)
     sample_header = struct.pack("<IIIBbBBbB22s", len(pcm) * 2, loop_start, loop_len, 64, finetune, kind, 128,
                                 relative, 0, name.encode()[:22])
-    # Volume envelope: hold full volume while the key is down (sustain point 0), then FADEOUT after key-off.
-    env = struct.pack("<4H", 0, 64, 1, 64) + bytes(40)
+    points, sustain, fadeout = adsr_envelope(adsr, bpm)
+    env = b"".join(struct.pack("<2H", min(x, 0xFFFF), y) for x, y in points).ljust(48, b"\0")
     header = (struct.pack("<I22sBH", 263, name.encode()[:22], 0, 1) + struct.pack("<I", 40) + bytes(96)
-              + env + bytes(48) + bytes([2, 0, 0, 0, 0, 0, 0, 0]) + bytes([0b11, 0]) + bytes(4)
-              + struct.pack("<H", FADEOUT) + bytes(22))
+              + env + bytes(48) + bytes([len(points), 0, sustain, 0, 0, 0, 0, 0]) + bytes([0b11, 0]) + bytes(4)
+              + struct.pack("<H", fadeout) + bytes(22))
     assert len(header) == 263
     return header + sample_header + bytes(deltas)
+
+
+def level(volume: int, expression: int) -> int:
+    """XM volume 0-64 from the driver's voice volume, A8 volume * A3 multiplier (both 0-127)."""
+    return max(0, min(64, round(64 * volume * expression / (127 * 127))))
 
 
 def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
@@ -92,29 +173,31 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
             row, delay, cell = row + 1, 0, cells[row + 1][ch] or [0, 0, 0, 0, 0]  # 1-tick notes: nudge one row
         if note and delay and not fx:
             fx, param = 0x0E, 0xD0 | delay
-        if (note and cell[0]) or (fx and cell[3] and (cell[3], cell[4]) != (fx, param)):
+        # Volume and pan are continuous controls: a later value in the same row replaces the earlier one.
+        # Only a second note, or a different effect, has nowhere to go.
+        if (note and cell[0]) or (fx and cell[3] and cell[3] != fx):
             dropped += 1
             return
         cells[row][ch] = [note or cell[0], inst or cell[1], vol or cell[2], fx or cell[3], param if fx else cell[4]]
 
     first_tempo = None
     for ch, (events, _, _) in enumerate(channels):
-        inst, volume, playing_until = 0, 64, None
+        inst, volume, expression = 0, 100, 120
         timeline = sorted(events, key=lambda e: e[0])
         for i, (tick, kind, *rest) in enumerate(timeline):
             if kind == "note":
                 key, length = rest
                 n = min(96, max(1, 12 * (key // 12 - 1 - octave_base) + key % 12 + 1))
-                put(tick, ch, note=n, inst=inst, vol=0x10 + volume)
+                put(tick, ch, note=n, inst=inst, vol=0x10 + level(volume, expression))
                 # Release only if the next note doesn't start right away (a new note retriggers anyway).
                 nxt = next((e[0] for e in timeline[i + 1:] if e[1] == "note"), None)
                 if nxt is None or nxt > tick + length:
                     put(tick + length, ch, note=KEY_OFF)
             elif kind == "program":
                 inst = inst_no.get(rest[0], 0)
-            elif kind == "volume":
-                volume = rest[0] * 64 // 127
-                put(tick, ch, vol=0x10 + volume)
+            elif kind in ("volume", "expression"):
+                volume, expression = (rest[0], expression) if kind == "volume" else (volume, rest[0])
+                put(tick, ch, vol=0x10 + level(volume, expression))
             elif kind == "pan":
                 put(tick, ch, fx=0x08, param=min(255, rest[0] * 2))
             elif kind == "tempo" and rest[0]:
@@ -146,7 +229,8 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
               + struct.pack("<8H", len(patterns), restart, n_chan, len(patterns), len(programs), 1, SPEED,
                             first_tempo or 120)
               + bytes(range(len(patterns))).ljust(256, b"\0"))
-    instruments = b"".join(xm_instrument(f"akao instrument {slot}", *bank[slot], octave_base) for slot in programs)
+    instruments = b"".join(xm_instrument(f"akao instrument {slot}", *bank[slot], octave_base, first_tempo or 120)
+                           for slot in programs)
     return header + b"".join(patterns) + instruments, dropped
 
 
@@ -173,7 +257,7 @@ def main():
         xm, dropped = song_to_xm(block, bank, name)
         total_dropped += dropped
         (out / f"{name}.xm").write_bytes(xm)
-    print(f"{len(names)} songs -> {out}; {total_dropped} events dropped where two landed in one cell")
+    print(f"{len(names)} songs -> {out}; {total_dropped} notes or effects dropped where two landed in one cell")
 
 
 if __name__ == "__main__":

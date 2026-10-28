@@ -172,14 +172,39 @@ MAX_TICKS = 192 * 4000  # 4000 bars: far past any song; reaching it means a loop
 def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS):
     """Follow one channel like the driver does, once through. Returns (events, loop_start_tick, end_tick).
 
-    Events are [tick, kind, ...]: ("note", key, ticks), ("program", n), ("volume", n), ("pan", n), ("tempo", t).
+    Events are [tick, kind, ...]: ("note", key, ticks), ("program", n), ("volume", n), ("expression", n),
+    ("pan", n), ("tempo", t). Volume and pan slides become one event per tick that changes the value.
     Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
     the tick its target was first reached at.
     """
     pos, tick = start, 0
-    octave, fixed_len, next_len, last_len = 4, 0, 0, 0
+    # The driver's channel reset: instrument 5, octave 2, volume 100, A3 multiplier 120.
+    octave, fixed_len, next_len, last_len = 2, 0, 0, 0
+    levels = {"volume": 100.0, "pan": 64.0}
+    slides = {}  # kind -> [step per tick, ticks left]
+    drum_map = None
     loops = []  # [loop start pos, pass count]; the driver keeps 4 levels
-    first_seen, events, last_note = {}, [], None
+    first_seen, last_note = {}, None
+    events = [[0, "program", 5], [0, "volume", 100], [0, "expression", 120]]
+
+    def set_level(kind, value):
+        levels[kind] = value
+        slides.pop(kind, None)  # A8/AA (and drum entries) cancel a running slide
+        events.append([tick, kind, round(value)])
+
+    def advance(ticks):
+        nonlocal tick
+        for _ in range(ticks):
+            tick += 1
+            for kind, slide in list(slides.items()):
+                before = round(levels[kind])
+                levels[kind] += slide[0]
+                slide[1] -= 1
+                if not slide[1]:
+                    del slides[kind]
+                if round(levels[kind]) != before:
+                    events.append([tick, kind, round(levels[kind])])
+
     while tick < max_ticks:
         first_seen.setdefault(pos, tick)
         b = block[pos]
@@ -187,13 +212,22 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS):
             # Length precedence as in seq_step_channel: DC fixed length, else A2 one-shot length, else the table.
             last_len = fixed_len or next_len or NOTE_TICKS[b % 11]
             next_len = 0
-            key = b // 11
-            if key < 12:
-                last_note = [tick, "note", min(127, 12 * (octave + 1) + key), last_len]
+            semitone = b // 11
+            if semitone < 12 and drum_map is not None:
+                # Drum kit: the semitone picks a 5-byte entry (instrument, key, u16 volume, pan) that also sets
+                # the channel's volume and pan, as the driver writes them into the channel.
+                inst, key, vol_lo, vol_hi, pan = block[drum_map + semitone * 5:drum_map + semitone * 5 + 5]
+                events.append([tick, "program", inst & 0x7F])
+                set_level("volume", min(127, (vol_lo | vol_hi << 8) >> 7))
+                set_level("pan", pan & 0x7F)
+                last_note = [tick, "note", min(127, key + 12), last_len]
                 events.append(last_note)
-            elif key == 12 and last_note:
+            elif semitone < 12:
+                last_note = [tick, "note", min(127, 12 * (octave + 1) + semitone), last_len]
+                events.append(last_note)
+            elif semitone == 12 and last_note:
                 last_note[3] += last_len  # tie
-            tick += last_len
+            advance(last_len)
             pos += 1
             continue
         if b not in ARGS or b == 0xA0:
@@ -205,6 +239,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS):
                 events.append([tick, "program", args[0] & 0x7F])
             case 0xA2:
                 next_len, fixed_len = args[0], 0
+            case 0xA3:  # multiplier on the channel volume: voice volume = A8 volume * A3 / 128
+                events.append([tick, "expression", args[0]])
             case 0xDC:  # fixed length = last length + signed delta, 0 turns it off
                 delta = args[0] - 256 if args[0] & 0x80 else args[0]
                 fixed_len = max(1, min(255, last_len + delta)) if delta else 0
@@ -215,9 +251,18 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS):
             case 0xA7:
                 octave = (octave - 1) & 15
             case 0xA8:
-                events.append([tick, "volume", args[0] & 0x7F])
+                set_level("volume", args[0] & 0x7F)
             case 0xAA:
-                events.append([tick, "pan", args[0] & 0x7F])
+                set_level("pan", args[0] & 0x7F)
+            case 0xA9 | 0xAB:  # slide volume / pan to a target over n ticks (0 = 256)
+                kind = "volume" if b == 0xA9 else "pan"
+                target = (args[1] - 256 if args[1] & 0x80 else args[1]) if b == 0xA9 else args[1]
+                length = args[0] or 256
+                slides[kind] = [(target - levels[kind]) / length, length]
+            case 0xEC:  # drum-kit mode on, map at a signed offset from after the arguments
+                drum_map = nxt + struct.unpack("<h", args)[0]
+            case 0xED:
+                drum_map = None
             case 0xE8:
                 events.append([tick, "tempo", args[0] | args[1] << 8])
             case 0xC8:
@@ -273,8 +318,9 @@ def song_to_midi(block: bytes) -> tuple[bytes, list[int], bool]:
                 timed += [(tick, 1, bytes([0x90 | ch, key, 100])), (tick + length, 0, bytes([0x80 | ch, key, 0]))]
             elif kind == "program":
                 timed.append((tick, 1, bytes([0xC0 | ch, rest[0]])))
-            elif kind in ("volume", "pan"):
-                timed.append((tick, 1, bytes([0xB0 | ch, 7 if kind == "volume" else 10, rest[0]])))
+            elif kind in ("volume", "pan", "expression"):
+                cc = {"volume": 7, "pan": 10, "expression": 11}[kind]
+                timed.append((tick, 1, bytes([0xB0 | ch, cc, max(0, min(127, rest[0]))])))
             elif kind == "tempo" and rest[0]:
                 usec = round(TICKS_PER_QUARTER * 65536 * 1_000_000 / (DRIVER_HZ * rest[0]))
                 conductor.append((tick, 1, b"\xFF\x51\x03" + usec.to_bytes(3, "big")))

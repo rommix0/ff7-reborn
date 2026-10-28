@@ -138,7 +138,7 @@ starts:
 - **Behaviour notes:**
   - **Read in detail and confirmed by the MIDI loop check (below):** `A0`, `A1`, `A2`, `A5`–`A7`, `C8`–`CA`, `DC`, `E8`,
     `EE` and `F0`.
-  - **Read but not fully confirmed:** `A8`/`AA` store volume- and pan-like values.
+  - **Read in detail (volume and drums, below):** `A3`, `A8`, `A9`, `AA`, `AB`, `EC` and `ED`.
   - **Not studied yet:** the rest.
 
 ### Timing, loops and MIDI export
@@ -181,6 +181,43 @@ Check: in all **98 songs, every looping channel repeats the same length**, or a 
 one-bar drum loop. Echo channels may start a few ticks late. Before `F0` was handled, 5 songs failed this check,
 which is how its meaning was confirmed. No channel runs past 4,000 bars.
 
+### Channel defaults, volume and drum kits
+
+- **Channel reset.** `channel_reset` (`0x80029BAC`) starts every channel on instrument 5 (via
+  `load_channel_instrument`), octave 2, volume 100 (`+0x44` = `0x32000000`) and an `A3` multiplier of 120
+  (`+0x2C` = `0x78`).
+- **Voice volume.** Computed in `0x8002ED34`:
+  - **Base:** (`A8` volume `<< 7`) × `A3` ÷ 128, plus a tremolo offset (`+0xD8`).
+  - **Master volume:** scaled by the global master volume `0x80062F5E` ÷ 128.
+  - **Stereo:** split into left/right through 256-entry pan tables at `0x80049C44`/`0x80049E44`, indexed by
+    `AA`'s pan plus a pan-LFO offset (`+0xDA`).
+- **`A3 n`:** the multiplier above. In songs, 1,317 of 2,108 uses are 127, and the rest go as low as 10.
+- **`A9 n v` / `AB n p`:** slide volume or pan to `v`/`p` over `n` ticks (0 = 256). The per-tick step sits at
+  `+0x48`/`+0xCA` and the counter at `+0x5C`/`+0x62`. `A8`/`AA` cancel a running slide. 266 of the slides fade in
+  from volume 0.
+- **`EC lo hi` / `ED`:** drum-kit mode on/off (channel flag bit 3). The map pointer (`+0x14`) is a signed offset from
+  after the arguments.
+  - **Map lookup:** each note's semitone picks a 5-byte entry: instrument, key (octave = key ÷ 12, same numbering
+    as `A5`), `u16` volume (stored `<< 16` into `+0x44`, so the `A8` equivalent is the value `>> 7`), and pan
+    (`<< 8` into `+0x60`).
+  - **Scale:** 4,585 notes as written (11,645 once loops are played out) are drum notes.
+- **Envelope (ADSR).**
+  - **When it's sent:** when a note starts, the driver copies instrument bytes `+0x08`–`+0x0F` into the voice, and
+    `snd_update_voice` hands them to libspu.
+  - **How the bytes pack**, checked against the register writes and psx-spx:
+
+    | Bytes | Setter | Register bits |
+    |---|---|---|
+    | `+0x08` attack rate, `+0x0D` attack mode | `SpuSetVoiceARAttr` (`0x80039850`) | ADSR bits 8–15 (rate = shift `<< 2` \| step) |
+    | `+0x09` decay shift | `SpuSetVoiceDR` (`0x8003973C`) | bits 4–7 |
+    | `+0x0A` sustain level | `SpuSetVoiceSL` (`0x800397C8`) | bits 0–3 |
+    | `+0x0B` sustain rate, `+0x0E` sustain mode | `SpuSetVoiceSRAttr` (`0x800398EC`) | bits 22–31 |
+    | `+0x0C` release shift, `+0x0F` release mode | `SpuSetVoiceRRAttr` (`0x800399D0`) | bits 16–21 |
+
+  - **Mode values:** 1 linear up, 3 linear down, 5 exponential up, 7 exponential down.
+  - **What the instruments use:** all 93 have sustain level 15. 75 hold at full level (sustain rate `0x7F`), and 18
+    fade while held (sustain rate 52–65).
+
 ### Tracker export (XM)
 
 `python tools/xm.py <file|dir> <SOUND dir> <out>` writes FastTracker 2 modules that play the game's own samples, so
@@ -188,21 +225,28 @@ instruments sound like the game rather than General MIDI.
 - **Grid:** one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM (56–191, inside XM's 32–255). Speed 1
   gives 24 rows per quarter note in 256-row patterns (at most 64 patterns per song). Positions round to the grid
   (±1 AKAO tick), never lengths.
-- **Collisions:** 15 events in all 98 songs still land on an occupied cell and are dropped. Colliding 1-tick notes
-  move to the next row instead.
+- **Collisions:** a second note in a cell moves to the next row, and later volume or pan values in a row replace
+  earlier ones. Nothing is dropped in any of the 98 songs.
 - **Instruments:** one sample per AKAO instrument, 16-bit with its loop.
   - **Tuning:** relative note + finetune = 12·log2(44,100 · pitch[C] / 0x1000 / 8,363) − 12·(6 − base − 4), where
     `base` shifts songs whose octaves exceed XM's 8.
   - **Why one value per sample is enough:** the pitch tables are equal-tempered to within 0.86 cents.
   - **Bank choice:** slots in both banks use bank 1, since which songs expect bank 2 isn't known yet.
-- **Events:**
-  - Notes carry the channel volume (`A8` → 0–64).
+- **Events:** each channel starts from the driver's defaults (instrument 5, octave 2, volume 100, `A3` 120).
+  - Notes carry the voice volume: 64 × `A8` × `A3` ÷ 127². Global master volume and the pan law are left out.
+  - Slides become per-tick volume/pan values.
+  - Drum-kit notes carry their entry's instrument, key, volume and pan. Every one of the 152,284 notes has a sample.
   - `AA` becomes `8xx` panning.
   - A note that doesn't run into the next one gets a key-off.
   - Tempo changes go on an extra control channel.
   - The endless loop is the XM restart position, on a pattern boundary.
-- **Approximation:** one fixed volume fadeout after key-off for every instrument. The AKAO ADSR bytes
-  (`INSTR.DAT +0x08`) aren't decoded yet, and decoding them is the next step for closer instrument sound.
+- **Envelopes:** each instrument's ADSR is simulated with psx-spx's step rules at 44.1 kHz and sampled into an XM
+  volume envelope, timed at the song's first BPM.
+  - **Steady instruments:** attack/decay, a sustain point, then the release curve.
+  - **Fading instruments:** the sustain fade sits before the sustain point, and the release becomes the fadeout
+    (clamped to FT2's 0xFFF).
+  - **Ignored:** phases that move less than one XM volume step in 10 seconds count as flat (sustain `0x7F` steps
+    once every 23.8 s).
 - **Check:** `python tools/test_xm.py assets/xm/*.xm` parses each file back and requires every byte to be
   accounted for.
 

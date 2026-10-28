@@ -2,7 +2,7 @@ import struct
 import sys
 from pathlib import Path
 
-from xm import KEY_OFF, song_to_xm
+from xm import KEY_OFF, adsr_envelope, song_to_xm
 
 
 def walk(xm: bytes) -> dict:
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     # One channel: tempo, instrument 0, C quarter, rest quarter, then an endless jump back to the start.
     seq = bytes([0xE8, 0x00, 0x60, 0xA1, 0x00, 0xA5, 0x04, 0x02, 0x91, 0xEE, 0xF7, 0xFF])  # EE -9: back to A1
     song = b"AKAO" + struct.pack("<HHH", 1, 6 + len(seq), 0) + bytes(6) + struct.pack("<IH", 1, 0) + seq
-    bank = {0: ([0, 1000, -1000, 0] * 10, 8, 0x1000)}
+    bank = {0: ([0, 1000, -1000, 0] * 10, 8, 0x1000, bytes([0, 0x0F, 0x0F, 0x7F, 0x06, 1, 3, 3]))}
     xm, dropped = song_to_xm(song, bank, "test")
     info = walk(xm)
     assert dropped == 0
@@ -56,4 +56,23 @@ if __name__ == "__main__":
     # 0x6000 tempo = 114 BPM; C of AKAO octave 4 is XM note 49 (C-4); the rest gets a key-off.
     assert info["bpm"] == 114 and info["notes"] == [49, KEY_OFF]
     assert info["rows"] == 48 and info["restart"] == 0  # 96 AKAO ticks = 48 rows of 2; loop back to the start
+
+    # Envelopes from the instrument's SPU ADSR bytes (+0x08: AR DR SL SR RR, +0x0D modes A S R).
+    steady = bytes([0x00, 0x0F, 0x0F, 0x7F, 0x06, 0x01, 0x03, 0x03])  # instant attack, sustain held, quick release
+    points, sustain, fadeout = adsr_envelope(steady, bpm=120)
+    assert points[sustain][1] == 64 and points[-1][1] == 0 and sustain < len(points) - 1
+    assert points[-1][0] - points[sustain][0] < 30  # release rate 6 is well under a second
+    fading = bytes([0x00, 0x0F, 0x0F, 0x40, 0x05, 0x01, 0x03, 0x03])  # sustain rate 0x40: fades while held
+    points, sustain, fadeout = adsr_envelope(fading, bpm=120)
+    assert sustain == len(points) - 1 and points[-1][1] < points[0][1] and fadeout > 0
+    assert all(a[1] >= b[1] for a, b in zip(points, points[1:])) and len(points) <= 12
+
+    # A3 scales the channel volume: A8 127 with A3 64 plays at half the volume of A3 127.
+    def note_volume(a3):
+        seq = bytes([0xA1, 0x00, 0xA8, 0x7F, 0xA3, a3, 0x02, 0xA0])
+        song = b"AKAO" + struct.pack("<HHH", 1, 6 + len(seq), 0) + bytes(6) + struct.pack("<IH", 1, 0) + seq
+        xm, _ = song_to_xm(song, {0: ([0, 1000, -1000, 0] * 10, 8, 0x1000, steady)}, "test")
+        cell = xm.index(bytes([0x80 | 0b111, 25]))  # first note cell: C-2 (driver default octave 2), instr, volume
+        return xm[cell + 3] - 0x10
+    assert note_volume(127) == 64 and note_volume(64) == 32
     print("ok")
