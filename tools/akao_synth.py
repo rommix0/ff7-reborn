@@ -45,7 +45,7 @@ class Voice:
     inst: Instrument
     key: int
     pitch: float
-    left: int  # ticks until key-off
+    left: int  # ticks until key-off; -1 holds it until the channel's next note
     vibrato: Lfo | None
     tremolo: Lfo | None
     pos: float = 0.0
@@ -161,7 +161,7 @@ class Synth:
             # (d & 0x7F)/128 of the pitch with d's top bit set, else 15/256 of that.
             d = vibrato.depth
             vibrato.amount = (d & 0x7F) * (pitch if d & 0x80 else pitch * 15 / 256) / 128
-        ch.voice = Voice(inst, key, pitch, length, vibrato, self.start_lfo(ch.tremolo))
+        ch.voice = Voice(inst, key, pitch, -1 if length is None else length, vibrato, self.start_lfo(ch.tremolo))
 
     def step_tick(self):
         self.tick += 1

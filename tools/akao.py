@@ -384,7 +384,9 @@ def play_song(block: bytes, trim_notes: bool = True):
     two bars later). The song as a whole repeats from the latest channel loop start, every lcm(loop lengths)
     ticks, so channels that loop earlier are played on until that point and everything is cut there. Once every
     channel loops, any later point repeats too: with time signatures (FD), the loop starts on the next bar line.
-    `trim_notes` cuts notes at the loop end; without it they keep their length, as the driver holds them on.
+    `trim_notes` cuts notes at the loop end; without it they keep their full length, as the driver holds them on,
+    including ties that come from the start of the next pass; a note still held after that whole extra pass is
+    tied on forever (a drone) and gets length None.
     """
     starts = channel_starts(block)
     first = [play_channel(block, start) for start in starts]
@@ -403,13 +405,17 @@ def play_song(block: bytes, trim_notes: bool = True):
         period = max(lengths)
     loop_end = loop_start + period
     channels = []
+    # Untrimmed notes need one more pass: a loop that opens with a tie lengthens the note held at its end.
+    play_to = loop_end if trim_notes else loop_end + period
     for start, (events, loop, end) in zip(starts, first):
-        if loop is not None and end < loop_end:
-            events, _, _ = play_channel(block, start, until=loop_end)
+        if loop is not None and end < play_to:
+            events, _, _ = play_channel(block, start, until=play_to)
         kept = [e for e in events if e[0] < loop_end]
         for e in kept:
             if e[1] == "note" and trim_notes:
                 e[3] = min(e[3], loop_end - e[0])
+            elif e[1] == "note" and e[0] + e[3] >= play_to:
+                e[3] = None
         channels.append(kept)
     return channels, loop_start, loop_end, lengths, runaway
 

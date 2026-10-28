@@ -262,8 +262,13 @@ Read from `seq_step_channel`'s note and tie paths:
 the XM's compromises with the driver's own behaviour.
 - **Patterns are bars**, so any `FD` time signature works. Identical bars share a pattern: 81 of 98 songs reuse
   some. The 98 songs come to 9.8 MB of JSON plus a 1.7 MB bank (93 instruments).
-- **Events sit at exact ticks**, and effects keep the driver's parameters. Notes keep their full length across the
-  loop end, as the driver holds them.
+- **Events sit at exact ticks**, and effects keep the driver's parameters.
+- **Notes keep their full length across the loop end**, as the driver holds them:
+  - **Tied across the loop:** a channel whose loop opens with a tie keeps the last note of the previous pass
+    sounding. The exporter plays one extra pass to count those ties: 87 notes in 21 songs. Before this fix they
+    were cut right at the loop point.
+  - **Drones:** a note still held after that whole extra pass is tied on forever and gets `"len": null`. That's
+    songs 66 (channels 1–2) and 75 (channels 8 and 14).
 - **The player runs the driver's timing** (`tools/akao_synth.py`):
   - 243.86 Hz interrupts and the tempo accumulator.
   - Per tick: note lengths, bends and LFO delays.

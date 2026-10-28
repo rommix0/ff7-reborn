@@ -60,6 +60,11 @@ assert s.playing and s.tick == 95 and s.channels[0].volume == 50 and s.tempo == 
 s.render(frames_for(2))
 assert s.channels[0].voice.key == 60
 
+# A note with no length (a drone the loop ties on forever) never releases, across loop after loop.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": None}]], ticks=96, loop={"start": 48, "end": 96}))
+s.render(frames_for(500))
+assert s.channels[0].voice.phase < 3 and np.abs(s.render(1000)).max() > 0.05
+
 # Muted channels are silent; the stereo output is (frames, 2).
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 192}]]))
 s.muted = 1

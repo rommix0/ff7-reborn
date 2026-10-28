@@ -457,6 +457,8 @@ class CellDialog:
         top.transient(window.root)
         self.entries = {}
         rows = [("tick", tick)] + [(name, fields.get(name)) for name in FIELDS]
+        if "note" in fields and fields.get("len") is None:
+            rows[FIELDS.index("len") + 1] = ("len", "hold")  # held until the channel's next note
         for r, (name, value) in enumerate(rows):
             ttk.Label(top, text=name).grid(row=r, column=0, sticky="e", padx=6, pady=2)
             entry = ttk.Entry(top, width=24)
@@ -466,7 +468,7 @@ class CellDialog:
                 entry.insert(0, text)
             entry.grid(row=r, column=1, padx=6, pady=2)
             self.entries[name] = entry
-        hint = "note: C-4 / C#4 · bend: ticks, semitones · vibrato/tremolo: delay, rate, waveform, depth"
+        hint = "note: C-4 / C#4 · len: ticks, or hold · bend: ticks, semitones · vibrato/tremolo: delay, rate, waveform, depth"
         ttk.Label(top, text=hint, foreground="#666").grid(row=len(rows), column=0, columnspan=2, padx=6)
         buttons = ttk.Frame(top)
         buttons.grid(row=len(rows) + 1, column=0, columnspan=2, pady=6)
@@ -489,6 +491,8 @@ class CellDialog:
                     continue
                 if name == "note":
                     fields[name] = parse_note(text)
+                elif name == "len" and text.lower() == "hold":
+                    fields[name] = None
                 elif name in LIST_FIELDS:
                     values = [int(v) for v in text.replace(",", " ").split()]
                     if len(values) != LIST_FIELDS[name]:

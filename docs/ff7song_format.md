@@ -55,7 +55,7 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 
 | Field | Meaning |
 |---|---|
-| `note`, `len` | Key on: key 0–127 (60 = C of octave 4, the driver's octave + 1 × 12 + semitone, transpose included), held `len` ticks (ties included). A new note on the channel cuts the old one. `len` may run past the bar and past `loop.end` |
+| `note`, `len` | Key on: key 0–127 (60 = C of octave 4, the driver's octave + 1 × 12 + semitone, transpose included), held `len` ticks (ties included). A new note on the channel cuts the old one. `len` may run past the bar and past `loop.end` (a loop that opens with a tie holds the note from the end of the previous pass); `null` holds it until the channel's next note (a drone the loop ties on forever) |
 | `inst` | Bank slot for the following notes |
 | `volume`, `expression` | `A8` volume and `A3` multiplier, 0–127; the voice plays at volume × expression ÷ 127² of full scale. Slides arrive as one value per tick |
 | `pan` | 0–127, 64 = centre |
