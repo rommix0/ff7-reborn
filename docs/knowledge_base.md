@@ -160,6 +160,13 @@ starts:
 - **`CC` slur and `D0` full length** (`0x80032D44`, `0x80032D58`) set the note mode `+0x6E` to 1 and 4.
   - **Mode bits:** at each note or tie, bit 1 takes bit 0, and a note with bit 1 set skips key-on. It takes over
     the sounding voice with a new pitch and no new attack. So `CC n1 n2` slurs n1 into n2.
+  - **Everything else in the note setup still runs:** in `seq_step_channel` the slur branch (`bnez .L80031454`)
+    skips only the key-on mask. The new pitch, the restart of vibrato, tremolo and pan LFO (with their current
+    settings, delay included), and the zeroed vibrato and bend offsets all still happen.
+    - **So:** a long slurred line under a delayed vibrato starts the delay again on every note.
+    - **Before:** the player kept the old LFOs running, which missed depth changes made right before a slur
+      (effect 274 raises its vibrato from `0x83` to `0xA3` that way).
+    - **Reach:** 53 songs and 176 effects slur with an LFO on. Song 97 does it most (2,887 notes).
   - **Ending the mode:** `CD` and `D1` (`0x80032D50`, `0x80032D64`) are empty. The look-ahead `seq_look_ahead`
     (`0x800318BC`) runs before each note and scans to the next note, following `C9`/`CA`/`EE`/`F0` like the
     sequencer.

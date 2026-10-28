@@ -472,7 +472,12 @@ class Synth:
                         v.phase = v.released_from
                     v.key, v.bend = f["note"], None
                     v.left = -1 if f["len"] is None else f["len"]
-                ch.voice.pitch = self.pitch_of(ch, f["note"])  # a layer voice follows the main voice's pitch
+                v = ch.voice
+                v.pitch = self.pitch_of(ch, f["note"])  # a layer voice follows the main voice's pitch
+                # The driver skips only the key-on: the LFOs restart with the channel's current settings.
+                v.vibrato, v.tremolo, v.pan_lfo = (self.start_lfo(s) for s in (ch.vibrato, ch.tremolo, ch.pan_lfo))
+                if v.vibrato:
+                    self.set_vibrato_amount(v.vibrato, v.pitch)
             elif "note" in f:
                 self.key_on(ch, f["note"], f["len"])
             if "bend" in f and ch.voice:  # after the note: a glide (DA) bends the note it starts

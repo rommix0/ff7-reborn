@@ -168,6 +168,13 @@ s.playing = True
 s.render(frames_for(30))
 assert s.channels[0].voice.pitch == 0x1800 and s.channels[0].voice.inst is BANK[0]
 
+# A slurred note skips only the key-on: its LFOs restart, taking a depth set just before it and their delay again.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "vibrato": [0, 1, 1, 0x83], "note": 84, "len": 48}],
+                [24, 0, {"vibrato": [4, 1, 1, 0xA3], "slur": True, "note": 84, "len": 48}]]))
+s.render(frames_for(25))
+lfo = s.channels[0].voice.vibrato
+assert s.tick == 24 and lfo.depth == 0xA3 and lfo.delay == 4 and lfo.value == 0 and s.channels[0].voice.phase < 3
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)
