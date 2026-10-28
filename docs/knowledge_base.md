@@ -396,6 +396,11 @@ Read from `seq_step_channel`'s note and tie paths:
   - **The generator** (psx-spx): a 16-bit register that shifts in the inverted parity of bits 15, 12, 11 and 10, at
     most once per 44.1 kHz sample. A timer of 0x20000 >> (clock >> 2) counts down by 4 + (clock & 3) each sample.
     From power-on it repeats every 65,535 shifts. One generator and one clock serve every voice.
+  - **Checked:** Sony's docs only give the 0–63 range. Mednafen (GPL, read only to confirm) times it differently,
+    but its rate works out the same: a divider every `0x4000 >> shift` samples feeds a counter that shifts on each
+    8. Measured in the player: clock 0 gives 1 shift a second, 32 gives 345, 46 gives 4,134, 50 gives 8,269, and 56
+    and up give 44,100. All match the formula. Effect 36's noise runs at 50–62, then settles at 46 (about 4 kHz of
+    shifts, a dark hiss).
 - **Effect-only commands:**
   - **`B0 a b`:** decay rate a, then sustain level b (it calls the `AE` and `AF` handlers).
   - **`B3`:** the instrument's envelope back (all five rates and the three modes).

@@ -100,6 +100,13 @@ s = synth(song([[0, 0, {"tempo": 0x6000, "noise_clock": 62, "noise_clock_add": 3
 s.render(64)
 assert s.noise_clock == 1
 
+# The noise rate: (4 + clock & 3) / (0x20000 >> (clock >> 2)) shifts per 44.1 kHz sample, at most one. Each shift
+# changes the output, so counting changes over a second measures it.
+for clock, per_second in ((32, 344.5), (50, 8268.75), (56, 22050), (63, 44100)):
+    s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "noise": True, "noise_clock": clock, "note": 72, "len": 190}]]))
+    s.render(4410)
+    assert abs(np.count_nonzero(np.diff(s.render(RATE)[:, 0])) - per_second) < 2
+
 # D4: the channel plays at the previous channel's pitch.
 two = song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 72, "len": 96}],
             [0, 1, {"inst": 0, "pitch_follow": True, "note": 60, "len": 96}]])
