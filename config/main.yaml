@@ -17,6 +17,7 @@ options:
   undefined_syms_auto_path: build/undefined_syms_auto.txt
   symbol_addrs_path:
     - config/symbols.main.txt
+    - config/symbols.main.psyq.txt
 
   find_file_boundaries: False
   gp_value: 0x80062D44

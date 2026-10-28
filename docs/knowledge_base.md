@@ -150,6 +150,9 @@ start with `C:\`. Error strings such as `ACCESS.CPP::SOUND_SIDE_SWITCH` also sur
 - A matching decomp needs the original compiler era: PsyQ's gcc 2.x for mipsel. The open-source matching tools
   (splat, maspsx, m2c, asm-differ) are separate projects; check each one's license before vendoring it.
   rabbitizer (MIPS/GTE disassembler) is MIT.
+- `psx-spx.txt`: hardware reference (SPU, GPU, GTE, CD-ROM, MDEC). Use for SPU ADPCM and register layouts.
+- PsyQ SDK: Sony PsyQ docs (`Devrefs/Libref.pdf`, `Filefrmt.pdf` for TIM/TMD/VAG/VAB) and libs. For which
+  libraries the game links, see §8.
 
 ## 7. Toolchain: what built the game, and what our SDK has
 
@@ -233,6 +236,44 @@ Lessons from getting it to match:
   `goto` to come out unrotated.
 - **Assembler version:** `--aspsx-version` made no difference for these simple leaf functions (2.21–2.79 all
   match). Recheck it on functions with `div`, `li` or `$gp` access.
-- `psx-spx.txt`: hardware reference (SPU, GPU, GTE, CD-ROM, MDEC). Use for SPU ADPCM and register layouts.
-- PsyQ SDK: Sony PsyQ docs (`Devrefs/Libref.pdf`, `Filefrmt.pdf` for TIM/TMD/VAG/VAB) and libs. The game
-  links PsyQ `libspu`, `libcd`, `libgpu`, `libgte`, `libpress`, `libetc`, `libc2`.
+
+## 8. Sony library map (main exe)
+
+`tools/psyq_match.py` parses SN `.LIB` archives (`LIB\x01` with `LNK\x02` objects) and masks each relocated field by
+its patch type. It then searches the exe for each library module, falling back to single functions. Only
+names and addresses come out. Output is `config/symbols.main.psyq.txt`, which splat reads; the rebuild stays
+byte-identical.
+
+Result against SDK libs 4.4/4.5 (`psx/lib`, `patches`, `zips/Lib44`, `zips/Lib45`):
+
+| | Count |
+|---|---|
+| Functions in the library block `0x80036E84`–`0x80048ACC` | 444 |
+| Named with confidence | **154** (libgte 83, libapi 36, libc 12, libcard 9, libetc 8, libgpu 2, libpress 2, libspu 2) |
+| Review candidates (`--fuzzy 0.8`, not applied) | 20 |
+| Unnamed | ~270, mostly libspu, libcd and libgpu, which changed between the game's 1996 libs and the SDK |
+
+Rules that keep false names out:
+- **Unique:** a hit must occur exactly once in the exe.
+- **Distinctive:** a hit needs at least 10 words not touched by relocations, or no relocations at all and at least
+  4 words (BIOS call stubs carry a unique call number).
+- **Siblings:** smaller functions count only when a distinctive sibling from the same module puts the module at the
+  same base.
+- **Clashes:** an address claimed by two different names is dropped. Example: `0x80048A7C` is a "call three
+  functions" wrapper that fits both libsnd `SsInitHot` and libmcrd `MemCardInit`.
+- **Example false positive:** `atof` at `0x800144F0` in game code was one, rejected by the distinctive rule.
+
+Review candidates (similarity, then name and address; confirm against `Libref.pdf` before using):
+0.94 `SpuSetReverbDepth` `0x8003884C`, 0.94 `SpuSetIRQAddr` `0x80038BC4`, 0.92 `_SpuIsInAllocateArea_` `0x80037D90`,
+0.88 `SpuInitMalloc` `0x80036FFC`, 0.92 `VSyncCallback` `0x8003D150`, 0.91 `CD_vol` `0x8003F398`,
+0.85 `CD_initvol` `0x8003F500`, 0.86 `StSetStream` `0x80040A40`, 0.90 `SetDispMask` `0x80043D3C`,
+0.89 `ClearImage` `0x80043F6C`, 0.84 `LoadImage` `0x80044000`, 0.84 `StoreImage` `0x80044064`,
+0.90 `DrawOTag` `0x8004433C`, 0.83 `SetSemiTrans` `0x80046848`, 0.89 `BreakDraw` `0x800484A8`,
+1.00 `SpuStSetPreparationFinishedCallback` `0x80038FEC`, `CdPosToInt` `0x8003E3D4`, `StClearRing` `0x80040898`,
+`ReadInitPadFlag` `0x80043928`, `OpenTIM` `0x80046CFC`. The 1.00 ones are exact but too small to pass the
+distinctive rule alone.
+
+What would name the rest: the PsyQ 3.3–3.6 libraries the game actually linked. The CVS stamps in §7 point there.
+
+**Game code ends just before `0x80036E84`.** The last unnamed functions before it (`0x80036D98`, `0x80036DE0`) still
+need checking: game code, or the start of libspu?
