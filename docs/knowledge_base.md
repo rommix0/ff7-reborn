@@ -28,7 +28,7 @@ disc images unless it's marked *(unverified)*.
 | `MENU/` | 26 | One overlay per menu screen (`*.MNU`) |
 | `MINI/` | 38 | Mini-games: `CHOCOBO`, `JET` (coaster), `CONDOR`, `HIGHWAY` (bike), `SNOBO`/`SNOBO2` (snowboard), `SUBMAR` (submarine) |
 | `WORLD/` | 43 | `WORLD.BIN` (world map overlay), `WM*.MAP/BOT/TXZ/EV` world data |
-| `SOUND/` | 5 | AKAO sound banks, see Â§4 |
+| `SOUND/` | 5 | AKAO sound banks, see §4 |
 | `MOVIE/` | 72 | 28 are MDEC `.STR`/`.MOV` with interleaved XA audio (Form 2 sectors); the rest are camera/sound data |
 | `MINT/` | 2 | `DISKINFO.CNF`, `MOVIE_ID.BIN` |
 
@@ -40,10 +40,10 @@ Compression (all checked on disc 1 with `tools/unpack.py`):
 - **BIN-GZ archive.** Applies to `INIT/KERNEL.BIN` and `INIT/WINDOW.BIN`. Each section has a 6-byte header (`u16` gzip
   length, `u16` decompressed length, `u16` section type) followed by its gzip data; a zero `u16` ends the archive.
   Gears calls the second word "unknown" and the third a "file number"; the disc shows they are the size and a type.
-  - `KERNEL.BIN`: 27 sections. Types 0â€“8 are the data tables, and all 18 text sections are type 9.
+  - `KERNEL.BIN`: 27 sections. Types 0–8 are the data tables, and all 18 text sections are type 9.
   - `WINDOW.BIN`: 3 sections (33,312 + 32,800 + 1,302 bytes). Gears' offset table for this file doesn't match our disc.
 - **LZS.** `FIELD/*.DAT` (703 of 787 files): `u32` **compressed** length (Gears says decompressed; the disc says
-  file size âˆ’ 4), then LZSS data with a 4 KiB window. All 703 decompress to a sane 7-pointer header.
+  file size − 4), then LZSS data with a 4 KiB window. All 703 decompress to a sane 7-pointer header.
   - The other 84 `.DAT` files are 2,048-byte uncompressed stubs, likely placeholder or cut maps *(unverified)*.
 
 ## 3. Code: what is recovered and what isn't
@@ -67,19 +67,19 @@ Recovered code: see §7.
 
 The PS1 sound driver is Square's **AKAO** sequencer, linked into the main exe. Sequences are byte code that picks
 instruments, sets pitch, volume, pan, ADSR and reverb, and plays notes on the 24 SPU voices. It reaches the SPU
-**only through libspu**: no game code writes the SPU registers (`0x1F801C00`â€“`0x1F801DFF`) itself.
+**only through libspu**: no game code writes the SPU registers (`0x1F801C00`–`0x1F801DFF`) itself.
 
 Everything below comes from our own disassembly.
 
 ### Driver map (our analysis of `SCUS_941.63`)
 
 How it was found:
-- **libspu callers.** Every game function that calls a named libspu function (Â§8) sits in `0x8002988C`â€“`0x8002F848`.
+- **libspu callers.** Every game function that calls a named libspu function (§8) sits in `0x8002988C`–`0x8002F848`.
 - **Boundaries from the call graph.** The function before `0x800293D0` is graphics code (`AddPrim`, `GetClut`), and
   at `0x80033A90` CD code begins (`CdInit`, `CdRead`, `CdReadSync`).
 - **Pointer tables.** Most of the driver's ~330 functions have no direct caller; they're reached through tables.
 
-**Range: `0x800293D0`â€“`0x80033A90` (~42 KB).**
+**Range: `0x800293D0`–`0x80033A90` (~42 KB).**
 
 | Address | Our name | What it is (verified by reading the code) |
 |---|---|---|
@@ -88,10 +88,10 @@ How it was found:
 | `0x8002E1A8` | `snd_flush_queue` | Runs every queued command: entries of 0x24 bytes at `snd_queue` (`0x80081DC8`), count at `snd_queue_count` (`0x80063010`) |
 | `0x8002E23C` | (unnamed) | Calls a run of 8 libspu setters; probably the per-voice SPU update |
 | `0x80030E7C` | `seq_step_channel` | Sequence interpreter for one channel (below) |
-| `0x80049548` | `snd_command_handlers` | 256 handlers indexed by command byte. Live: `10`, `14`, `15`, `18`, `19`, `20`â€“`23`, `28`â€“`2B`, `30`, `34`, `80`â€“`82`, `90`, `92`, `9A`â€“`9D`, `A0`â€“`BD`, `C0`â€“`C2`, `C8`â€“`CA`, `D0`â€“`D2`, `D4`â€“`D6`, `E0`, `E4`, `F0`â€“`F5`, `F8`â€“`FA`. Everything else is the no-op `0x8002CF98` |
-| `0x80049AA8` | `seq_cmd_handlers` | 96 handlers for sequence commands `0xA0`â€“`0xFF`. The code indexes it with the raw byte from base `0x80049828` |
+| `0x80049548` | `snd_command_handlers` | 256 handlers indexed by command byte. Live: `10`, `14`, `15`, `18`, `19`, `20`–`23`, `28`–`2B`, `30`, `34`, `80`–`82`, `90`, `92`, `9A`–`9D`, `A0`–`BD`, `C0`–`C2`, `C8`–`CA`, `D0`–`D2`, `D4`–`D6`, `E0`, `E4`, `F0`–`F5`, `F8`–`FA`. Everything else is the no-op `0x8002CF98` |
+| `0x80049AA8` | `seq_cmd_handlers` | 96 handlers for sequence commands `0xA0`–`0xFF`. The code indexes it with the raw byte from base `0x80049828` |
 | `0x80049C28` | `seq_note_lengths` | 11 `u16`: `0xC0C0, 0x6060, 0x3030, 0x1818, 0x0C0C, 0x0606, 0x0303, 0x2020, 0x1010, 0x0808, 0x0404` |
-| `0x80075F28` | `instrument_table` | 128 Ã— 64-byte instruments (= `INSTR.DAT` 8,192 bytes). Field `+0` is the SPU sample address (`0x1010` for entry 0, matching `INSTR.ALL`'s header) |
+| `0x80075F28` | `instrument_table` | 128 × 64-byte instruments (= `INSTR.DAT` 8,192 bytes). Field `+0` is the SPU sample address (`0x1010` for entry 0, matching `INSTR.ALL`'s header) |
 
 The command table is presumably what the field opcodes `AKAO`/`AKAO2` feed; command `0x10` is the first live
 handler. *(unverified)*
@@ -100,19 +100,19 @@ handler. *(unverified)*
 
 Per channel, a state struct whose offset `0x00` is the read pointer into the sequence. Each step:
 1. Read byte `b`, advance the pointer.
-2. If `b >= 0xA0`, call `seq_cmd_handlers[b - 0xA0](channel, â€¦)`. Repeat until a note, or until `b == 0xA0`, which
+2. If `b >= 0xA0`, call `seq_cmd_handlers[b - 0xA0](channel, …)`. Repeat until a note, or until `b == 0xA0`, which
    ends the channel.
 3. Otherwise `b` is a **note**: `pitch = b / 11`, `length = seq_note_lengths[b % 11]` (the low byte is used as the tick
    count: 192 = whole, 96, 48, 24, 12, 6, 3; triplets 32, 16, 8, 4).
-   - `pitch` 0â€“11 is a semitone in the current octave.
-   - `b` `0x84`â€“`0x8E` (pitch 12) is a **tie**.
-   - `b` `0x8F`â€“`0x9F` (pitch 13+) is a **rest**.
+   - `pitch` 0–11 is a semitone in the current octave.
+   - `b` `0x84`–`0x8E` (pitch 12) is a **tie**.
+   - `b` `0x8F`–`0x9F` (pitch 13+) is a **rest**.
 4. When a channel flag (`+0x38` bit 3) is set, the semitone instead indexes a 5-byte-per-key map at `channel+0x14`
    and picks a per-key instrument from `instrument_table`. That's drum-kit mode *(name is our guess)*.
 
 Commands read so far:
-- **`A0`:** end of channel. Unused bytes `E0`â€“`E7`, `FA`â€“`FC` and `FF` all go to `seq_cmd_unknown`, which just calls the `A0` handler.
-- **`A5`, `A6`, `A7`:** `A5 n` sets the octave (`+0x66`); `A6` raises it by one and `A7` lowers it, both masked to 0â€“15.
+- **`A0`:** end of channel. Unused bytes `E0`–`E7`, `FA`–`FC` and `FF` all go to `seq_cmd_unknown`, which just calls the `A0` handler.
+- **`A5`, `A6`, `A7`:** `A5 n` sets the octave (`+0x66`); `A6` raises it by one and `A7` lowers it, both masked to 0–15.
 - **`A3 n`, `A8 n`:** store a byte into a channel field and flag it for an SPU update; `A8` stores it sign-extended
   `<< 23` into `+0x44` (a volume-like value).
 - **`CC`:** sets `+0x6E = 1`.
@@ -124,11 +124,11 @@ starts:
 
 | Args | Commands |
 |---|---|
-| 0 | `A0` end Â· `A6` `A7` octave Â± Â· `B3` `B6` `BA` `BE` `C2`â€“`C7` Â· `C8` loop point Â· `CA` loop back (stops linear parsing) Â· `CB`â€“`CD` `D0` `D1` `D4`â€“`D7` `DB` `ED` `F3` `F5` `F9` |
-| 1 | `A1`â€“`A3` `A5` octave Â· `A8` volume Â· `AA` `AC`â€“`AF` `B1` `B2` `B5` `B7` `B9` `BB` `BD` `BF` `C0` `C1` Â· `C9` repeat count Â· `CE` `CF` `D2` `D3` `D8`â€“`DA` `DC` `F2` `F6` `F8` |
-| 2 | `A4` `A9` `AB` `B0` `BC` `DD`â€“`DF` `E8`â€“`EC` Â· `EE` jump (stops linear parsing) Â· `F4` `F7` `FD` `FE` |
+| 0 | `A0` end · `A6` `A7` octave ± · `B3` `B6` `BA` `BE` `C2`–`C7` · `C8` loop point · `CA` loop back (stops linear parsing) · `CB`–`CD` `D0` `D1` `D4`–`D7` `DB` `ED` `F3` `F5` `F9` |
+| 1 | `A1`–`A3` `A5` octave · `A8` volume · `AA` `AC`–`AF` `B1` `B2` `B5` `B7` `B9` `BB` `BD` `BF` `C0` `C1` · `C9` repeat count · `CE` `CF` `D2` `D3` `D8`–`DA` `DC` `F2` `F6` `F8` |
+| 2 | `A4` `A9` `AB` `B0` `BC` `DD`–`DF` `E8`–`EC` · `EE` jump (stops linear parsing) · `F4` `F7` `FD` `FE` |
 | 3 | `B4` `B8` `EF` `F0` `F1` |
-| â€” | `E0`â€“`E7` `FA`â€“`FC` `FF`: unused; the driver treats them as `A0` |
+| — | `E0`–`E7` `FA`–`FC` `FF`: unused; the driver treats them as `A0` |
 
 - **Lengths confirmed by real data** for every command except `B7`, `BE`, `BF`, `CE`, `CF`, `DF`, `E9`, `EB`, `EF`, `F1`
   and `F3`. None of those occur on the discs, so their lengths rest on the handler code alone.
@@ -136,7 +136,7 @@ starts:
   - Channels may fall through into the next channel's bytes (shared tails).
   - Some songs leave trailing bytes after the last channel.
 - **Behaviour notes:**
-  - **Read in detail and confirmed by the MIDI loop check (below):** `A0`, `A1`, `A2`, `A5`â€“`A7`, `C8`â€“`CA`, `DC`, `E8`,
+  - **Read in detail and confirmed by the MIDI loop check (below):** `A0`, `A1`, `A2`, `A5`–`A7`, `C8`–`CA`, `DC`, `E8`,
     `EE` and `F0`.
   - **Read in detail (volume, drums and pitch, below):** `A3`, `A4`, `A8`, `A9`, `AA`, `AB`, `C0`, `C1`, `D8`, `D9`,
     `DA`, `EC` and `ED`.
@@ -145,18 +145,18 @@ starts:
 ### Timing, loops and MIDI export
 
 - **Clock:** `snd_init` (`0x8002988C`) sets up root counter 2 with target `0x43D1` and `snd_timer_tick`
-  (`0x80030234`) as its interrupt. Counter 2 runs at system clock Ã· 8, so the driver steps about **243.86 times a
-  second**. The Ã·8 is confirmed by the driver's own catch-up code, which counts elapsed scanlines in units of 66.
+  (`0x80030234`) as its interrupt. Counter 2 runs at system clock ÷ 8, so the driver steps about **243.86 times a
+  second**. The ÷8 is confirmed by the driver's own catch-up code, which counts elapsed scanlines in units of 66.
 - **Tempo:** each step, `seq_tick` (`0x800308D4`) adds the song tempo (the `u16` from `E8 lo hi`, kept at
   `seq_song + 0x18`) to a 16-bit accumulator, and every carry is one sequence tick. So
-  ticks/s = 243.86 Ã— tempo / 65,536, and with 48 ticks per quarter note, **BPM = tempo Ã— 0.004651**. Across the
-  96 songs that set a tempo this gives 56â€“191 BPM (median 106).
+  ticks/s = 243.86 × tempo / 65,536, and with 48 ticks per quarter note, **BPM = tempo × 0.004651**. Across the
+  96 songs that set a tempo this gives 56–191 BPM (median 106).
 - **Per-channel counter:** `+0x56` holds `gate << 8 | length`, and each tick subtracts 1 from both bytes. Length 0
   steps the channel to its next event; gate 0 releases the note. Notes that aren't tied get a gate 2 ticks shorter
   than the length.
 - **Length commands:**
   - **`A2 n`:** the next note lasts `n` ticks, and the fixed length is cleared.
-  - **`DC d`:** sets a fixed length for every following note, equal to the last length + signed `d`, clamped to 1â€“255.
+  - **`DC d`:** sets a fixed length for every following note, equal to the last length + signed `d`, clamped to 1–255.
     `d` = 0 turns it off.
   - **Precedence:** fixed length, then `A2`, then the length table.
 - **Loop commands:**
@@ -173,7 +173,7 @@ starts:
 `python tools/akao.py midi <file|dir> <out>` writes one Standard MIDI File per song:
 - **Layout:** format 1 at 48 PPQ, a conductor track with tempos plus `loopStart`/`loopEnd` markers, and one track per
   channel (MIDI channel = index mod 16).
-- **Notes:** key = 12 Ã— (octave + 1) + semitone, so octave 4 = middle C.
+- **Notes:** key = 12 × (octave + 1) + semitone, so octave 4 = middle C.
 - **Controls:** program = AKAO instrument; CC7 = `A8`; CC10 = `AA`; velocity is fixed at 100.
 - **Loops:** counted repeats are unrolled, and endless loops play once.
 - **Left out:** vibrato/tremolo/pan LFOs, slides, ADSR, reverb, drum-kit mode and the other effect commands.
@@ -196,8 +196,8 @@ which is how its meaning was confirmed. No channel runs past 4,000 bars.
   `load_channel_instrument`), octave 2, volume 100 (`+0x44` = `0x32000000`) and an `A3` multiplier of 120
   (`+0x2C` = `0x78`).
 - **Voice volume.** Computed in `0x8002ED34`:
-  - **Base:** (`A8` volume `<< 7`) Ã— `A3` Ã· 128, plus a tremolo offset (`+0xD8`).
-  - **Master volume:** scaled by the global master volume `0x80062F5E` Ã· 128.
+  - **Base:** (`A8` volume `<< 7`) × `A3` ÷ 128, plus a tremolo offset (`+0xD8`).
+  - **Master volume:** scaled by the global master volume `0x80062F5E` ÷ 128.
   - **Stereo:** split into left/right through 256-entry pan tables at `0x80049C44`/`0x80049E44`, indexed by
     `AA`'s pan plus a pan-LFO offset (`+0xDA`).
 - **`A3 n`:** the multiplier above. In songs, 1,317 of 2,108 uses are 127, and the rest go as low as 10.
@@ -206,44 +206,44 @@ which is how its meaning was confirmed. No channel runs past 4,000 bars.
   from volume 0.
 - **`EC lo hi` / `ED`:** drum-kit mode on/off (channel flag bit 3). The map pointer (`+0x14`) is a signed offset from
   after the arguments.
-  - **Map lookup:** each note's semitone picks a 5-byte entry: instrument, key (octave = key Ã· 12, same numbering
+  - **Map lookup:** each note's semitone picks a 5-byte entry: instrument, key (octave = key ÷ 12, same numbering
     as `A5`), `u16` volume (stored `<< 16` into `+0x44`, so the `A8` equivalent is the value `>> 7`), and pan
     (`<< 8` into `+0x60`).
   - **Scale:** 4,585 notes as written (11,645 once loops are played out) are drum notes.
 - **Envelope (ADSR).**
-  - **When it's sent:** when a note starts, the driver copies instrument bytes `+0x08`â€“`+0x0F` into the voice, and
+  - **When it's sent:** when a note starts, the driver copies instrument bytes `+0x08`–`+0x0F` into the voice, and
     `snd_update_voice` hands them to libspu.
   - **How the bytes pack**, checked against the register writes and psx-spx:
 
     | Bytes | Setter | Register bits |
     |---|---|---|
-    | `+0x08` attack rate, `+0x0D` attack mode | `SpuSetVoiceARAttr` (`0x80039850`) | ADSR bits 8â€“15 (rate = shift `<< 2` \| step) |
-    | `+0x09` decay shift | `SpuSetVoiceDR` (`0x8003973C`) | bits 4â€“7 |
-    | `+0x0A` sustain level | `SpuSetVoiceSL` (`0x800397C8`) | bits 0â€“3 |
-    | `+0x0B` sustain rate, `+0x0E` sustain mode | `SpuSetVoiceSRAttr` (`0x800398EC`) | bits 22â€“31 |
-    | `+0x0C` release shift, `+0x0F` release mode | `SpuSetVoiceRRAttr` (`0x800399D0`) | bits 16â€“21 |
+    | `+0x08` attack rate, `+0x0D` attack mode | `SpuSetVoiceARAttr` (`0x80039850`) | ADSR bits 8–15 (rate = shift `<< 2` \| step) |
+    | `+0x09` decay shift | `SpuSetVoiceDR` (`0x8003973C`) | bits 4–7 |
+    | `+0x0A` sustain level | `SpuSetVoiceSL` (`0x800397C8`) | bits 0–3 |
+    | `+0x0B` sustain rate, `+0x0E` sustain mode | `SpuSetVoiceSRAttr` (`0x800398EC`) | bits 22–31 |
+    | `+0x0C` release shift, `+0x0F` release mode | `SpuSetVoiceRRAttr` (`0x800399D0`) | bits 16–21 |
 
   - **Mode values:** 1 linear up, 3 linear down, 5 exponential up, 7 exponential down.
   - **What the instruments use:** all 93 have sustain level 15. 75 hold at full level (sustain rate `0x7F`), and 18
-    fade while held (sustain rate 52â€“65).
+    fade while held (sustain rate 52–65).
 
 ### Pitch: bends, transpose, detune
 
 Read from `seq_step_channel`'s note and tie paths:
-- **Key:** octave Ã— 12 + semitone + transpose. The pitch comes from the instrument's table for that key, then the
+- **Key:** octave × 12 + semitone + transpose. The pitch comes from the instrument's table for that key, then the
   detune is applied.
 - **`C0 s` / `C1 s` (`seq_cmd_transpose`, `_add`):** set or add a signed semitone transpose (`+0xCC`). Drum-kit
   notes ignore it.
 - **`D8 d` / `D9 d` (`seq_cmd_detune`, `_add`):** set or add a signed detune (`+0xCE`). It scales the pitch by
   1 + d/128 when positive and 1 + d/256 when negative.
-  - **Values in the songs:** mostly âˆ’2â€¦+1 (â‰ˆ Â±14 cents, chorus-style), plus âˆ’128 (exactly one octave down) and Â±60.
+  - **Values in the songs:** mostly −2…+1 (≈ ±14 cents, chorus-style), plus −128 (exactly one octave down) and ±60.
 - **`A4 n s` (`seq_cmd_bend`):** stores a slide length `n` (0 = 256, at `+0x68`) and a signed semitone amount `s`
   (`+0xD2`).
   - **Start:** the next **tie** starts the bend. The target key becomes the current key + `s`, and the pitch slides
     linearly *in frequency* to the target's pitch (transpose and detune included) over `n` ticks.
   - **One-shot:** the amount is then cleared, and later ties hold the new pitch.
   - **Song 7 channel 16:** a 2-tick note, `A4 04 01`, a 10-tick tie, repeated.
-  - **Scale:** 321 bends in the songs, from Â±1 semitone over 4 ticks up to +65 over 8.
+  - **Scale:** 321 bends in the songs, from ±1 semitone over 4 ticks up to +65 over 8.
 - **`DA n` (`seq_cmd_glide`):** a glide (portamento) from the previous note's key. No song uses it, only sound
   effects.
 
@@ -284,8 +284,8 @@ Read from the command handlers, the note path at `0x80031518` and `seq_channel_l
 
 `python tools/xm.py <file|dir> <SOUND dir> <out>` writes FastTracker 2 modules that play the game's own samples, so
 instruments sound like the game rather than General MIDI.
-- **Grid:** one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM (56â€“191, inside XM's 32â€“255).
-  Patterns are two bars of 4/4 (at most 85 per song). Positions round to the grid (Â±1 AKAO tick), never lengths.
+- **Grid:** one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM (56–191, inside XM's 32–255).
+  Patterns are two bars of 4/4 (at most 85 per song). Positions round to the grid (±1 AKAO tick), never lengths.
   - **Songs without bends (83):** speed 1, with rows of 2 AKAO ticks.
   - **Songs with bends (15):** speed 2, with rows of 4 AKAO ticks. Portamento only acts on a row's later XM ticks,
     and notes on the second XM tick get note delay `ED1`.
@@ -294,12 +294,12 @@ instruments sound like the game rather than General MIDI.
   - **Still dropped across all 98 songs:** 14 notes (fast runs in songs that need speed 2), 43 detune steps on
     delayed notes, 13 detune steps blocked by pan, and the noise-waveform vibrato on 146 notes (song 76).
 - **Instruments:** one sample per AKAO instrument, 16-bit with its loop.
-  - **Tuning:** relative note + finetune = 12Â·log2(44,100 Â· pitch[C] / 0x1000 / 8,363) âˆ’ 12Â·(6 âˆ’ base âˆ’ 4), where
+  - **Tuning:** relative note + finetune = 12·log2(44,100 · pitch[C] / 0x1000 / 8,363) − 12·(6 − base − 4), where
     `base` shifts songs whose octaves exceed XM's 8.
   - **Why one value per sample is enough:** the pitch tables are equal-tempered to within 0.86 cents.
   - **Bank choice:** slots in both banks use bank 1, since which songs expect bank 2 isn't known yet.
 - **Events:** each channel starts from the driver's defaults (instrument 5, octave 2, volume 100, `A3` 120).
-  - Notes carry the voice volume: 64 Ã— `A8` Ã— `A3` Ã· 127Â². Global master volume and the pan law are left out.
+  - Notes carry the voice volume: 64 × `A8` × `A3` ÷ 127². Global master volume and the pan law are left out.
   - Slides become per-tick volume/pan values.
   - Drum-kit notes carry their entry's instrument, key, volume and pan. Every one of the 152,284 notes has a sample.
   - Transpose is added to the key.
@@ -336,10 +336,10 @@ Sound files (checked against our disc):
 
 | File | Size | Layout |
 |---|---|---|
-| `SOUND/INSTR.ALL` | 483,232 | 16-byte header: `u32 spu_addr` (`0x1010`), `u32 length` (`0x75F90` = file size âˆ’ 16), 8 zero bytes; then raw SPU ADPCM sample data uploaded to SPU RAM at `spu_addr` |
-| `SOUND/INSTR.DAT` | 8,192 | 128 Ã— 64-byte instruments, copied whole into `instrument_table` by `load_instrument_bank` (`0x800297A4`). Entry: `+0x00` `u32` SPU sample address, `+0x04` `u32` SPU loop address, `+0x08` 8 bytes of ADSR settings, `+0x10` 12 Ã— `u32` SPU pitch for each semitone of octave 6 (other octaves shift it). 93 slots used |
+| `SOUND/INSTR.ALL` | 483,232 | 16-byte header: `u32 spu_addr` (`0x1010`), `u32 length` (`0x75F90` = file size − 16), 8 zero bytes; then raw SPU ADPCM sample data uploaded to SPU RAM at `spu_addr` |
+| `SOUND/INSTR.DAT` | 8,192 | 128 × 64-byte instruments, copied whole into `instrument_table` by `load_instrument_bank` (`0x800297A4`). Entry: `+0x00` `u32` SPU sample address, `+0x04` `u32` SPU loop address, `+0x08` 8 bytes of ADSR settings, `+0x10` 12 × `u32` SPU pitch for each semitone of octave 6 (other octaves shift it). 93 slots used |
 | `SOUND/INSTR2.ALL` | 251,120 | Same header (`spu_addr 0x38560`, length `0x3D4E0`), second bank uploaded over the top part of bank 1's sample memory |
-| `SOUND/INSTR2.DAT` | 8,192 | `load_instrument_bank2` (`0x80029818`) copies only the first 75 entries (4,800 bytes) to slot **53** onward (`instrument_table + 0xD40`). 6 used, becoming slots 53â€“58 |
+| `SOUND/INSTR2.DAT` | 8,192 | `load_instrument_bank2` (`0x80029818`) copies only the first 75 entries (4,800 bytes) to slot **53** onward (`instrument_table + 0xD40`). 6 used, becoming slots 53–58 |
 | `SOUND/EFFECT.ALL` | 51,200 | Sound effects: a `0x1000`-byte table of 2,048 `u16` offsets (`0xFFFF` = empty) relative to `0x1000`, then 1,423 header-less command streams (same command set as music). Identical on all discs |
 | `*.SND` (e.g. `MINI/ASERI2.SND`, `ENEMY6/FAN2.SND`) | small | One AKAO block (layout below) |
 
@@ -349,7 +349,7 @@ Sound files (checked against our disc):
 - **Converter:** `tools/instruments.py` turns both banks into 99 WAVs (64 looping, with `smpl` loop chunks) plus
   `instruments.csv`. Checks: no sample runs into the next one, no output clips, and a listening check (2026-10-28) found the WAVs sound right.
 - **Playback rate:** WAVs play at 44,100 Hz, which is SPU pitch `0x1000`. The game plays semitone *s* of octave 6 at
-  44,100 Ã— `pitch[s]` / 0x1000 Hz; the CSV lists the rate for C.
+  44,100 × `pitch[s]` / 0x1000 Hz; the CSV lists the rate for C.
 
 **AKAO block** (in `.SND` files, field maps, `MINI/BGM*.LZS`, `MINI/CHOCOBO.DAT`, `MOVIE/STAFF*.BIN`):
 - `0x00` `"AKAO"`.
@@ -395,17 +395,17 @@ are lorem-ipsum placeholders. Points that matter for PS1 code recovery:
   texture caches.
 - **Menu module IDs** for the field `MENU` opcode (first argument always `0`): Party `0x09`; Form `0x07` (argument
   0 = make a party of 3, 1 = split into 3 groups, 2 = split into 2); Save `0x0E`; Name `0x06` (argument
-  0â€“9 = Cloud â€¦ Chocobo); Shop `0x08` (argument = shop number). The other menus are reached only internally.
+  0–9 = Cloud … Chocobo); Shop `0x08` (argument = shop number). The other menus are reached only internally.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended. `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
-- **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, â€¦) are debug rooms that jump to other
+- **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) are debug rooms that jump to other
   scenes. They're useful entry points when tracing field code.
 
 ### Original PC source tree
 
 Our PC `FF7.EXE` still contains 100 source paths, left over from disabled memory-allocation tracing. Gears lists
 the same set. They give the original module and file split, and the staff folders behind PS1 overlay names (e.g.
-`battle\yama\` â†” `INIT/YAMADA.BIN`), which helps when naming recovered PS1 files:
+`battle\yama\` ↔ `INIT/YAMADA.BIN`), which helps when naming recovered PS1 files:
 
 | Folder | Files (examples) |
 |---|---|
@@ -434,14 +434,14 @@ start with `C:\`. Error strings such as `ACCESS.CPP::SOUND_SIDE_SWITCH` also sur
   rabbitizer (MIPS/GTE disassembler) is MIT.
 - `psx-spx.txt`: hardware reference (SPU, GPU, GTE, CD-ROM, MDEC). Use for SPU ADPCM and register layouts.
 - PsyQ SDK: Sony PsyQ docs (`Devrefs/Libref.pdf`, `Filefrmt.pdf` for TIM/TMD/VAG/VAB) and libs. For which
-  libraries the game links, see Â§8.
+  libraries the game links, see §8.
 
 ## 7. Toolchain: what built the game, and what our SDK has
 
 ### What's in the game (checked on `SCUS_941.63`)
 
-- Linked PsyQ libraries carry CVS stamps from 1995â€“96: `libetc intr.c 1.73` (1995-11-10), `libcd bios.c 1.76`
-  (1996-04-03), `libgpu sys.c 1.115` (1995-11-29). That's roughly PsyQ library 3.3â€“3.5.
+- Linked PsyQ libraries carry CVS stamps from 1995–96: `libetc intr.c 1.73` (1995-11-10), `libcd bios.c 1.76`
+  (1996-04-03), `libgpu sys.c 1.115` (1995-11-29). That's roughly PsyQ library 3.3–3.5.
 - Game code shows the SN assembler's signature. Indexed global access expands through `$at`
   (`lui $at,hi; addu $at,$at,$a0; lw $v0,lo($at)`), load-delay `nop`s are inserted, and branch delay slots are
   filled only from instructions *before* the branch, never copied from the branch target.
@@ -455,10 +455,10 @@ start with `C:\`. Error strings such as `ACCESS.CPP::SOUND_SIDE_SWITCH` also sur
 | `pssn/bin/PSYLINK.EXE` | Psylink 2.73 (`/p` = raw binary at `/o` org) | Yes |
 | `pssn/bin/DOS/CC1PSX.EXE` | GCC **2.6.3** (go32 DOS) | No, needs DOSBox |
 | `pssn/bin/DOS/ASPSXD.EXE` | ASPSX 2.79D (DOS) | No, needs DOSBox |
-| `psx/lib`, `zips/Lib44`, `zips/Lib45` | libs 4.4/4.5, stamps from 1997â€“98 | n/a |
+| `psx/lib`, `zips/Lib44`, `zips/Lib45` | libs 4.4/4.5, stamps from 1997–98 | n/a |
 
-**Test result.** I wrote C for three back-to-back leaf functions at `80014A00`â€“`80014A80` from our own disassembly,
-then built them with the Win32 `CC1PSX` â†’ `ASPSX` â†’ `PSYLINK /p`:
+**Test result.** I wrote C for three back-to-back leaf functions at `80014A00`–`80014A80` from our own disassembly,
+then built them with the Win32 `CC1PSX` → `ASPSX` → `PSYLINK /p`:
 
 - Instruction selection and register allocation match the game.
 - They are **not byte-identical**. GCC 2.8.1 fills a loop branch's delay slot by copying an instruction from the branch
@@ -474,7 +474,7 @@ then built them with the Win32 `CC1PSX` â†’ `ASPSX` â†’ `PSYLINK /p`:
 - The SDK's **Win32 compiler is the wrong version** (2.8.1) for byte-matching. It's still handy for quick "does
   this C produce the same instructions" checks.
 - The SDK's **DOS GCC 2.6.3 is the right version family**, but it needs DOSBox to run, and it's untested so far.
-- SDK headers (`psx/include`, `LIBSPU.H`, â€¦) and `Devrefs/Libref.pdf` give the library function signatures and
+- SDK headers (`psx/include`, `LIBSPU.H`, …) and `Devrefs/Libref.pdf` give the library function signatures and
   structs. Use them to name the library functions in the exe.
 
 ### Our build toolchain (open, runs in WSL/Linux)
@@ -487,11 +487,11 @@ then built them with the Win32 `CC1PSX` â†’ `ASPSX` â†’ `PSYLINK /p`:
 | maspsx | mkst/maspsx at commit `4ffa8b51` | MIT | Rewrites GCC output the way SN's ASPSX would: delay slots, `$at` expansions, `nop`s |
 | GNU binutils (`mipsel-linux-gnu-*`) | Ubuntu package `binutils-mipsel-linux-gnu` | GPL | Assemble, link, objdump |
 
-Pipeline: `cpp` â†’ `cc1 -O2 -G0` â†’ `maspsx --aspsx-version=2.79` â†’ `as -march=r3000 -G0 -O1` â†’ `ld` at the exact address â†’
+Pipeline: `cpp` → `cc1 -O2 -G0` → `maspsx --aspsx-version=2.79` → `as -march=r3000 -G0 -O1` → `ld` at the exact address →
 `objcopy -O binary`. `tools/match.sh <file.c> <addr> [gcc]` runs it and either prints `MATCH` or diffs the disassembly
 against your exe.
 
-**Proven:** `src/main/bitops.c` (3 functions, `80014A00`â€“`80014A84`, 132 bytes) is **byte-identical** to the game
+**Proven:** `src/main/bitops.c` (3 functions, `80014A00`–`80014A84`, 132 bytes) is **byte-identical** to the game
 with GCC 2.7.2. GCC 2.6.3 matches only one of the three, so that part of the exe was built with 2.7.2.
 
 **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml`, and `make` relinks it. The result is
@@ -502,9 +502,9 @@ Main exe layout (found by splat, then corrected by hand):
 | File offset | VRAM | Contents |
 |---|---|---|
 | `0x0000` | n/a | PS-X EXE header (t_addr `0x80010000`, t_size `0x60800`, pc0 `0x800110C0`) |
-| `0x0800`â€“`0x18B8` | `0x80010000` | read-only data (jump tables, strings such as `"battle.x"`) |
-| `0x18B8`â€“~`0x39518` | `0x800110B8` | code. splat guessed `0x18AC`, but the 12 bytes there are the string `" (%08x)\n"` |
-| ~`0x39518`â€“`0x61000` | ~`0x80048D18` | data *(boundary estimated by splat)* |
+| `0x0800`–`0x18B8` | `0x80010000` | read-only data (jump tables, strings such as `"battle.x"`) |
+| `0x18B8`–~`0x39518` | `0x800110B8` | code. splat guessed `0x18AC`, but the 12 bytes there are the string `" (%08x)\n"` |
+| ~`0x39518`–`0x61000` | ~`0x80048D18` | data *(boundary estimated by splat)* |
 
 - **No padding between sections.** The retail link packs them back to back, so splat needs
   `ld_align_section_vram_end: False` and `ld_align_segment_vram_end: False`. Otherwise every address after the
@@ -516,7 +516,7 @@ Lessons from getting it to match:
   `match.sh` does this.
 - **Loop shape matters:** a `while` loop gets rotated by GCC, while the original `highest_bit` loop needed a
   `goto` to come out unrotated.
-- **Assembler version:** `--aspsx-version` made no difference for these simple leaf functions (2.21â€“2.79 all
+- **Assembler version:** `--aspsx-version` made no difference for these simple leaf functions (2.21–2.79 all
   match). Recheck it on functions with `div`, `li` or `$gp` access.
 
 ## 8. Sony library map (main exe)
@@ -530,12 +530,12 @@ Sources, in priority order (on a rename the first one wins, so the closest versi
 
 | Source | Where | Version stamps (libetc / libcd / libgpu) | Names alone |
 |---|---|---|---|
-| PsyQ **3.5** libs | user archive `PSYQ_SDK.zip` â†’ `psyq/lib/old_libs/LIB35.ZIP` (1996-05) | 1.73 / 1.77 / 1.120 | 247 |
+| PsyQ **3.5** libs | user archive `PSYQ_SDK.zip` → `psyq/lib/old_libs/LIB35.ZIP` (1996-05) | 1.73 / 1.77 / 1.120 | 247 |
 | PsyQ 4.4/4.5 libs | PsyQ SDK (`psx/lib`, `patches`, `zips/Lib44`, `zips/Lib45`) | 1.75 / 1.86 / 1.140 | 154 |
 | Net Yaroze resident library | `MON/LIBPS.EXE` on DTL-S3030/S3035, named by `PSX/LIB/LIBPS.A` on DTL-S3040 (`nm` listing) | 1.73 / 1.76 / 1.120 | 40 |
 | **FF7 itself** | `SCUS_941.63` | 1.73 / 1.76 / 1.115 | |
 
-Combined: **267 of 454** functions in the library block `0x80036E84`â€“`0x80048D18` named (58%). By library: libgte 110,
+Combined: **267 of 454** functions in the library block `0x80036E84`–`0x80048D18` named (58%). By library: libgte 110,
 libgpu 40, libapi 40, libspu 14, libcd 13, libetc 12, libc 14, libcard 10, libpress 5, Net-Yaroze-only 10. The libspu
 names include `SpuSetReverb`, `SpuSetIRQCallback`, `SpuGetKeyStatus` and `SpuMallocWithStartAddr`, which are useful
 anchors for finding the AKAO driver.
@@ -547,7 +547,7 @@ Rules that keep false names out:
 - **Siblings:** smaller functions count only when a distinctive sibling from the same module puts the module at the
   same base.
 - **Clashes:** two names for one address are dropped, unless both come from the same library. Then it's an API
-  renamed between versions (`InitPAD` â†’ `InitPAD2`, `delete` â†’ `erase`) and the first-listed source wins. Example of
+  renamed between versions (`InitPAD` → `InitPAD2`, `delete` → `erase`) and the first-listed source wins. Example of
   a dropped clash: `0x80048A7C` is a "call three functions" wrapper that fits both libsnd `SsInitHot` and libmcrd
   `MemCardInit`.
 - **One name per address:** a name found at two addresses stays with the higher-priority source. 3.5 `StartCARD` is
