@@ -229,7 +229,10 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     ("pan", n), ("tempo", t), ("detune", d), ("bend", ticks, semitones), ("vibrato" / "tremolo", delay, rate,
     waveform, depth), ("meter", ticks per beat, beats per bar), and the channel's own envelope settings ("ar", "dr",
     "sl", "sr", "rr", n) until the next program change, ("overlap", n) for F8 (two voices taking turns so each
-    note rings on in its release, release rate n kept across program changes) and ("overlap", None) for F9. Volume and pan slides become one event per tick that changes the value. Detune d scales the
+    note rings on in its release, release rate n kept across program changes) and ("overlap", None) for F9;
+    ("pan_lfo", ...) like the other LFOs (BC/BD), ("vibrato_slide" / "tremolo_slide", ticks, depth) (DD/DE),
+    ("fm", on) (C6/C7), ("layer", [a, b]) / ("layer", None) (F4/F5: instrument b on a second voice under a),
+    ("balance", n) and ("balance_slide", ticks, n) (F6/F7: main voice at (127 - n)/256, layer at n/256). Volume and pan slides become one event per tick that changes the value. Detune d scales the
     pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0); a bend slides the pitch linearly in frequency from the held
     note to `semitones` above it. An LFO event gives the settings from then on, depth 0 while it is off.
     Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
@@ -242,7 +245,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     slides = {}  # kind -> [step per tick, ticks left]
     drum_map = None
     transpose, detune, bend = 0, 0, None
-    lfos = {"vibrato": [0, 1, 0, False, 0], "tremolo": [0, 1, 0, False, 0]}  # delay, rate, waveform, on, depth
+    lfos = {kind: [0, 1, 0, False, 0] for kind in ("vibrato", "tremolo", "pan_lfo")}  # delay rate waveform on depth
     # The driver's note mode (+0x6E): bit 0 slur (CC), bit 1 "this note slurs from the last", bit 2 full length (D0).
     mode, cut = 0, 0
     loops = []  # [loop start pos, pass count]; the driver keeps 4 levels
@@ -343,6 +346,29 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "meter", args[0], args[1]])
             case 0xAD | 0xAE | 0xAF | 0xB1 | 0xB2:  # the channel's own envelope, until the next program change
                 events.append([tick, {0xAD: "ar", 0xAE: "dr", 0xAF: "sl", 0xB1: "sr", 0xB2: "rr"}[b], args[0]])
+            case 0xBC | 0xBD | 0xBE:  # pan LFO: on (rate, waveform; no delay) / depth / off
+                lfo = lfos["pan_lfo"]
+                if b == 0xBC:
+                    lfo[:4] = [0, args[0] or 256, args[1], True]
+                elif b == 0xBD:
+                    lfo[4] = args[0]
+                else:
+                    lfo[3] = False
+                delay, rate, wave, on, depth = lfo
+                events.append([tick, "pan_lfo", delay, rate, wave, depth if on else 0])
+            case 0xDD | 0xDE:  # slide the vibrato / tremolo depth to d over t ticks (0 = 256)
+                events.append([tick, "vibrato_slide" if b == 0xDD else "tremolo_slide", args[0] or 256, args[1]])
+            case 0xC6 | 0xC7:  # FM: pitch follows the previous voice's output
+                events.append([tick, "fm", b == 0xC6])
+            case 0xF4:  # layer: instrument a as usual, instrument b on a second voice playing the same notes
+                events.append([tick, "program", args[0] & 0x7F])
+                events.append([tick, "layer", [args[0] & 0x7F, args[1] & 0x7F]])
+            case 0xF5:
+                events.append([tick, "layer", None])
+            case 0xF6:  # balance between the main and the layer voice
+                events.append([tick, "balance", args[0]])
+            case 0xF7:  # slide the balance to n over t ticks (0 = 256)
+                events.append([tick, "balance_slide", args[0] or 256, args[1]])
             case 0xF8 | 0xF9:  # overlap on (release rate) / off
                 events.append([tick, "overlap", args[0] if b == 0xF8 else None])
             case 0xCC:  # slur on; the look-ahead turns it off at a CD

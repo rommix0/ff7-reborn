@@ -188,6 +188,26 @@ starts:
     song start and used in 93 songs, mostly `EA 00 28` (`0x2800`).
   - **Per channel:** `C2` turns a channel's reverb send on and `C3` turns it off (1,876 and 59 uses). Song 42
     turns it on for all 16 channels.
+- **`F4 a b` / `F5`: layer** (`0x80031D6C` / `0x80031E98`).
+  - **Second voice:** `F4` reserves a free SPU voice for the channel (`+0x24`, flag `0x100`). It loads instrument
+    `a` for the channel and instrument `b` into that voice's channel slot. Every key-on keys on both voices.
+  - **Shared settings:** the envelope commands write both. `seq_layer_voice_update` (`0x8002F738`) copies the main
+    voice's pitch register (`+0xF8`) to the layer, so the layer plays the main voice's pitch, vibrato included.
+  - **`F5`** frees the voice.
+- **`F6 n` / `F7 t n`: layer balance** (`0x80031EEC` / `0x80031F30`): `+0xC6 = n << 8`. In layer mode the main voice
+  plays at `(127 − n) / 256` of its volume and the layer at `n / 256`. `F7` slides the balance to `n` over `t`
+  ticks (0 = 256).
+  - **In the songs:** only song 10, channels 1–5: instruments 84 and 83, crossfaded.
+- **`C6` / `C7`: FM on / off** (`0x80032BB4` / `0x80032C20`).
+  - **Effect:** they set and clear the channel's bit in the song's pitch-modulation mask (`+0x34`), which
+    `func_80030148` hands to the SPU. The voice's sample step then follows the previous voice's output: step ×
+    (1 + output).
+  - **In the songs:** 53, 66 and 89.
+- **Opcode audit (98 songs).**
+  - **Handled:** every command a song uses is handled, except reverb (`C2`/`C3`/`EA`).
+  - **No audio effect:** `FE` is a bar counter for the game.
+  - **Never used in songs:** `AC B0 B3 B7 BB BE BF C4 C5 CB CE CF D2–D7 D9 DA DB DF E9 EB EF F1 F3` and the unused
+    `E0–E7 FA–FC FF`. `DA` (glide) appears only in sound effects.
 - **`F8 n`: overlap** (`0x80033128`).
   - **Release rate:** sets the channel's release rate to `n`.
   - **Second voice:** on first use, reserves a free SPU voice for the channel (`+0x28`, flag `0x200`). From then
@@ -328,6 +348,8 @@ the XM's compromises with the driver's own behaviour.
   `F8` overlap (the previous note rings on in its release on a second voice).
 - **Instrument bank 2:** song 82 gets it (`"bank": 2`). See the sound files table.
 - **Tempo:** songs start at the driver's tempo `0xFFFF` until their first `E8`.
+- **Other driver features:** the layered second instrument with its balance (`F4`–`F7`), the pan LFO (`BC`/`BD`),
+  LFO depth slides (`DD`/`DE`), and FM (`C6`/`C7`).
 - **Approximations:** no SPU reverb yet (see "Reverb"), linear interpolation (the SPU uses a 4-point Gaussian), equal-power panning (the driver's pan
   tables at `0x80049C44`/`0x80049E44` aren't read yet), and voice volume taken as volume × expression ÷ 127² ×
   ½. There's no reverb, pan LFO, LFO depth slide or noise waveform.
@@ -391,7 +413,8 @@ instruments sound like the game rather than General MIDI.
     note already starts in that row, the key-off is skipped, since the note retriggers anyway. Where the row's
     effect column is taken, it moves to the row's start, so bends keep their cells.
   - **Not carried:** slurs (every note retriggers), the channel envelope overrides (an XM instrument has one fixed
-    envelope), and `F8` overlap (an XM channel plays one note at a time).
+    envelope), `F8` overlap and `F4` layers (an XM channel plays one note at a time), the pan LFO, LFO depth slides,
+    and FM.
 - **Events:** each channel starts from the driver's defaults (instrument 5, octave 2, volume 100, `A3` 120).
   - Notes carry the voice volume: 64 × `A8` × `A3` ÷ 127². Global master volume and the pan law are left out.
   - Slides become per-tick volume/pan values.

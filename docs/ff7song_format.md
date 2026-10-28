@@ -61,6 +61,11 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 | `slur` | `true`: this note takes over the sounding voice (new pitch and length) instead of restarting the sample and envelope (`CC` slur mode) |
 | `inst` | Bank slot for the following notes; also resets the channel's envelope to the instrument's |
 | `overlap` | `F8`: a number turns on two voices taking turns, so each note rings on in its release while the next starts, with that release rate, kept across `inst` changes. `null` (`F9`) turns it off and the release rate is the instrument's again |
+| `layer` | `[a, b]` (`F4`): instrument `a` as usual, and instrument `b` on a second voice playing the same notes at the main voice's pitch. `null` (`F5`) ends it |
+| `balance`, `balance_slide` | Layer balance 0–127 (`F6`): main voice at (127 − n)/256, layer at n/256. `[ticks, n]` (`F7`) slides it there |
+| `pan_lfo` | `[delay, rate, waveform, depth]` like `vibrato` (`BC`/`BD`): the pan moves by (depth >> 1) × step >> 15 |
+| `vibrato_slide`, `tremolo_slide` | `[ticks, depth]` (`DD`/`DE`): slide the LFO depth there, one step per tick |
+| `fm` | `true` (`C6`): the voice's pitch follows the previous channel's output (SPU pitch modulation); `false` (`C7`) ends it |
 | `ar`, `dr`, `sl`, `sr`, `rr` | The channel's own attack rate, decay rate, sustain level, sustain rate, release rate (`AD`, `AE`, `AF`, `B1`, `B2`; the same values as the bank's ADSR bytes), until the next `inst`. They reach a voice that is already sounding |
 | `volume`, `expression` | `A8` volume and `A3` multiplier, 0–127; the voice plays at volume × expression ÷ 127² of full scale. Slides arrive as one value per tick |
 | `pan` | 0–127, 64 = centre |
@@ -73,5 +78,5 @@ LFO details (waveform shapes, depth scaling) are in `knowledge_base.md`, "LFOs: 
 
 ## Not carried yet
 
-Reverb, the pan LFO, LFO depth slides, and the SPU's own interpolation and pan law (the player uses linear
+Reverb (`C2`/`C3`/`EA` and the song's reverb mode), and the SPU's own interpolation and pan law (the player uses linear
 interpolation and equal-power panning).

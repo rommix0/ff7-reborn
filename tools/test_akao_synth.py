@@ -128,6 +128,48 @@ for s_ in (up, plain):
     s_.render(60)  # under one 64-sample loop of the test tone, even at double speed
 assert abs(up.channels[0].voice.pos - 2 * plain.channels[0].voice.pos) < 1e-6
 
+# Layer (F4): each note also sounds the layer instrument on a second voice; the balance sets the split, and a
+# balance slide moves it a step per tick.
+two = {**BANK, 1: Instrument(TONE, True, 0, (0x2000,) * 12, STEADY)}
+s = Synth(two, None, RATE)
+s.load(song([[0, 0, {"tempo": 0x6000, "inst": 0, "layer": [0, 1], "balance": 32, "note": 60, "len": 96}],
+             [4, 0, {"balance_slide": [4, 96]}]]))
+s.playing = True
+s.render(frames_for(2))
+ch = s.channels[0]
+# The layer voice plays the main voice's pitch register (the driver copies +0xF8), not its own instrument's table.
+assert ch.layer_voice and ch.layer_voice.inst is two[1] and ch.layer_voice.follow is ch.voice
+assert ch.balance == 32
+s.render(frames_for(8))
+assert abs(ch.balance - 96) < 1e-9
+
+# Pan LFO: the pan swings around the channel's pan by (depth >> 1) * step >> 15, the driver's integer maths.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "pan": 64, "pan_lfo": [0, 1, 7, 40], "note": 60, "len": 192}]]))
+offsets = set()
+for _ in range(100):
+    s.render(128)
+    offsets.add(round(s.pan_offset(s.channels[0].voice)))
+assert max(offsets) == 19 and min(offsets) == -20
+
+# Depth slides (DD): the vibrato depth moves to the target over the given ticks, on the sounding note too.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "vibrato": [0, 1, 7, 0x40], "note": 60, "len": 192}],
+                [8, 0, {"vibrato_slide": [8, 0]}]]))
+s.render(frames_for(10))
+assert 0 < s.channels[0].vibrato[3] < 0x40
+s.render(frames_for(10))
+assert s.channels[0].vibrato[3] == 0 and s.channels[0].voice.vibrato.amount == 0
+
+# FM (C6): the voice's sample steps follow the previous channel's output, so it runs at a different rate.
+fm = song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 192}],
+           [0, 1, {"inst": 0, "fm": True, "note": 60, "len": 192}]])
+fm["channels"] = 2
+s = synth(fm)
+s.render(frames_for(4))
+plain, modulated = s.channels[0].voice, s.channels[1].voice
+plain.pos = modulated.pos = 0.0
+s.render(37)
+assert abs(modulated.pos - plain.pos) > 0.5
+
 # Muted channels are silent; the stereo output is (frames, 2).
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 192}]]))
 s.muted = 1

@@ -133,4 +133,17 @@ assert [(e[1], e[2]) for e in events if e[1] in ("ar", "dr", "sl", "sr", "rr")] 
 # one starts; n is the release rate, kept across program changes. F9 ends it (the release rate is the instrument's).
 events, *_ = play_channel(one_channel(bytes([0xF8, 0x0C, 0x02, 0xF9, 0x02, 0xA0])), 0x16)
 assert at(events, "overlap") == [(0, 0x0C), (48, None)]
+# The rest of the commands songs use:
+#   F4 a b layers instrument b on a second voice under instrument a; F5 ends it. F6 n sets the balance between them
+#   (main voice at (127 - n)/256, layer at n/256), F7 t n slides it to n over t ticks.
+#   BC rate waveform / BD depth: pan LFO. DD t d / DE t d slide the vibrato / tremolo depth to d over t ticks.
+#   C6 / C7: FM on / off (the voice's pitch follows the previous voice's output).
+events, *_ = play_channel(one_channel(bytes([0xF4, 0x54, 0x53, 0xF6, 0x20, 0xF7, 0x18, 0x60, 0xBC, 0x0C, 0x01,
+                                             0xBD, 0x0A, 0xDD, 0x24, 0x00, 0xDE, 0x00, 0x10, 0xC6, 0x02, 0xC7,
+                                             0xF5, 0xA0])), 0x16)
+assert at(events, "layer") == [(0, [0x54, 0x53]), (48, None)] and at(events, "program")[-1] == (0, 0x54)
+assert at(events, "balance") == [(0, 0x20)] and at(events, "balance_slide") == [(0, 0x18, 0x60)]
+assert at(events, "pan_lfo") == [(0, 0, 0x0C, 1, 0), (0, 0, 0x0C, 1, 0x0A)]
+assert at(events, "vibrato_slide") == [(0, 0x24, 0)] and at(events, "tremolo_slide") == [(0, 256, 0x10)]
+assert at(events, "fm") == [(0, True), (48, False)]
 print("ok")

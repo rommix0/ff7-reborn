@@ -17,9 +17,11 @@ from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 
 NOTE_NAMES = ["C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"]
-LIST_FIELDS = {"bend": 2, "vibrato": 4, "tremolo": 4}  # fields that hold several numbers
+LIST_FIELDS = {"bend": 2, "vibrato": 4, "tremolo": 4, "pan_lfo": 4, "vibrato_slide": 2, "tremolo_slide": 2,
+               "layer": 2, "balance_slide": 2}  # fields that hold several numbers
 FIELDS = ["note", "len", "slur", "inst", "volume", "expression", "pan", "detune", "tempo", "bend", "vibrato", "tremolo",
-          "ar", "dr", "sl", "sr", "rr", "overlap"]
+          "ar", "dr", "sl", "sr", "rr", "overlap", "pan_lfo", "vibrato_slide", "tremolo_slide", "fm", "layer",
+          "balance", "balance_slide"]
 
 
 def note_name(key: int) -> str:
@@ -52,6 +54,17 @@ def cell_text(f: dict, timer_hz: float, ticks_per_quarter: int) -> str:
     for name, letter in (("vibrato", "V"), ("tremolo", "R")):
         if name in f:
             parts.append(f"{letter}{f[name][3] or '-'}")
+    if "pan_lfo" in f:
+        parts.append(f"P{f['pan_lfo'][3] or '-'}")
+    for name, letter in (("vibrato_slide", "V"), ("tremolo_slide", "R"), ("balance_slide", "bal")):
+        if name in f:
+            parts.append(f"{letter}>{f[name][1]}/{f[name][0]}")
+    if "fm" in f:
+        parts.append("FM" if f["fm"] else "FM-")
+    if "layer" in f:
+        parts.append(f"L{f['layer'][1]}" if f["layer"] else "L-")
+    if "balance" in f:
+        parts.append(f"bal{f['balance']}")
     if "overlap" in f:
         parts.append(f"o{'-' if f['overlap'] is None else f['overlap']}")
     if "tempo" in f:
@@ -493,8 +506,11 @@ class CellDialog:
         rows = [("tick", tick)] + [(name, fields.get(name)) for name in FIELDS]
         if "note" in fields and fields.get("len") is None:
             rows[FIELDS.index("len") + 1] = ("len", "hold")  # held until the channel's next note
-        if "overlap" in fields and fields["overlap"] is None:
-            rows[FIELDS.index("overlap") + 1] = ("overlap", "off")
+        for name in ("overlap", "layer"):
+            if name in fields and fields[name] is None:
+                rows[FIELDS.index(name) + 1] = (name, "off")
+        if "fm" in fields:
+            rows[FIELDS.index("fm") + 1] = ("fm", int(fields["fm"]))
         for r, (name, value) in enumerate(rows):
             ttk.Label(top, text=name).grid(row=r, column=0, sticky="e", padx=6, pady=2)
             entry = ttk.Entry(top, width=24)
@@ -504,7 +520,10 @@ class CellDialog:
                 entry.insert(0, text)
             entry.grid(row=r, column=1, padx=6, pady=2)
             self.entries[name] = entry
-        hint = "note: C-4 / C#4 · len: ticks, or hold · slur: 1 = no restart · ar…rr: envelope · overlap: release rate, or off · bend: ticks, semitones · vibrato/tremolo: delay, rate, waveform, depth"
+        hint = ("note: C-4 / C#4 · len: ticks, or hold · slur: 1 = no restart · ar…rr: envelope\n"
+                "overlap: release rate, or off · bend: ticks, semitones · fm: 1/0\n"
+                "vibrato/tremolo/pan_lfo: delay, rate, waveform, depth · *_slide: ticks, target\n"
+                "layer: instrument, layer instrument, or off · balance: 0–127 (layer share)")
         ttk.Label(top, text=hint, foreground="#666").grid(row=len(rows), column=0, columnspan=2, padx=6)
         buttons = ttk.Frame(top)
         buttons.grid(row=len(rows) + 1, column=0, columnspan=2, pady=6)
@@ -529,8 +548,10 @@ class CellDialog:
                     fields[name] = parse_note(text)
                 elif name == "len" and text.lower() == "hold":
                     fields[name] = None
-                elif name == "overlap" and text.lower() == "off":
+                elif name in ("overlap", "layer") and text.lower() == "off":
                     fields[name] = None
+                elif name == "fm":
+                    fields[name] = bool(int(text))
                 elif name == "slur":
                     if int(text):
                         fields[name] = True

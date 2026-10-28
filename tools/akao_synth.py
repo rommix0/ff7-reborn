@@ -49,6 +49,8 @@ class Voice:
     left: int  # ticks until key-off; -1 holds it until the channel's next note
     vibrato: Lfo | None
     tremolo: Lfo | None
+    pan_lfo: Lfo | None = None
+    follow: "Voice | None" = None  # a layer voice (F4) plays the main voice's pitch
     pos: float = 0.0
     bend: list | None = None  # [from, to, ticks, done]
     phase: int = ATTACK
@@ -67,9 +69,18 @@ class Channel:
     vibrato: list | None = None
     tremolo: list | None = None
     adsr: list = field(default_factory=lambda: [0, 0x0F, 0x0F, 0x7F, 0x06, 1, 3, 3])  # the instrument's, or AD/B1...
+    pan_lfo: list | None = None
+    vibrato_slide: list | None = None  # [depth now, step per tick, ticks left]
+    tremolo_slide: list | None = None
+    fm: bool = False  # pitch follows the previous channel's output (C6)
     overlap: int | None = None  # F8's release rate while two voices take turns, None when off
+    layer_inst: int | None = None  # F4's second instrument, sounding every note on a second voice
+    layer_adsr: list = field(default_factory=list)
+    balance: float = 0.0  # F6: main voice at (127 - balance)/256, layer at balance/256
+    balance_slide: list | None = None  # [step per tick, ticks left]
     voice: Voice | None = None
     tail: Voice | None = None  # the previous note, ringing on in its release while overlap is on
+    layer_voice: Voice | None = None
 
 
 ENVELOPE_FIELDS = {"ar": 0, "dr": 1, "sl": 2, "sr": 3, "rr": 4}  # cell field -> index in the ADSR bytes
@@ -158,7 +169,7 @@ class Synth:
         while self.tick < target - 1 and not self.ended:
             self.step_tick()
         for ch in self.channels:
-            ch.voice = ch.tail = None
+            ch.voice = ch.tail = ch.layer_voice = None
         self.playing = playing
 
     def pitch_of(self, ch: Channel, key: int) -> float:
@@ -190,11 +201,12 @@ class Synth:
         pitch = self.pitch_of(ch, key)
         vibrato = self.start_lfo(ch.vibrato)
         if vibrato:
-            # (d & 0x7F)/128 of the pitch with d's top bit set, else 15/256 of that.
-            d = vibrato.depth
-            vibrato.amount = (d & 0x7F) * (pitch if d & 0x80 else pitch * 15 / 256) / 128
-        ch.voice = Voice(inst, ch.adsr, key, pitch, -1 if length is None else length, vibrato,
-                         self.start_lfo(ch.tremolo))
+            self.set_vibrato_amount(vibrato, pitch)
+        left = -1 if length is None else length
+        ch.voice = Voice(inst, ch.adsr, key, pitch, left, vibrato, self.start_lfo(ch.tremolo),
+                         self.start_lfo(ch.pan_lfo))
+        layer = self.instruments.get(ch.layer_inst) if ch.layer_inst is not None else None
+        ch.layer_voice = Voice(layer, ch.layer_adsr, key, pitch, left, None, None, follow=ch.voice) if layer else None
 
     def step_tick(self):
         self.tick += 1
@@ -206,14 +218,33 @@ class Synth:
             self.ended = True
             return
         for ch in self.channels:
+            for kind in ("vibrato", "tremolo"):
+                slide, settings = getattr(ch, f"{kind}_slide"), getattr(ch, kind)
+                if slide and settings and settings[3]:
+                    slide[0] += slide[1]
+                    slide[2] -= 1
+                    settings[3] = round(slide[0])
+                    lfo = getattr(ch.voice, kind) if ch.voice else None
+                    if lfo:
+                        lfo.depth = settings[3]
+                        if kind == "vibrato":
+                            self.set_vibrato_amount(lfo, ch.voice.pitch)
+                    if not slide[2]:
+                        setattr(ch, f"{kind}_slide", None)
+            if ch.balance_slide:
+                ch.balance += ch.balance_slide[0]
+                ch.balance_slide[1] -= 1
+                if not ch.balance_slide[1]:
+                    ch.balance_slide = None
+            for v in (ch.layer_voice, ch.voice):
+                if v and v.left > 0:
+                    v.left -= 1
+                    if not v.left and v.phase < RELEASE:
+                        v.released_from, v.phase = v.phase, RELEASE
             v = ch.voice
             if not v:
                 continue
-            if v.left > 0:
-                v.left -= 1
-                if not v.left and v.phase < RELEASE:
-                    v.released_from, v.phase = v.phase, RELEASE
-            for lfo in (v.vibrato, v.tremolo):
+            for lfo in (v.vibrato, v.tremolo, v.pan_lfo):
                 if lfo and lfo.delay > 0:
                     lfo.delay -= 1
             if v.bend and v.bend[3] < v.bend[2]:
@@ -226,9 +257,23 @@ class Synth:
             ch = self.channels[c]
             if "inst" in f:
                 self.set_instrument(ch, f["inst"])
-            for name in ("volume", "expression", "pan", "detune", "vibrato", "tremolo"):
+            for name in ("volume", "expression", "pan", "detune", "vibrato", "tremolo", "pan_lfo", "fm", "balance"):
                 if name in f:
-                    setattr(ch, name, f[name])
+                    setattr(ch, name, list(f[name]) if isinstance(f[name], list) else f[name])
+            for kind in ("vibrato", "tremolo"):
+                if f"{kind}_slide" in f:
+                    ticks, target = f[f"{kind}_slide"]
+                    now = getattr(ch, kind)[3] if getattr(ch, kind) else 0
+                    setattr(ch, f"{kind}_slide", [float(now), (target - now) / ticks, ticks])
+            if "balance_slide" in f:
+                ticks, target = f["balance_slide"]
+                ch.balance_slide = [(target - ch.balance) / ticks, ticks]
+            if "layer" in f:
+                ch.layer_inst = f["layer"][1] if f["layer"] else None
+                if ch.layer_inst is None:
+                    ch.layer_voice = None  # F5 frees the second voice
+                elif ch.layer_inst in self.instruments:
+                    ch.layer_adsr = list(self.instruments[ch.layer_inst].adsr)
             if "overlap" in f:
                 ch.overlap = f["overlap"]
                 inst = self.instruments.get(ch.inst)
@@ -236,6 +281,8 @@ class Synth:
             for name, index in ENVELOPE_FIELDS.items():
                 if name in f:
                     ch.adsr[index] = f[name]
+                    if ch.layer_adsr:  # the driver writes them to the layer voice's channel too
+                        ch.layer_adsr[index] = f[name]
             self.tempo = f.get("tempo", self.tempo)
             if "bend" in f and ch.voice:
                 ticks, semitones = f["bend"]
@@ -248,13 +295,15 @@ class Synth:
                     v.phase = v.released_from
                 v.key, v.pitch, v.bend = f["note"], self.pitch_of(ch, f["note"]), None
                 v.left = -1 if f["len"] is None else f["len"]
+                if ch.layer_voice:
+                    ch.layer_voice.left = v.left
             elif "note" in f:
                 self.key_on(ch, f["note"], f["len"])
 
     def interrupt(self):
         for ch in self.channels:
             if ch.voice:
-                for lfo in (ch.voice.vibrato, ch.voice.tremolo):
+                for lfo in (ch.voice.vibrato, ch.voice.tremolo, ch.voice.pan_lfo):
                     if lfo and lfo.delay <= 0:
                         lfo.countdown -= 1
                         if lfo.countdown <= 0:
@@ -265,6 +314,17 @@ class Synth:
         while self.accumulator >= 0x10000:  # more than one tick per interrupt when the master tempo is fast
             self.accumulator -= 0x10000
             self.step_tick()
+
+    @staticmethod
+    def set_vibrato_amount(lfo: Lfo, pitch: float):
+        """(d & 0x7F)/128 of the pitch with d's top bit set, else 15/256 of that."""
+        d = lfo.depth
+        lfo.amount = (d & 0x7F) * (pitch if d & 0x80 else pitch * 15 / 256) / 128
+
+    @staticmethod
+    def pan_offset(v: Voice) -> int:
+        """The pan LFO's offset in pan units, as the driver computes it."""
+        return (v.pan_lfo.depth >> 1) * v.pan_lfo.value >> 15 if v and v.pan_lfo else 0
 
     @staticmethod
     def vibrato_offset(v: Voice) -> int:
@@ -309,41 +369,48 @@ class Synth:
 
     def mix(self, out: np.ndarray):
         n = len(out)
+        outputs = {}  # channel -> its main voice's output this stretch, for FM on the next channel
         for c, ch in enumerate(self.channels):
-            for v in (ch.voice, ch.tail):
+            for v in (ch.voice, ch.tail, ch.layer_voice):
                 if not v or v.phase == OFF:
                     continue
                 env = self.envelope(v, n)
-                pitch = min(0x3FFF, max(0.0, (v.pitch + self.vibrato_offset(v)) * 2 ** (self.transpose / 12)))
-                step = pitch / 4096 * SPU_HZ / self.rate
+                source = v.follow or v
+                pitch = (source.pitch + self.vibrato_offset(source)) * 2 ** (self.transpose / 12)
+                steps = np.full(n, min(0x3FFF, max(0.0, pitch)) / 4096 * SPU_HZ / self.rate)
+                if ch.fm and c - 1 in outputs:  # SPU pitch modulation: step * (1 + previous voice's output)
+                    steps *= np.maximum(0.0, 1 + outputs[c - 1])
                 pcm, length = v.inst.pcm, len(v.inst.pcm)
-                pos = v.pos + step * np.arange(n)
+                pos = v.pos + np.cumsum(steps) - steps
                 index = pos.astype(np.int64)
                 frac = (pos - index).astype(np.float32)
                 nxt = index + 1
+                v.pos += float(steps.sum())
                 if v.inst.loops:
                     span = length - v.inst.loop_start
                     index = np.where(index >= length, v.inst.loop_start + (index - v.inst.loop_start) % span, index)
                     nxt = np.where(nxt >= length, v.inst.loop_start + (nxt - v.inst.loop_start) % span, nxt)
-                    v.pos += step * n
                     if v.pos >= length:
                         v.pos = v.inst.loop_start + (v.pos - v.inst.loop_start) % span
                     ended = None
                 else:
                     ended = index >= length
                     index, nxt = np.minimum(index, length - 1), np.minimum(nxt, length - 1)
-                    v.pos += step * n
                     if v.pos >= length:
                         v.phase = OFF
                 sample = pcm[index] + (pcm[nxt] - pcm[index]) * frac
                 if ended is not None:
                     sample[ended] = 0
+                if v is ch.voice:
+                    outputs[c] = sample * env
                 if self.muted >> c & 1:
                     continue
                 gain = ch.volume * ch.expression / (127 * 127) * 0.5
+                if ch.layer_inst is not None:  # F4: the balance splits the note between main and layer voice
+                    gain *= (ch.balance if v is ch.layer_voice else 127 - ch.balance) / 256
                 if v.tremolo:
                     gain *= max(0.0, 1 + v.tremolo.depth / 128 * v.tremolo.value / 32768)
-                angle = ch.pan / 127 * math.pi / 2
+                angle = min(127, max(0, ch.pan + self.pan_offset(source))) / 127 * math.pi / 2
                 voiced = sample * env * gain
                 out[:, 0] += voiced * math.cos(angle)
                 out[:, 1] += voiced * math.sin(angle)
