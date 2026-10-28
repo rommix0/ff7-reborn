@@ -153,7 +153,7 @@ Sound files (checked against our disc):
 - **Loops in bank 1:** bank 1 samples set no loop-start flags. Their blocks carry flag `0x02` and the last one `0x03`
   ("end, then repeat"), so the loop point comes only from `INSTR.DAT`'s loop address.
 - **Converter:** `tools/instruments.py` turns both banks into 99 WAVs (64 looping, with `smpl` loop chunks) plus
-  `instruments.csv`. Checks: no sample runs into the next one, and no output clips.
+  `instruments.csv`. Checks: no sample runs into the next one, no output clips, and a listening check (2026-10-28) found the WAVs sound right.
 - **Playback rate:** WAVs play at 44,100 Hz, which is SPU pitch `0x1000`. The game plays semitone *s* of octave 6 at
   44,100 × `pitch[s]` / 0x1000 Hz; the CSV lists the rate for C.
 
