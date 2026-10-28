@@ -84,4 +84,11 @@ events, *_ = play_channel(one_channel(bytes([
     0xA2, 0x0A, 0x86, 0xA0])), 0x16)           # a second tie: the bend was one-shot
 assert at(events, "note") == [(0, 38, 22)]  # C of octave 2 (36) + 2; 2 + 10 + 10 ticks
 assert at(events, "detune") == [(0, -2)] and at(events, "bend") == [(2, 4, 1)]
+
+# LFOs: B4 delay rate waveform turns vibrato on, B5 sets its depth, B6 turns it off but keeps the depth; B8/B9/BA
+# do the same for tremolo. Events carry (delay, rate, waveform, depth), depth 0 while off; rate 0 means 256.
+events, *_ = play_channel(one_channel(bytes([0xB4, 0x60, 0x01, 0x06, 0xB5, 0x0A, 0x02, 0xB6, 0xB4, 0x00, 0x00, 0x07,
+                                             0xB8, 0x00, 0x03, 0x05, 0xB9, 0x78, 0x02, 0xA0])), 0x16)
+assert at(events, "vibrato") == [(0, 0x60, 1, 6, 0), (0, 0x60, 1, 6, 10), (48, 0x60, 1, 6, 0), (48, 0, 256, 7, 10)]
+assert at(events, "tremolo") == [(48, 0, 3, 5, 0), (48, 0, 3, 5, 0x78)]
 print("ok")

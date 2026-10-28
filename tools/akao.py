@@ -174,9 +174,10 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     """Follow one channel like the driver does, once through. Returns (events, loop_start_tick, end_tick).
 
     Events are [tick, kind, ...]: ("note", key, ticks), ("program", n), ("volume", n), ("expression", n),
-    ("pan", n), ("tempo", t), ("detune", d), ("bend", ticks, semitones). Volume and pan slides become one event
-    per tick that changes the value. Detune d scales the pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0); a bend
-    slides the pitch linearly in frequency from the held note to `semitones` above it.
+    ("pan", n), ("tempo", t), ("detune", d), ("bend", ticks, semitones), ("vibrato" / "tremolo", delay, rate,
+    waveform, depth). Volume and pan slides become one event per tick that changes the value. Detune d scales the
+    pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0); a bend slides the pitch linearly in frequency from the held
+    note to `semitones` above it. An LFO event gives the settings from then on, depth 0 while it is off.
     Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
     the tick its target was first reached at. With `until`, the endless loop is followed instead, up to that tick.
     """
@@ -187,6 +188,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     slides = {}  # kind -> [step per tick, ticks left]
     drum_map = None
     transpose, detune, bend = 0, 0, None
+    lfos = {"vibrato": [0, 1, 0, False, 0], "tremolo": [0, 1, 0, False, 0]}  # delay, rate, waveform, on, depth
     loops = []  # [loop start pos, pass count]; the driver keeps 4 levels
     first_seen, last_note = {}, None
     events = [[0, "program", 5], [0, "volume", 100], [0, "expression", 120]]
@@ -257,6 +259,20 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
             case 0xD8 | 0xD9:  # detune: set / add
                 detune = (0 if b == 0xD8 else detune) + (args[0] - 256 if args[0] & 0x80 else args[0])
                 events.append([tick, "detune", detune])
+            case 0xB4 | 0xB5 | 0xB6 | 0xB8 | 0xB9 | 0xBA:
+                # Vibrato (B4-B6) and tremolo (B8-BA): on with a delay after each note, a rate (0 = 256) and a
+                # waveform; depth; off, which keeps the depth for the next on.
+                kind = "vibrato" if b < 0xB8 else "tremolo"
+                lfo = lfos[kind]
+                match b - (0xB4 if kind == "vibrato" else 0xB8):
+                    case 0:
+                        lfo[:4] = [args[0], args[1] or 256, args[2], True]
+                    case 1:
+                        lfo[4] = args[0]
+                    case 2:
+                        lfo[3] = False
+                delay, rate, wave, on, depth = lfo
+                events.append([tick, kind, delay, rate, wave, depth if on else 0])
             case 0xA3:  # multiplier on the channel volume: voice volume = A8 volume * A3 / 128
                 events.append([tick, "expression", args[0]])
             case 0xDC:  # fixed length = last length + signed delta, 0 turns it off

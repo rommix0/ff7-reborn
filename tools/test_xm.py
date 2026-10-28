@@ -10,7 +10,7 @@ def walk(xm: bytes) -> dict:
     assert xm[:17] == b"Extended Module: " and xm[37] == 0x1A
     header_size = struct.unpack_from("<I", xm, 60)[0]
     song_len, restart, channels, n_pat, n_inst, flags, speed, bpm = struct.unpack_from("<8H", xm, 64)
-    pos, rows, notes, effects = 60 + header_size, 0, [], []
+    pos, rows, notes, effects, volumes = 60 + header_size, 0, [], [], []
     for _ in range(n_pat):
         plen, _, n_rows, size = struct.unpack_from("<IBHH", xm, pos)
         data, pos, i = xm[pos + plen:pos + plen + size], pos + plen + size, 0
@@ -25,6 +25,8 @@ def walk(xm: bytes) -> dict:
                     i += 1
             if "note" in fields:
                 notes.append(fields["note"])
+            if "vol" in fields:
+                volumes.append((rows + cell_no // channels, cell_no % channels, fields["vol"]))
             if "fx" in fields:
                 effects.append((rows + cell_no // channels, cell_no % channels, fields["fx"], fields.get("param", 0)))
         assert i == size, "pattern data must hold exactly rows x channels cells"
@@ -42,7 +44,8 @@ def walk(xm: bytes) -> dict:
         pos += sum(lengths)
     assert pos == len(xm), f"{len(xm) - pos} bytes unaccounted for"
     return {"channels": channels, "patterns": n_pat, "restart": restart, "instruments": n_inst, "rows": rows,
-            "speed": speed, "bpm": bpm, "notes": notes, "effects": effects}
+            "speed": speed, "bpm": bpm, "notes": notes, "effects": effects,
+            "volumes": volumes}
 
 
 if __name__ == "__main__":
@@ -107,4 +110,38 @@ if __name__ == "__main__":
     pan_then_bend = bytes([0xA1, 0x00, 0xA5, 0x04, 0xA2, 0x04, 0x8F, 0xAA, 0x30,
                            0xA2, 0x02, 0x00, 0xA4, 0x04, 0x01, 0xA2, 0x0A, 0x86, 0xA0])
     assert effects_of(pan_then_bend, rows=True) == [(0, 0x08, 0x60), (1, 0x01, 8), (2, 0x01, 8)]
+
+    # LFOs are baked per row: FT2's vibrato can't go as shallow as the game's (its least depth is 1/8 semitone)
+    # and neither vibrato nor tremolo runs at speed 1. Tempo 0x6000: 91.4 ticks/s, 45.7 rows/s.
+    def lfo_song(lfo):  # whole note C at full volume
+        return bytes([0xE8, 0x00, 0x60, 0xA1, 0x00, 0xA8, 0x7F, 0xA3, 0x7F]) + lfo + bytes([0xA5, 0x04, 0x00, 0xA0])
+
+    def pitch_curve(seq):  # row -> pitch offset in semitones from X1x/X2x (1/64) and E1x/E2x (1/16) steps
+        offset, curve = 0, {}
+        for row, fx, param in effects_of(seq, rows=True):
+            if fx in (0x21, 0x0E) and param >> 4 in (1, 2):
+                offset += (param & 15) * (4 if fx == 0x0E else 1) * (1 if param >> 4 == 1 else -1)
+                curve[row] = offset / 64
+        return curve
+
+    # Full-scale sine (waveform 7), rate 1, depth 7F: the driver adds up to 15/256 * 127/128 * 1/2 of the pitch,
+    # doubled going up: +0.98 / -0.51 semitone, one cycle per 39 timer steps (6.25 Hz), 13 cycles in a whole note.
+    curve = pitch_curve(lfo_song(bytes([0xB4, 0x00, 0x01, 0x07, 0xB5, 0x7F])))
+    assert 0.85 < max(curve.values()) < 1.0 and -0.55 < min(curve.values()) < -0.4
+    values = [curve[row] for row in sorted(curve)]
+    assert 12 <= sum(a <= 0 < b for a, b in zip(values, values[1:])) <= 14
+    # The game's usual vibrato, B4 60 01 06 + B5 0A: starts a half note (48 rows) in, fades in, about 8 cents up.
+    curve = pitch_curve(lfo_song(bytes([0xB4, 0x60, 0x01, 0x06, 0xB5, 0x0A])))
+    assert curve and min(curve) >= 48 and max(abs(v) for v in curve.values()) <= 0.14
+
+    def volume_curve(seq):
+        song = b"AKAO" + struct.pack("<HHH", 1, 6 + len(seq), 0) + bytes(6) + struct.pack("<IH", 1, 0) + seq
+        return [v - 0x10 for row, ch, v in walk(song_to_xm(song, bank, "test")[0])["volumes"] if ch == 0]
+    # Tremolo B9 7F on a full-scale sine swings the volume between about zero and full.
+    levels = volume_curve(lfo_song(bytes([0xB8, 0x00, 0x01, 0x07, 0xB9, 0x7F])))
+    assert min(levels) < 10 and max(levels) == 64
+    # B8 00 03 05 + B9 78 cuts the volume by 94% every other 3 timer steps (40 Hz), faster than the rows: each row
+    # gets the average, about half volume, rather than an aliased wobble.
+    levels = volume_curve(lfo_song(bytes([0xB8, 0x00, 0x03, 0x05, 0xB9, 0x78])))
+    assert all(25 <= v <= 42 for v in levels[1:]), levels
     print("ok")

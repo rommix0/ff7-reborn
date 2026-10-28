@@ -7,8 +7,14 @@ Grid: one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM. Songs wit
 speed 2 (rows of 4 AKAO ticks; notes on the second XM tick get note delay ED1, so placement stays 2-tick exact).
 Patterns are two bars either way. Event positions are rounded to the grid, never lengths, so nothing drifts. The last channel carries tempo changes. The song's endless loop becomes the XM
 restart point.
+
+Vibrato and tremolo are baked per row (pitch: extra-fine portamento X1x/X2x, or E1x/E2x for big steps; tremolo:
+the volume column), because FT2's own 4xy can't go as shallow as the game's usual vibrato and 4xy/7xy don't run
+at speed 1. The pan LFO (BC/BD) and the LFO depth slides (DD/DE) are left out.
 """
+import bisect
 import collections
+import itertools
 import math
 import struct
 import sys
@@ -154,6 +160,42 @@ def bend_semitones(semitones: int, elapsed: int, length: int) -> float:
     return 12 * math.log2(1 + (2 ** (semitones / 12) - 1) * min(elapsed, length) / length)
 
 
+def lfo_wave(n: int) -> tuple[list[int], int] | None:
+    """The driver's LFO waveform n as (steps, index the loop goes back to), rebuilt from its shape; None for 12.
+
+    Even numbers (and 14) fade in over four cycles at 1/4, 2/4, 3/4 and full scale, then repeat the last cycle;
+    odd ones start at full scale. 12 is a table of noise, 13-15 reuse the triangles.
+    """
+    n = {13: 9, 14: 8, 15: 9}.get(n, n)
+    if n > 11:
+        return None
+    cycle = {
+        0: [1, -1], 2: [1, 0], 4: [-1, 0],
+        6: [math.sin(math.pi * i / 20) for i in range(40) if i != 3],  # the game's table skips this step
+        8: [(4 - abs(i - 4)) / 4 if i < 8 else (abs(i - 12) - 4) / 4 for i in range(16)],
+        10: [math.sin(math.pi * i / 10) for i in range(20)],
+    }[n & ~1]
+    scales = (8191, 16383, 24575, 32767) if n % 2 == 0 else (32767,)
+    steps = [round(scale * v) for scale in scales for v in cycle]
+    return steps, len(steps) - len(cycle)
+
+
+def lfo_total(prefix: list[float], loop: int, rate: int, timer_steps: int) -> float:
+    """An LFO summed over its first `timer_steps` interrupts. It moves to its next step every `rate` interrupts and
+    goes back to step `loop` after the last; `prefix` holds the running sums of its steps."""
+    q, rem = divmod(timer_steps, rate)
+    loops, part = divmod(max(0, q - loop), len(prefix) - 1 - loop)
+    held = min(q, loop) + part
+    return rate * (prefix[held] + loops * (prefix[-1] - prefix[loop])) + rem * (prefix[held + 1] - prefix[held])
+
+
+def vibrato_semitones(depth: int, step: int) -> float:
+    """Pitch offset at an LFO step: the driver adds pitch * d * step / 2^16, doubled when positive, where d is
+    (B5 & 0x7F) / 128, times 15/256 unless B5's top bit is set."""
+    ratio = (depth & 0x7F) / 128 * (1 if depth & 0x80 else 15 / 256) * step / 65536
+    return 12 * math.log2(1 + (2 * ratio if ratio > 0 else ratio))
+
+
 def level(volume: int, expression: int) -> int:
     """XM volume 0-64 from the driver's voice volume, A8 volume * A3 multiplier (both 0-127)."""
     return max(0, min(64, round(64 * volume * expression / (127 * 127))))
@@ -206,6 +248,12 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections
                 return
         cells[row][ch] = [note or cell[0], inst or cell[1], vol or cell[2], fx or cell[3], param if fx else cell[4]]
 
+    tempos = sorted((e[0], e[2]) for events in channels for e in events if e[1] == "tempo" and e[2])
+
+    def timer_steps_per_tick(tick: int) -> float:
+        tempo = next((t for at, t in reversed(tempos) if at <= tick), tempos[0][1] if tempos else 0)
+        return 65536 / tempo if tempo else akao.DRIVER_HZ * 60 / (120 * akao.TICKS_PER_QUARTER)
+
     first_tempo = None
     for ch, events in enumerate(channels):
         inst, volume, expression, detune = 0, 100, 120, 0
@@ -257,6 +305,63 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections
             elif kind == "tempo" and rest[0]:
                 first_tempo = first_tempo or bpm(rest[0])
                 put(tick, n_chan - 1, fx=0x0F, param=bpm(rest[0]))
+
+        # LFOs go last, into cells nothing else wanted: a pitch step whose effect column is taken is made up on the
+        # next free row. The driver steps its LFOs on every timer interrupt and restarts them with each note; a row
+        # gets the average over the interrupts it spans, so an LFO faster than the rows (B8 00 03 05 runs at
+        # 40 Hz) comes out as its mean level rather than an aliased wobble.
+        control = {k: ([e[0] for e in timeline if e[1] == k], [e[2] for e in timeline if e[1] == k])
+                   for k in ("volume", "expression")}
+        spans = [(e[0], e[3]) for e in timeline if e[1] == "note"]
+        for kind in ("tremolo", "vibrato"):
+            states = [e for e in timeline if e[1] == kind]
+            for n, (tick, length) in enumerate(spans):
+                state = next((s for s in reversed(states) if s[0] <= tick), None)
+                if not state or not state[5]:
+                    continue
+                delay, rate, wave_no, depth = state[2:]
+                wave = lfo_wave(wave_no)
+                if not wave:
+                    dropped[f"{kind} on the noise waveform"] += 1
+                    continue
+                steps, loop = wave
+                if kind == "vibrato":
+                    shape = [vibrato_semitones(depth, v) * 64 for v in steps]
+                else:
+                    shape = [max(0.0, 1 + depth / 128 * v / 32768) for v in steps]
+                prefix = list(itertools.accumulate(shape, initial=0.0))
+                start = tick + delay
+                stop = min(tick + length, spans[n + 1][0] if n + 1 < len(spans) else end_tick)
+                per_tick = timer_steps_per_tick(start)
+                done, previous = 0, None
+                for row in range(start // row_ticks, min(rows_total, -(-stop // row_ticks))):
+                    a, b = max(row * row_ticks, start), min((row + 1) * row_ticks, stop)
+                    first, last = round((a - start) * per_tick), round((b - start) * per_tick)
+                    if last <= first:
+                        continue
+                    mean = (lfo_total(prefix, loop, rate, last) - lfo_total(prefix, loop, rate, first)) / (last - first)
+                    cell = cells[row][ch] or [0, 0, 0, 0, 0]
+                    if kind == "tremolo":
+                        ticks_v, vols = control["volume"]
+                        ticks_e, exprs = control["expression"]
+                        at = row * row_ticks
+                        base = level(vols[bisect.bisect_right(ticks_v, at) - 1],
+                                     exprs[bisect.bisect_right(ticks_e, at) - 1])
+                        vol = 0x10 + max(0, min(64, round(base * mean)))
+                        # Write on change, and over any volume another event put in this row.
+                        if vol != cell[2] and (cell[2] or vol != previous):
+                            put(at, ch, vol=vol)
+                        previous = vol
+                        continue
+                    step = round(mean) - done
+                    if not step or cell[3]:
+                        continue
+                    if abs(step) > 15:  # past extra-fine range: fine portamento moves 4 units per step
+                        step = max(-15, min(15, round(step / 4))) * 4
+                        put(row * row_ticks, ch, fx=0x0E, param=(0x10 if step > 0 else 0x20) | abs(step) // 4)
+                    else:
+                        put(row * row_ticks, ch, fx=0x21, param=(0x10 if step > 0 else 0x20) | abs(step))
+                    done += step
 
     # Patterns break at the loop start so the restart position can point at it.
     loop_row = round(loop_start / AKAO_PER_XM) // speed if loop_start is not None else 0
