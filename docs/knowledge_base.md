@@ -138,7 +138,8 @@ starts:
 - **Behaviour notes:**
   - **Read in detail and confirmed by the MIDI loop check (below):** `A0`, `A1`, `A2`, `A5`–`A7`, `C8`–`CA`, `DC`, `E8`,
     `EE` and `F0`.
-  - **Read in detail (volume and drums, below):** `A3`, `A8`, `A9`, `AA`, `AB`, `EC` and `ED`.
+  - **Read in detail (volume, drums and pitch, below):** `A3`, `A4`, `A8`, `A9`, `AA`, `AB`, `C0`, `C1`, `D8`, `D9`,
+    `DA`, `EC` and `ED`.
   - **Not studied yet:** the rest.
 
 ### Timing, loops and MIDI export
@@ -226,15 +227,39 @@ which is how its meaning was confirmed. No channel runs past 4,000 bars.
   - **What the instruments use:** all 93 have sustain level 15. 75 hold at full level (sustain rate `0x7F`), and 18
     fade while held (sustain rate 52–65).
 
+### Pitch: bends, transpose, detune
+
+Read from `seq_step_channel`'s note and tie paths:
+- **Key:** octave × 12 + semitone + transpose. The pitch comes from the instrument's table for that key, then the
+  detune is applied.
+- **`C0 s` / `C1 s` (`seq_cmd_transpose`, `_add`):** set or add a signed semitone transpose (`+0xCC`). Drum-kit
+  notes ignore it.
+- **`D8 d` / `D9 d` (`seq_cmd_detune`, `_add`):** set or add a signed detune (`+0xCE`). It scales the pitch by
+  1 + d/128 when positive and 1 + d/256 when negative.
+  - **Values in the songs:** mostly −2…+1 (≈ ±14 cents, chorus-style), plus −128 (exactly one octave down) and ±60.
+- **`A4 n s` (`seq_cmd_bend`):** stores a slide length `n` (0 = 256, at `+0x68`) and a signed semitone amount `s`
+  (`+0xD2`).
+  - **Start:** the next **tie** starts the bend. The target key becomes the current key + `s`, and the pitch slides
+    linearly *in frequency* to the target's pitch (transpose and detune included) over `n` ticks.
+  - **One-shot:** the amount is then cleared, and later ties hold the new pitch.
+  - **Song 7 channel 16:** a 2-tick note, `A4 04 01`, a 10-tick tie, repeated.
+  - **Scale:** 321 bends in the songs, from ±1 semitone over 4 ticks up to +65 over 8.
+- **`DA n` (`seq_cmd_glide`):** a glide (portamento) from the previous note's key. No song uses it, only sound
+  effects.
+
 ### Tracker export (XM)
 
 `python tools/xm.py <file|dir> <SOUND dir> <out>` writes FastTracker 2 modules that play the game's own samples, so
 instruments sound like the game rather than General MIDI.
-- **Grid:** one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM (56–191, inside XM's 32–255). Speed 1
-  gives 24 rows per quarter note, and 192-row patterns are two bars of 4/4 (at most 85 patterns per song).
-  Positions round to the grid (±1 AKAO tick), never lengths.
+- **Grid:** one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM (56–191, inside XM's 32–255).
+  Patterns are two bars of 4/4 (at most 85 per song). Positions round to the grid (±1 AKAO tick), never lengths.
+  - **Songs without bends (83):** speed 1, with rows of 2 AKAO ticks.
+  - **Songs with bends (15):** speed 2, with rows of 4 AKAO ticks. Portamento only acts on a row's later XM ticks,
+    and notes on the second XM tick get note delay `ED1`.
 - **Collisions:** a second note in a cell moves to the next row, and later volume or pan values in a row replace
-  earlier ones. Nothing is dropped in any of the 98 songs.
+  earlier ones. A pan change that clashes with another effect moves one row earlier.
+  - **Still dropped across all 98 songs:** 14 notes (fast runs in songs that need speed 2), 43 detune steps on
+    delayed notes, and 13 detune steps blocked by pan.
 - **Instruments:** one sample per AKAO instrument, 16-bit with its loop.
   - **Tuning:** relative note + finetune = 12·log2(44,100 · pitch[C] / 0x1000 / 8,363) − 12·(6 − base − 4), where
     `base` shifts songs whose octaves exceed XM's 8.
@@ -244,6 +269,12 @@ instruments sound like the game rather than General MIDI.
   - Notes carry the voice volume: 64 × `A8` × `A3` ÷ 127². Global master volume and the pan law are left out.
   - Slides become per-tick volume/pan values.
   - Drum-kit notes carry their entry's instrument, key, volume and pan. Every one of the 152,284 notes has a sample.
+  - Transpose is added to the key.
+  - Detune: whole semitones go into the note, and the rest becomes fine portamento `E1x`/`E2x` on the note's row
+    (1/16 semitone steps).
+  - Bends: portamento `1xx`/`2xx` (16 units per semitone) on each row's second XM tick, stepping to where the
+    driver's frequency-linear slide is by the end of that tick. A bend stops at the next note.
+  - The MIDI export doesn't carry bends or detune yet.
   - `AA` becomes `8xx` panning.
   - A note that doesn't run into the next one gets a key-off.
   - Tempo changes go on an extra control channel.

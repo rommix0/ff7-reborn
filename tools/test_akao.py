@@ -75,4 +75,13 @@ channels, loop_start, loop_end, loop_lengths, runaway = play_song(two)
 assert (loop_start, loop_end, loop_lengths, runaway) == (48, 144, [96, 96], False)
 assert [e[0] for e in channels[0] if e[1] == "note"] == [0, 96]  # second pass of channel 0's loop
 assert [(e[0], e[3]) for e in channels[1] if e[1] == "note"] == [(0, 48), (48, 96)]
+
+# Pitch: C0 transposes keys, D8 sets detune, and A4 n s bends by s semitones over n ticks, starting at the next
+# tie (one-shot). Song 7 channel 16 does exactly this: 2-tick note, A4 04 01, 10-tick tie.
+events, *_ = play_channel(one_channel(bytes([
+    0xC0, 0x02, 0xD8, 0xFE, 0xA2, 0x02, 0x02,  # transpose +2, detune -2, note C with length 2
+    0xA4, 0x04, 0x01, 0xA2, 0x0A, 0x86,        # bend +1 semitone over 4 ticks, tie for 10 ticks
+    0xA2, 0x0A, 0x86, 0xA0])), 0x16)           # a second tie: the bend was one-shot
+assert at(events, "note") == [(0, 38, 22)]  # C of octave 2 (36) + 2; 2 + 10 + 10 ticks
+assert at(events, "detune") == [(0, -2)] and at(events, "bend") == [(2, 4, 1)]
 print("ok")

@@ -174,7 +174,9 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     """Follow one channel like the driver does, once through. Returns (events, loop_start_tick, end_tick).
 
     Events are [tick, kind, ...]: ("note", key, ticks), ("program", n), ("volume", n), ("expression", n),
-    ("pan", n), ("tempo", t). Volume and pan slides become one event per tick that changes the value.
+    ("pan", n), ("tempo", t), ("detune", d), ("bend", ticks, semitones). Volume and pan slides become one event
+    per tick that changes the value. Detune d scales the pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0); a bend
+    slides the pitch linearly in frequency from the held note to `semitones` above it.
     Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
     the tick its target was first reached at. With `until`, the endless loop is followed instead, up to that tick.
     """
@@ -184,6 +186,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     levels = {"volume": 100.0, "pan": 64.0}
     slides = {}  # kind -> [step per tick, ticks left]
     drum_map = None
+    transpose, detune, bend = 0, 0, None
     loops = []  # [loop start pos, pass count]; the driver keeps 4 levels
     first_seen, last_note = {}, None
     events = [[0, "program", 5], [0, "volume", 100], [0, "expression", 120]]
@@ -227,10 +230,13 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 last_note = [tick, "note", min(127, key + 12), last_len]
                 events.append(last_note)
             elif semitone < 12:
-                last_note = [tick, "note", min(127, 12 * (octave + 1) + semitone), last_len]
+                last_note = [tick, "note", max(0, min(127, 12 * (octave + 1) + semitone + transpose)), last_len]
                 events.append(last_note)
             elif semitone == 12 and last_note:
                 last_note[3] += last_len  # tie
+                if bend:  # a pending A4 bend starts on the tie, then is spent
+                    events.append([tick, "bend", *bend])
+                    bend = None
             advance(last_len)
             pos += 1
             continue
@@ -243,6 +249,14 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "program", args[0] & 0x7F])
             case 0xA2:
                 next_len, fixed_len = args[0], 0
+            case 0xA4:  # bend by s semitones over n ticks (0 = 256), starting at the next tie
+                semitones = args[1] - 256 if args[1] & 0x80 else args[1]
+                bend = (args[0] or 256, semitones) if semitones else None
+            case 0xC0 | 0xC1:  # transpose: set / add signed semitones
+                transpose = (0 if b == 0xC0 else transpose) + (args[0] - 256 if args[0] & 0x80 else args[0])
+            case 0xD8 | 0xD9:  # detune: set / add
+                detune = (0 if b == 0xD8 else detune) + (args[0] - 256 if args[0] & 0x80 else args[0])
+                events.append([tick, "detune", detune])
             case 0xA3:  # multiplier on the channel volume: voice volume = A8 volume * A3 / 128
                 events.append([tick, "expression", args[0]])
             case 0xDC:  # fixed length = last length + signed delta, 0 turns it off

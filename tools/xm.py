@@ -2,11 +2,13 @@
 
 usage: python tools/xm.py <file|assets dir> <SOUND dir> <out dir>
 
-Grid: one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM, and speed 1 makes each row one XM tick:
-24 rows per quarter note, fine enough to keep grace notes and fast runs apart.
-Event positions are rounded to the grid, never lengths, so nothing drifts. The last channel carries tempo changes.
-The song's endless loop becomes the XM restart point.
+Grid: one XM tick = 2 AKAO ticks, so the XM BPM equals the song's BPM. Songs without pitch bends use speed 1
+(rows of 2 AKAO ticks, 24 per quarter note). Portamento only runs on a row's later ticks, so songs with bends use
+speed 2 (rows of 4 AKAO ticks; notes on the second XM tick get note delay ED1, so placement stays 2-tick exact).
+Patterns are two bars either way. Event positions are rounded to the grid, never lengths, so nothing drifts. The last channel carries tempo changes. The song's endless loop becomes the XM
+restart point.
 """
+import collections
 import math
 import struct
 import sys
@@ -16,9 +18,9 @@ import akao
 from instruments import BANKS, decode_adpcm
 from unpack import lzs
 
-SPEED = 1          # XM ticks per row
 AKAO_PER_XM = 2    # AKAO ticks per XM tick
-ROWS = 192         # rows per pattern: two bars of 4/4 at 24 rows per quarter note
+BAR_TICKS = 192    # AKAO ticks in a bar of 4/4; patterns hold two
+PORTA_UNITS = 16   # XM linear-frequency portamento units per semitone (1xx moves xx units; E1x/E2x move x)
 KEY_OFF = 97
 SPU_HZ = 44100
 ENVELOPE_SECONDS = 10  # longest stretch of a phase we model; a phase that barely moves in that time is flat
@@ -142,13 +144,23 @@ def xm_instrument(name: str, pcm: list[int], loop: int | None, pitch_c6: int, ad
     return header + sample_header + bytes(deltas)
 
 
+def detune_semitones(detune: int) -> float:
+    """The driver scales a note's pitch by 1 + d/128 for d > 0 and 1 + d/256 for d < 0."""
+    return 12 * math.log2(1 + detune / (128 if detune > 0 else 256))
+
+
+def bend_semitones(semitones: int, elapsed: int, length: int) -> float:
+    """Pitch offset `elapsed` ticks into a bend: the driver slides linearly in frequency, not in semitones."""
+    return 12 * math.log2(1 + (2 ** (semitones / 12) - 1) * min(elapsed, length) / length)
+
+
 def level(volume: int, expression: int) -> int:
     """XM volume 0-64 from the driver's voice volume, A8 volume * A3 multiplier (both 0-127)."""
     return max(0, min(64, round(64 * volume * expression / (127 * 127))))
 
 
-def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
-    """Return (XM file bytes, events dropped because two landed in one cell)."""
+def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, collections.Counter]:
+    """Return (XM file bytes, what was dropped because two things landed in one cell)."""
     channels, loop_start, loop_end, _, _ = akao.play_song(block)
     notes = [e[2] for events in channels for e in events if e[1] == "note"]
     octaves = [k // 12 - 1 for k in notes] or [4]
@@ -157,15 +169,17 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
     inst_no = {slot: i + 1 for i, slot in enumerate(programs)}
 
     end_tick = loop_end
-    rows_total = -(-round(end_tick / AKAO_PER_XM) // SPEED)
+    # Speed 2 only where portamento is needed: a 4-tick row can't hold two notes 2 ticks apart.
+    speed = 2 if any(e[1] == "bend" for events in channels for e in events) else 1
+    row_ticks = speed * AKAO_PER_XM
+    rows_total = -(-round(end_tick / AKAO_PER_XM) // speed)
     n_chan = len(channels) + 1
     cells = [[None] * n_chan for _ in range(rows_total)]  # [note, instrument, volume, effect, param]
-    dropped = 0
+    dropped = collections.Counter()
 
     def put(tick: int, ch: int, note=0, inst=0, vol=0, fx=0, param=0):
-        nonlocal dropped
         xt = round(tick / AKAO_PER_XM)
-        row, delay = divmod(xt, SPEED)
+        row, delay = divmod(xt, speed)
         if row >= rows_total:
             return
         cell = cells[row][ch] or [0, 0, 0, 0, 0]
@@ -175,20 +189,43 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
             fx, param = 0x0E, 0xD0 | delay
         # Volume and pan are continuous controls: a later value in the same row replaces the earlier one.
         # Only a second note, or a different effect, has nowhere to go.
-        if (note and cell[0]) or (fx and cell[3] and cell[3] != fx):
-            dropped += 1
+        if note and cell[0]:
+            dropped["note"] += 1
             return
+        if fx and cell[3] and cell[3] != fx:
+            # A pan change can happen a row early (it only affects the previous note's tail); anything else can't.
+            if 0x08 in (fx, cell[3]) and row and (cells[row - 1][ch] or [0, 0, 0, 0, 0])[3] in (0, 0x08):
+                pan = param if fx == 0x08 else cell[4]
+                earlier = cells[row - 1][ch] or [0, 0, 0, 0, 0]
+                cells[row - 1][ch] = earlier[:3] + [0x08, pan]
+                if fx == 0x08:
+                    return
+                cell[3] = 0
+            else:
+                dropped[f"effect {fx:X} (cell has {cell[3]:X})"] += 1
+                return
         cells[row][ch] = [note or cell[0], inst or cell[1], vol or cell[2], fx or cell[3], param if fx else cell[4]]
 
     first_tempo = None
     for ch, events in enumerate(channels):
-        inst, volume, expression = 0, 100, 120
+        inst, volume, expression, detune = 0, 100, 120, 0
         timeline = sorted(events, key=lambda e: e[0])
         for i, (tick, kind, *rest) in enumerate(timeline):
             if kind == "note":
                 key, length = rest
+                offset = detune_semitones(detune)
+                key += round(offset)
                 n = min(96, max(1, 12 * (key // 12 - 1 - octave_base) + key % 12 + 1))
                 put(tick, ch, note=n, inst=inst, vol=0x10 + level(volume, expression))
+                fine = round((offset - round(offset)) * PORTA_UNITS)
+                if fine:
+                    # Fine portamento acts on the row's first XM tick, right after the note; a delayed note (ED1)
+                    # already uses the effect column, so its detune is left out.
+                    row, delay = divmod(round(tick / AKAO_PER_XM), speed)
+                    if delay:
+                        dropped["detune on a delayed note"] += 1
+                    else:
+                        put(tick, ch, fx=0x0E, param=(0x10 if fine > 0 else 0x20) | min(15, abs(fine)))
                 # Release only if the next note doesn't start right away (a new note retriggers anyway).
                 nxt = next((e[0] for e in timeline[i + 1:] if e[1] == "note"), None)
                 if nxt is None or nxt > tick + length:
@@ -200,13 +237,31 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
                 put(tick, ch, vol=0x10 + level(volume, expression))
             elif kind == "pan":
                 put(tick, ch, fx=0x08, param=min(255, rest[0] * 2))
+            elif kind == "detune":
+                detune = rest[0]
+            elif kind == "bend":
+                length, semitones = rest
+                # Portamento acts on each row's second XM tick (2 AKAO ticks in). Step to where the driver's slide
+                # is by the end of that tick, until the bend ends or the next note retriggers the pitch.
+                stop = next((e[0] for e in timeline[i + 1:] if e[1] in ("note", "bend")), end_tick)
+                total, done = round(semitones * PORTA_UNITS), 0
+                row = -(-(tick - AKAO_PER_XM) // row_ticks)
+                while done != total and row * row_ticks + AKAO_PER_XM < stop:
+                    second_tick = row * row_ticks + AKAO_PER_XM
+                    target = round(bend_semitones(semitones, second_tick + AKAO_PER_XM - tick, length) * PORTA_UNITS)
+                    step = max(-255, min(255, target - done))
+                    if step:
+                        put(row * row_ticks, ch, fx=0x01 if step > 0 else 0x02, param=abs(step))
+                        done += step
+                    row += 1
             elif kind == "tempo" and rest[0]:
                 first_tempo = first_tempo or bpm(rest[0])
                 put(tick, n_chan - 1, fx=0x0F, param=bpm(rest[0]))
 
     # Patterns break at the loop start so the restart position can point at it.
-    loop_row = round(loop_start / AKAO_PER_XM) // SPEED if loop_start is not None else 0
-    bounds = list(range(0, loop_row, ROWS)) + list(range(loop_row, rows_total, ROWS))
+    loop_row = round(loop_start / AKAO_PER_XM) // speed if loop_start is not None else 0
+    rows_per_pattern = 2 * BAR_TICKS // row_ticks
+    bounds = list(range(0, loop_row, rows_per_pattern)) + list(range(loop_row, rows_total, rows_per_pattern))
     patterns = []
     for start, stop in zip(bounds, bounds[1:] + [rows_total]):
         data = bytearray()
@@ -225,7 +280,7 @@ def song_to_xm(block: bytes, bank: dict, title: str) -> tuple[bytes, int]:
 
     header = (b"Extended Module: " + title.encode()[:20].ljust(20) + b"\x1a" + b"ff7_psx_recovery".ljust(20)
               + struct.pack("<HI", 0x0104, 276)
-              + struct.pack("<8H", len(patterns), restart, n_chan, len(patterns), len(programs), 1, SPEED,
+              + struct.pack("<8H", len(patterns), restart, n_chan, len(patterns), len(programs), 1, speed,
                             first_tempo or 120)
               + bytes(range(len(patterns))).ljust(256, b"\0"))
     instruments = b"".join(xm_instrument(f"akao instrument {slot}", *bank[slot], octave_base, first_tempo or 120)
@@ -247,7 +302,7 @@ def main():
         if len(data) > 4 and int.from_bytes(data[:4], "little") == len(data) - 4:
             data = lzs(data)
         found = [(source.name, block) for _, block in akao.blocks(data)]
-    names, total_dropped = set(), 0
+    names, total_dropped = set(), collections.Counter()
     for origin, block in found:
         name = f"song_{struct.unpack_from('<H', block, 4)[0]:03d}"
         while name in names:
@@ -256,7 +311,7 @@ def main():
         xm, dropped = song_to_xm(block, bank, name)
         total_dropped += dropped
         (out / f"{name}.xm").write_bytes(xm)
-    print(f"{len(names)} songs -> {out}; {total_dropped} notes or effects dropped where two landed in one cell")
+    print(f"{len(names)} songs -> {out}; dropped where two landed in one cell: {dict(total_dropped) or 'nothing'}")
 
 
 if __name__ == "__main__":
