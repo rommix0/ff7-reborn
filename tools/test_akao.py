@@ -159,4 +159,14 @@ assert at(events, "vibrato") == [(0, 0, 2, 6, 0x30), (48, 0, 1, 7, 0x30)]
 # look-ahead ends it before a rest, as it ends slurs, so the note just before the rest doesn't glide.
 events, *_ = play_channel(one_channel(bytes([0xDA, 0x08, 0x02, 0x18, 0x2E, 0x91, 0xA0])), 0x16, effect=True)
 assert [key for _, key, _ in at(events, "note")] == [36, 36, 40] and at(events, "bend") == [(48, 8, 2)]
+# The commands only effects use: noise on/off and clock (absolute, or added with a top bit set), B0 = AE + AF,
+# B3 envelope reset, BB sustain mode, D4/D5 pitch from the previous channel, CB all off, and D2 n: FM on, then
+# off again after n + 1 ticks.
+events, *_ = play_channel(one_channel(bytes([0xC4, 0xAC, 0x32, 0xAC, 0x41, 0x02, 0xC5, 0xB0, 0x05, 0x06, 0xB3,
+                                             0xBB, 0x03, 0xD4, 0xD5, 0xCB, 0xD2, 0x02, 0x02, 0xA0])), 0x16, effect=True)
+assert at(events, "noise") == [(0, True), (48, False), (48, False)]
+assert at(events, "noise_clock") == [(0, 0x32)] and at(events, "noise_clock_add") == [(0, 1)]
+assert at(events, "dr") == [(48, 5)] and at(events, "sl") == [(48, 6)] and at(events, "sr_mode") == [(48, 3)]
+assert at(events, "adsr_reset") == [(48, True)] and at(events, "pitch_follow") == [(48, True), (48, False), (48, False)]
+assert at(events, "fm") == [(48, False), (48, True), (51, False)] and at(events, "reverb") == [(48, False)]
 print("ok")

@@ -376,6 +376,26 @@ Read from `seq_step_channel`'s note and tie paths:
   instead.
 - **Tempo:** effect channels tick on their own accumulator (`0x80099FE8`), at tempo `0x66A8` (`0x80099FE0`, set
   at boot and never changed): about 97.8 ticks a second, 122 BPM.
+- **Noise (`C4`/`C5`, `0x80032ABC`/`0x80032B30`):** they set and clear the channel's bit in the noise mask
+  (effects: `0x80099FEC`; songs: `+0x2C`). The SPU then plays its noise generator on that voice instead of the
+  sample. 305 of the 721 effects use it (effect 36's first channel hisses, rising).
+  - **Clock (`AC n`, `0x80032D6C`):** n sets it (0–63). With either top bit set, it adds n & 0x3F instead, wrapping at
+    64. Effects keep it at `0x80099FFA` and songs at `+0x52`; it starts at 0.
+  - **The generator** (psx-spx): a 16-bit register that shifts in the inverted parity of bits 15, 12, 11 and 10, at
+    most once per 44.1 kHz sample. A timer of 0x20000 >> (clock >> 2) counts down by 4 + (clock & 3) each sample.
+    From power-on it repeats every 65,535 shifts. One generator and one clock serve every voice.
+- **Effect-only commands:**
+  - **`B0 a b`:** decay rate a, then sustain level b (it calls the `AE` and `AF` handlers).
+  - **`B3`:** the instrument's envelope back (all five rates and the three modes).
+  - **`BB n`:** sustain mode.
+  - **`CB`:** all off: noise, FM (and its countdown), reverb, flags `0x08`/`0x10`/`0x20`, slur and full length.
+  - **`D2 n` / `D3 n`:** FM on now (`D2` only), and flipped after n + 1 ticks (0 = 257) by the countdown `+0xA6` in
+    `seq_channel_slides`. `C7` stops the countdown.
+  - **`D4`/`D5`:** flag `0x10`. The voice's pitch register becomes the previous channel's (`−0x108 + 0xF8`) plus its
+    own vibrato and `+0x36`, instead of its own pitch.
+  - **`D6`/`D7` (not played yet):** flag `0x20`. The voice volume is computed from the previous channel's pitch
+    register × 2 × `A3` instead of its own volume. Only effects 35 and 65 use it, both with FM.
+  - **`DB`:** glide off (`+0x6C` = 0). The look-ahead ends a glide there too.
 - **Commands:** none use `E8` (tempo). They use plenty of slurs, detune, bends, LFOs, envelope overrides, FM
   (755) and reverb sends (1,331 `C2`). There are 29 instruments, all in the boot bank.
 - **Our export:** `effects/effect_NNNN.ff7song`, which the player opens like songs

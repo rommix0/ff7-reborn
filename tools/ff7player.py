@@ -24,7 +24,9 @@ LIST_FIELDS = {"bend": 2, "vibrato": 4, "tremolo": 4, "pan_lfo": 4, "vibrato_sli
                "layer": 2, "balance_slide": 2}  # fields that hold several numbers
 FIELDS = ["note", "len", "slur", "inst", "volume", "expression", "pan", "detune", "tempo", "bend", "vibrato", "tremolo",
           "ar", "dr", "sl", "sr", "rr", "overlap", "pan_lfo", "vibrato_slide", "tremolo_slide", "fm", "layer",
-          "balance", "balance_slide", "reverb", "reverb_depth"]
+          "balance", "balance_slide", "reverb", "reverb_depth", "noise", "noise_clock", "noise_clock_add", "adsr_reset",
+          "sr_mode", "pitch_follow"]
+SWITCHES = ("fm", "reverb", "noise", "adsr_reset", "pitch_follow")  # fields that are true or false, shown as 1/0
 
 
 def note_name(key: int) -> str:
@@ -66,6 +68,15 @@ def cell_text(f: dict, timer_hz: float, ticks_per_quarter: int) -> str:
         parts.append("FM" if f["fm"] else "FM-")
     if "reverb" in f:
         parts.append("Rv" if f["reverb"] else "Rv-")
+    if "noise" in f:
+        parts.append("N" if f["noise"] else "N-")
+    for name, letter in (("noise_clock", "nc"), ("noise_clock_add", "nc+"), ("sr_mode", "srm")):
+        if name in f:
+            parts.append(f"{letter}{f[name]}")
+    if f.get("adsr_reset"):
+        parts.append("env")
+    if "pitch_follow" in f:
+        parts.append("PF" if f["pitch_follow"] else "PF-")
     if "reverb_depth" in f:
         parts.append(f"Rd{f['reverb_depth']:X}")
     if "layer" in f:
@@ -519,7 +530,7 @@ class CellDialog:
         for name in ("overlap", "layer"):
             if name in fields and fields[name] is None:
                 rows[FIELDS.index(name) + 1] = (name, "off")
-        for name in ("fm", "reverb"):
+        for name in SWITCHES:
             if name in fields:
                 rows[FIELDS.index(name) + 1] = (name, int(fields[name]))
         for r, (name, value) in enumerate(rows):
@@ -535,7 +546,8 @@ class CellDialog:
                 "overlap: release rate, or off · bend: ticks, semitones · fm: 1/0\n"
                 "vibrato/tremolo/pan_lfo: delay, rate, waveform, depth · *_slide: ticks, target\n"
                 "layer: instrument, layer instrument, or off · balance: 0–127 (layer share)\n"
-                "reverb: 1/0 (the channel's send) · reverb_depth: song-wide, 32768 = full (the songs use 10240)")
+                "reverb: 1/0 (the channel's send) · reverb_depth: song-wide, 32768 = full (the songs use 10240)\n"
+                "noise: 1/0 · noise_clock: 0–63 (+_add wraps) · adsr_reset: 1 · sr_mode: 1/3/5/7 · pitch_follow: 1/0")
         ttk.Label(top, text=hint, foreground="#666").grid(row=len(rows), column=0, columnspan=2, padx=6)
         buttons = ttk.Frame(top)
         buttons.grid(row=len(rows) + 1, column=0, columnspan=2, pady=6)
@@ -562,7 +574,7 @@ class CellDialog:
                     fields[name] = None
                 elif name in ("overlap", "layer") and text.lower() == "off":
                     fields[name] = None
-                elif name in ("fm", "reverb"):
+                elif name in SWITCHES:
                     fields[name] = bool(int(text))
                 elif name == "slur":
                     if int(text):

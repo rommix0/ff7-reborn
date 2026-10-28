@@ -82,6 +82,11 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 | `fm` | `true` (`C6`): the voice's pitch follows the previous channel's output (SPU pitch modulation); `false` (`C7`) ends it |
 | `reverb` | `true` (`C2`): the channel's voices feed the reverb; `false` (`C3`) stops it. Off at song start |
 | `reverb_depth` | `EA`: the reverb's output volume for the whole song, signed 16-bit, `0x8000` = −1 (most songs use `0x2800`). 0 at song start |
+| `noise` | `true` (`C4`): the channel's voices play the SPU noise generator instead of their sample (the voice still ends when its sample would); `false` (`C5`) ends it |
+| `noise_clock`, `noise_clock_add` | `AC`: the noise generator's clock, 0–63, one for all voices (higher = brighter). `_add` adds to it instead, wrapping at 64. 0 at start |
+| `adsr_reset` | `true` (`B3`): the channel's envelope goes back to its instrument's |
+| `sr_mode` | `BB`: the sustain mode (1 linear up, 3 linear down, 5 exponential up, 7 exponential down), until the next `inst` |
+| `pitch_follow` | `true` (`D4`): the channel plays at the previous channel's pitch, plus its own vibrato; `false` (`D5`) ends it |
 | `ar`, `dr`, `sl`, `sr`, `rr` | The channel's own attack rate, decay rate, sustain level, sustain rate, release rate (`AD`, `AE`, `AF`, `B1`, `B2`; the same values as the bank's ADSR bytes), until the next `inst`. They reach a voice that is already sounding |
 | `volume`, `expression` | `A8` volume and `A3` multiplier, 0–127; the voice plays at volume × expression × 127/128 (the driver's master volume) ÷ 16,384 of full scale. Slides arrive as one value per tick |
 | `pan` | 0–127, 64 = centre. Linear, like the driver's tables: left (32,640 − 256 × pan) ÷ 32,768, right (128 + 256 × pan) ÷ 32,768 |

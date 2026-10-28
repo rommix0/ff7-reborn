@@ -84,9 +84,11 @@ class Channel:
     tail: Voice | None = None  # the previous note, ringing on in its release while overlap is on
     layer_voice: Voice | None = None
     reverb: bool = False  # C2/C3: the channel's voices feed the reverb
+    noise: bool = False  # C4/C5: the voices play the SPU noise generator instead of their sample
+    pitch_follow: bool = False  # D4/D5: the previous channel's pitch, plus this channel's own vibrato
 
 
-ENVELOPE_FIELDS = {"ar": 0, "dr": 1, "sl": 2, "sr": 3, "rr": 4}  # cell field -> index in the ADSR bytes
+ENVELOPE_FIELDS = {"ar": 0, "dr": 1, "sl": 2, "sr": 3, "rr": 4, "sr_mode": 6}  # cell field -> ADSR byte
 
 
 def read_bank(path: Path) -> tuple[dict, dict]:
@@ -130,6 +132,18 @@ def gaussian_weights() -> np.ndarray:
         return np.exp(-d ** 2 / (2 * 0.85 ** 2)) * (1 - (d / 2) ** 2) ** 3
     weights = np.column_stack([kernel(1 + f), kernel(f), kernel(1 - f), kernel(2 - f)])
     return weights * (0x7F80 / 0x8000 / weights.sum(axis=1, keepdims=True))
+
+
+def noise_levels() -> np.ndarray:
+    """The SPU noise generator's output after each shift, from power-on (psx-spx): a 16-bit register that shifts in
+    the inverted parity of bits 15, 12, 11 and 10. One cycle of it, as -1..1."""
+    level, seen, levels = 0, {}, []
+    while level not in seen:
+        seen[level] = len(levels)
+        parity = (level >> 15 ^ level >> 12 ^ level >> 11 ^ level >> 10 ^ 1) & 1
+        level = (level << 1 | parity) & 0xFFFF
+        levels.append(level - 0x10000 if level & 0x8000 else level)
+    return np.array(levels[seen[level]:], np.float64) / 32768
 
 
 def signed(register: int) -> float:
@@ -233,6 +247,7 @@ class Synth:
     def __init__(self, bank: dict, bank2: dict | None = None, rate: int = SPU_HZ):
         self.bank, self.bank2, self.rate = bank, bank2 or {}, rate
         self.gauss = gaussian_weights()
+        self.noise = noise_levels()
         self.instruments = bank
         self.song = None
         self.tick, self.tempo = -1, 0
@@ -273,6 +288,7 @@ class Synth:
         # The driver sets the song's reverb mode, clearing the work area, and zeroes the depth (EA sets it).
         self.reverb = Reverb(self.song["reverb"]) if self.song.get("reverb") else None
         self.reverb_depth = 0.0
+        self.noise_clock, self.noise_pos = 0, 0.0  # AC's clock (one for all voices) and shifts so far
         for ch in self.channels:
             self.set_instrument(ch, ch.inst)
 
@@ -395,6 +411,14 @@ class Synth:
                     ch.layer_voice = None  # F5 frees the second voice
                 elif ch.layer_inst in self.instruments:
                     ch.layer_adsr = list(self.instruments[ch.layer_inst].adsr)
+            ch.noise = f.get("noise", ch.noise)
+            ch.pitch_follow = f.get("pitch_follow", ch.pitch_follow)
+            if "noise_clock" in f:
+                self.noise_clock = f["noise_clock"]
+            if "noise_clock_add" in f:
+                self.noise_clock = (self.noise_clock + f["noise_clock_add"]) & 0x3F
+            if f.get("adsr_reset") and ch.inst in self.instruments:
+                ch.adsr = list(self.instruments[ch.inst].adsr)
             if "overlap" in f:
                 ch.overlap = f["overlap"]
                 inst = self.instruments.get(ch.inst)
@@ -496,13 +520,28 @@ class Synth:
         """Add the voices to `out`, and those of channels with reverb on to `send` as well."""
         n = len(out)
         outputs = {}  # channel -> its main voice's output this stretch, for FM on the next channel
+        pitches = {}  # channel -> its main voice's pitch, for D4 on the next channel
+        noise = None
+        if any(ch.noise for ch in self.channels):
+            # The clock's low 2 bits make a step of 4..7 that counts down a timer of 0x20000 >> (high 4 bits) at
+            # 44.1 kHz; each time it runs out the register shifts, at most once per sample.
+            shift, step = self.noise_clock >> 2, 4 + (self.noise_clock & 3)
+            per_frame = min(1.0, step / (0x20000 >> shift)) * SPU_HZ / self.rate
+            at = self.noise_pos + np.arange(n) * per_frame
+            noise = self.noise[at.astype(np.int64) % len(self.noise)]
+            self.noise_pos = (self.noise_pos + n * per_frame) % len(self.noise)
         for c, ch in enumerate(self.channels):
             for v in (ch.voice, ch.tail, ch.layer_voice):
                 if not v or v.phase == OFF:
                     continue
                 env = self.envelope(v, n)
                 source = v.follow or v
-                pitch = (source.pitch + self.vibrato_offset(source)) * 2 ** (self.transpose / 12)
+                pitch = source.pitch + self.vibrato_offset(source)
+                if ch.pitch_follow and c - 1 in pitches:
+                    pitch = pitches[c - 1] + self.vibrato_offset(source)
+                if v is ch.voice:
+                    pitches[c] = pitch
+                pitch *= 2 ** (self.transpose / 12)
                 steps = np.full(n, min(0x3FFF, max(0.0, pitch)) / 4096 * SPU_HZ / self.rate)
                 if ch.fm and c - 1 in outputs:  # SPU pitch modulation: step * (1 + previous voice's output)
                     steps *= np.maximum(0.0, 1 + outputs[c - 1])
@@ -522,7 +561,7 @@ class Synth:
                         v.phase = OFF
                 # Before the start (the decoder's history begins at zero) and past a one-shot sample's end: silence.
                 values = np.where((taps < 0) | (taps >= length), 0, pcm[np.clip(taps, 0, length - 1)])
-                sample = (values * self.gauss[step]).sum(axis=1)
+                sample = (values * self.gauss[step]).sum(axis=1) if noise is None or not ch.noise else noise
                 if v is ch.voice:
                     outputs[c] = sample * env
                 if self.muted >> c & 1:

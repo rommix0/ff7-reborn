@@ -259,6 +259,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     # The driver's note mode (+0x6E): bit 0 slur (CC), bit 1 "this note slurs from the last", bit 2 full length (D0).
     mode, cut = 0, 0
     glide, last_key = 0, 0  # DA's glide ticks (+0x6C) and the last note's key (+0x6A), 0 = none
+    fm, fm_due = False, None  # FM on, and the tick D2/D3's countdown (+0xA6) flips it
     loops = []  # [loop start pos, pass count]; the driver keeps 4 levels
     first_seen, last_note = {}, None
     events = [[0, "program", 5], [0, "volume", 100], [0, "expression", 120]]
@@ -269,9 +270,12 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
         events.append([tick, kind, round(value)])
 
     def advance(ticks):
-        nonlocal tick
+        nonlocal tick, fm, fm_due
         for _ in range(ticks):
             tick += 1
+            if tick == fm_due:
+                fm, fm_due = not fm, None
+                events.append([tick, "fm", fm])
             for kind, slide in list(slides.items()):
                 before = round(levels[kind])
                 levels[kind] += slide[0]
@@ -377,8 +381,33 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "pan_lfo", delay, rate, wave, depth if on else 0])
             case 0xDD | 0xDE:  # slide the vibrato / tremolo depth to d over t ticks (0 = 256)
                 events.append([tick, "vibrato_slide" if b == 0xDD else "tremolo_slide", args[0] or 256, args[1]])
-            case 0xC6 | 0xC7:  # FM: pitch follows the previous voice's output
-                events.append([tick, "fm", b == 0xC6])
+            case 0xC6 | 0xC7:  # FM: pitch follows the previous voice's output; C7 also stops a D2/D3 countdown
+                fm = b == 0xC6
+                fm_due = fm_due if fm else None
+                events.append([tick, "fm", fm])
+            case 0xD2 | 0xD3:  # FM on now (D2 only), and flipped after n + 1 ticks (0 = 257)
+                if b == 0xD2:
+                    fm = True
+                    events.append([tick, "fm", True])
+                fm_due = tick + (args[0] + 1 if args[0] else 0x101)
+            case 0xC4 | 0xC5:  # the SPU noise generator instead of the sample
+                events.append([tick, "noise", b == 0xC4])
+            case 0xAC:  # noise clock 0-63; with either top bit set, add the low 6 bits instead (wrapping)
+                events.append([tick, "noise_clock_add" if args[0] & 0xC0 else "noise_clock", args[0] & 0x3F])
+            case 0xB0:  # decay rate and sustain level in one (the AE and AF handlers in turn)
+                events += [[tick, "dr", args[0]], [tick, "sl", args[1]]]
+            case 0xB3:  # the instrument's own envelope back
+                events.append([tick, "adsr_reset", True])
+            case 0xBB:  # sustain mode (1 linear up, 3 linear down, 5 exponential up, 7 exponential down)
+                events.append([tick, "sr_mode", args[0]])
+            case 0xD4 | 0xD5:  # pitch from the previous channel's voice, plus this channel's own vibrato
+                events.append([tick, "pitch_follow", b == 0xD4])
+            case 0xCB:  # all off: noise, FM (and its countdown), reverb, D4/D6, slur and full length
+                fm, fm_due, mode = False, None, mode & ~5
+                events += [[tick, "noise", False], [tick, "fm", False], [tick, "reverb", False],
+                           [tick, "pitch_follow", False]]
+            case 0xDB:  # glide off
+                glide = 0
             case 0xF4:  # layer: instrument a as usual, instrument b on a second voice playing the same notes
                 events.append([tick, "program", args[0] & 0x7F])
                 events.append([tick, "layer", [args[0] & 0x7F, args[1] & 0x7F]])

@@ -84,6 +84,30 @@ s.render(frames_for(58))
 v = s.channels[0].voice
 assert v.key == 62 and abs(v.pitch - s.pitch_of(s.channels[0], 62)) < 1e-6
 
+# Noise (C4): the voice plays the noise generator instead of its sample. At the top clock it changes every
+# sample, so neighbouring samples barely correlate (each is the last shifted), where the tone's do; adds wrap at 64.
+def lag1(cells):
+    s = synth(song(cells))
+    out = s.render(frames_for(24))[2000:, 0]
+    return np.corrcoef(out[:-1], out[1:])[0, 1], s
+
+
+tone, _ = lag1([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 72, "len": 96}]])
+hiss, s = lag1([[0, 0, {"tempo": 0x6000, "inst": 0, "noise": True, "noise_clock": 60, "noise_clock_add": 3,
+                        "note": 72, "len": 96}]])
+assert tone > 0.9 and abs(hiss) < 0.5 and s.noise_clock == 63
+s = synth(song([[0, 0, {"tempo": 0x6000, "noise_clock": 62, "noise_clock_add": 3}]]))
+s.render(64)
+assert s.noise_clock == 1
+
+# D4: the channel plays at the previous channel's pitch.
+two = song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 72, "len": 96}],
+            [0, 1, {"inst": 0, "pitch_follow": True, "note": 60, "len": 96}]])
+two["channels"] = 2
+s = synth(two)
+s.render(frames_for(24))
+assert s.channels[1].voice.pos == s.channels[0].voice.pos
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)
