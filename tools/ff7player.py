@@ -3,7 +3,7 @@
 usage: python tools/ff7player.py [folder]    # holds instruments.ff7bank and .ff7song files; default assets/ff7song
 
 Needs numpy and sounddevice (pip install -r tools/requirements-player.txt).
-Space plays/pauses, Ctrl+S saves. Click a cell to select it, double-click to edit, Delete clears it. Double-click a
+Space plays/pauses, Ctrl+S saves. Tempo % and Transpose change playback only, not the song. Click a cell to select it, double-click to edit, Delete clears it. Double-click a
 bar in the order list to jump there; click a channel heading to mute it. Bars that share a pattern change together
 until "Own copy" gives one bar its own.
 """
@@ -148,6 +148,8 @@ class PlayerWindow:
         self.shown_bar, self.row_ticks, self.selected = -1, [], None
         self.follow = tk.BooleanVar(value=True)
         self.row_step = tk.StringVar(value="auto")
+        self.tempo_percent = tk.IntVar(value=100)
+        self.transpose = tk.IntVar(value=0)
         self.build()
         # ponytail: numpy allocates in the audio callback; a high-latency stream absorbs it. A C mixer if it glitches.
         self.stream = sounddevice.OutputStream(samplerate=SPU_HZ, channels=2, dtype="float32", blocksize=1024,
@@ -168,14 +170,25 @@ class PlayerWindow:
         self.play_button.pack(side="left")
         ttk.Button(bar, text="Save", command=self.save).pack(side="left", padx=4)
         ttk.Checkbutton(bar, text="Follow playback", variable=self.follow).pack(side="left", padx=8)
+        # Master tempo and transpose: playback only, the song file doesn't change.
+        for label, var, low, high, step, unit in (("Tempo", self.tempo_percent, 25, 400, 5, "%"),
+                                                 ("Transpose", self.transpose, -24, 24, 1, "st")):
+            ttk.Label(bar, text=label).pack(side="left", padx=(8, 2))
+            box = ttk.Spinbox(bar, textvariable=var, from_=low, to=high, increment=step, width=4,
+                              command=self.apply_master)
+            box.pack(side="left")
+            box.bind("<Return>", lambda e: self.apply_master())
+            box.bind("<FocusOut>", lambda e: self.apply_master())
+            ttk.Label(bar, text=unit).pack(side="left")
+        ttk.Button(bar, text="Reset", width=6, command=self.reset_master).pack(side="left", padx=4)
         ttk.Label(bar, text="Rows every").pack(side="left")
         step = ttk.Combobox(bar, textvariable=self.row_step, width=5, state="readonly",
                             values=["auto", "1", "2", "3", "4", "6", "8", "12", "24", "48"])
         step.pack(side="left", padx=4)
         step.bind("<<ComboboxSelected>>", lambda e: self.show_bar(self.shown_bar, force=True))
         ttk.Label(bar, text="ticks").pack(side="left")
-        self.info = ttk.Label(bar, text="Pick a song.")
-        self.info.pack(side="left", padx=16)
+        self.info = ttk.Label(root, text="Pick a song.", padding=(10, 0, 10, 4))  # its own row: the toolbar is full
+        self.info.pack(fill="x")
 
         panes = ttk.PanedWindow(root, orient="horizontal")
         panes.pack(fill="both", expand=True)
@@ -293,6 +306,23 @@ class PlayerWindow:
         self.root.title(f"FF7 Music Player — {self.path.name}")
         self.refresh_order()
 
+    def apply_master(self):
+        """Hand the tempo and transpose boxes to the synth, clamped to their ranges; bad input goes back to the last
+        good value."""
+        try:
+            percent = min(400, max(25, self.tempo_percent.get()))
+            semitones = min(24, max(-24, self.transpose.get()))
+        except tk.TclError:
+            percent, semitones = round(self.synth.tempo_scale * 100), self.synth.transpose
+        self.tempo_percent.set(percent)
+        self.transpose.set(semitones)
+        self.synth.tempo_scale, self.synth.transpose = percent / 100, semitones
+
+    def reset_master(self):
+        self.tempo_percent.set(100)
+        self.transpose.set(0)
+        self.apply_master()
+
     def close(self):
         if self.keep_changes():
             self.stream.stop()
@@ -306,7 +336,7 @@ class PlayerWindow:
             tick = self.synth.tick
             i = min(bisect.bisect_right(starts, tick) - 1, len(self.song["order"]) - 1)
             p = self.song["patterns"][self.song["order"][i]]
-            tempo = self.synth.tempo
+            tempo = self.synth.tempo * self.synth.tempo_scale
             self.info.configure(text=f"{self.path.stem} · bar {i + 1} of {len(self.song['order'])} · "
                                      f"{p['beats']}/{192 // p['beat']} · "
                                      f"{bpm(tempo, self.song['timer_hz'], self.song['ticks_per_quarter']) if tempo else '–'}"

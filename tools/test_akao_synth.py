@@ -108,6 +108,26 @@ assert set(s.instruments) == {0, 54}
 s.load(song([]))
 assert set(s.instruments) == {0, 53, 60}
 
+# Master tempo scales what each interrupt adds to the tick accumulator; transpose scales every voice's pitch.
+normal, fast = synth(song([[0, 0, {"tempo": 0x6000}]])), synth(song([[0, 0, {"tempo": 0x6000}]]))
+fast.tempo_scale = 2.0
+normal.render(frames_for(40))
+fast.render(frames_for(40))
+assert abs(fast.tick - 2 * normal.tick) <= 2, (normal.tick, fast.tick)
+fast.tempo_scale = 4.0  # 0xFFFF x 4 per interrupt: several ticks at once
+fast.tempo = 0xFFFF
+before = fast.tick
+fast.render(math.ceil(10 * RATE / TIMER_HZ))
+assert fast.tick - before >= 38
+up = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 72, "len": 192}]]))
+up.transpose = 12
+plain = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 72, "len": 192}]]))
+for s_ in (up, plain):
+    s_.render(1000)
+    s_.channels[0].voice.pos = 0.0
+    s_.render(60)  # under one 64-sample loop of the test tone, even at double speed
+assert abs(up.channels[0].voice.pos - 2 * plain.channels[0].voice.pos) < 1e-6
+
 # Muted channels are silent; the stereo output is (frames, 2).
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 60, "len": 192}]]))
 s.muted = 1

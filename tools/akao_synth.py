@@ -109,6 +109,8 @@ class Synth:
         self.song = None
         self.tick, self.tempo = -1, 0
         self.muted = 0
+        self.tempo_scale = 1.0  # master tempo, on top of the song's own
+        self.transpose = 0  # master transpose in semitones
         self.playing = False
         # Commands from the UI thread, run at the start of the next audio block so state only changes there.
         self.commands = collections.deque()
@@ -259,8 +261,8 @@ class Synth:
                             lfo.countdown = lfo.rate
                             lfo.value = lfo.steps[lfo.index]
                             lfo.index = lfo.index + 1 if lfo.index + 1 < len(lfo.steps) else lfo.loop
-        self.accumulator += self.tempo
-        if self.accumulator >= 0x10000:
+        self.accumulator += round(self.tempo * self.tempo_scale)
+        while self.accumulator >= 0x10000:  # more than one tick per interrupt when the master tempo is fast
             self.accumulator -= 0x10000
             self.step_tick()
 
@@ -312,7 +314,7 @@ class Synth:
                 if not v or v.phase == OFF:
                     continue
                 env = self.envelope(v, n)
-                pitch = min(0x3FFF, max(0.0, v.pitch + self.vibrato_offset(v)))
+                pitch = min(0x3FFF, max(0.0, (v.pitch + self.vibrato_offset(v)) * 2 ** (self.transpose / 12)))
                 step = pitch / 4096 * SPU_HZ / self.rate
                 pcm, length = v.inst.pcm, len(v.inst.pcm)
                 pos = v.pos + step * np.arange(n)
