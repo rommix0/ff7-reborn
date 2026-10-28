@@ -289,14 +289,15 @@ class Synth:
                 ch.voice.bend = [ch.voice.pitch, self.pitch_of(ch, ch.voice.key + semitones), ticks, 0]
                 ch.voice.key += semitones
             if "note" in f and f.get("slur") and ch.voice:
-                # A slurred note takes over the sounding voice: new pitch and length, no key-on.
-                v = ch.voice
-                if v.phase == RELEASE and not v.left:  # its key-off came on this very tick: the driver has none
-                    v.phase = v.released_from
-                v.key, v.pitch, v.bend = f["note"], self.pitch_of(ch, f["note"]), None
-                v.left = -1 if f["len"] is None else f["len"]
-                if ch.layer_voice:
-                    ch.layer_voice.left = v.left
+                # A slurred note takes over the sounding voices (and a layer's): new key and length, no key-on.
+                for v in (ch.voice, ch.layer_voice):
+                    if not v:
+                        continue
+                    if v.phase == RELEASE and not v.left:  # its key-off came on this very tick: the driver has none
+                        v.phase = v.released_from
+                    v.key, v.bend = f["note"], None
+                    v.left = -1 if f["len"] is None else f["len"]
+                ch.voice.pitch = self.pitch_of(ch, f["note"])  # a layer voice follows the main voice's pitch
             elif "note" in f:
                 self.key_on(ch, f["note"], f["len"])
 

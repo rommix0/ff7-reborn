@@ -143,6 +143,15 @@ assert ch.balance == 32
 s.render(frames_for(8))
 assert abs(ch.balance - 96) < 1e-9
 
+# A slur on a layered channel takes over both voices (song 10, bar 6): the layer keeps sounding too.
+s = Synth(two, None, RATE)
+s.load(song([[0, 0, {"tempo": 0x6000, "inst": 0, "layer": [0, 1], "balance": 64, "note": 60, "len": 24}],
+             [24, 0, {"slur": True, "note": 62, "len": 24}]]))
+s.playing = True
+s.render(frames_for(30))
+ch = s.channels[0]
+assert ch.voice.phase < 3 and ch.layer_voice.phase < 3 and ch.layer_voice.key == 62
+
 # Pan LFO: the pan swings around the channel's pan by (depth >> 1) * step >> 15, the driver's integer maths.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "pan": 64, "pan_lfo": [0, 1, 7, 40], "note": 60, "len": 192}]]))
 offsets = set()
