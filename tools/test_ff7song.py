@@ -74,6 +74,11 @@ assert noise == [0, 500, -700, 0, 0]
 assert song_to_ff7song(song(bytes([0xB4, 0, 1, 12, 0x02, 0xA0])), None, noise)["lfo_noise"] == noise
 assert "lfo_noise" not in song_to_ff7song(song(bytes([0xB4, 0, 1, 6, 0x02, 0xA0])), None, noise)
 
+# Noise clock changes on one tick fold into one cell field, in the driver's order: add 1, set 46, add 2 -> 48.
+out = song_to_ff7song(song(bytes([0xAC, 0x41, 0xAC, 0x2E, 0xAC, 0x42, 0x02, 0xAC, 0x41, 0xAC, 0x43, 0x02, 0xA0])))
+cells = {tick: fields for tick, _, fields in out["patterns"][0]["cells"]}
+assert cells[0]["noise_clock"] == 48 and "noise_clock_add" not in cells[0] and cells[48]["noise_clock_add"] == 4
+
 # A sound effect: its channels at the effect tempo, from tick 0; no reverb of its own.
 table = [0xFFFF] * 2048
 table[10], table[11] = 0, 2

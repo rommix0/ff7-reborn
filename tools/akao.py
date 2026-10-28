@@ -318,14 +318,14 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 # A glide starts the note on the last one's key and bends to its own over the glide time.
                 last_note = [tick, "note", last_key if glide and last_key else key, last_len - early]
                 events.append(last_note)
-                if glide and last_key and key != last_key:
-                    events.append([tick, "bend", glide, key - last_key])
+                if glide and last_key:  # it takes over the bend fields, so a pending A4 bend is lost
+                    bend = (glide, key - last_key) if key != last_key else None
                 last_key = key
             elif semitone == 12 and last_note:
                 last_note[3] += cut + last_len - early  # tie: the last segment's early key-off didn't happen
-                if bend:  # a pending A4 bend starts on the tie, then is spent
-                    events.append([tick, "bend", *bend])
-                    bend = None
+            if semitone <= 12 and last_note and bend:  # a pending bend starts on the next note or tie, then is spent
+                events.append([tick, "bend", *bend])
+                bend = None
             cut = early
             mode = mode & ~2 | (mode & 1) << 1 if semitone <= 12 else mode & ~2
             advance(last_len)
@@ -340,7 +340,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "program", args[0] & 0x7F])
             case 0xA2:
                 next_len, fixed_len = args[0], 0
-            case 0xA4:  # bend by s semitones over n ticks (0 = 256), starting at the next tie
+            case 0xA4:  # bend by s semitones over n ticks (0 = 256), starting at the next note or tie
                 semitones = args[1] - 256 if args[1] & 0x80 else args[1]
                 bend = (args[0] or 256, semitones) if semitones else None
             case 0xC0 | 0xC1:  # transpose: set / add signed semitones

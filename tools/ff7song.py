@@ -87,8 +87,15 @@ def tracker(channels: list, loop_start: int | None, end: int, noise: list | None
             if kind == "meter":
                 continue
             value = True if kind == "slur" else args[0] if len(args) == 1 else args
-            merged.setdefault(tick, {}).update({"note": args[0], "len": args[1]} if kind == "note"
-                                               else {FIELD.get(kind, kind): value})
+            fields = merged.setdefault(tick, {})
+            # Noise clock changes on one tick fold into one: a set drops earlier adds, and adds after it add to it.
+            if kind == "noise_clock":
+                fields.pop("noise_clock_add", None)
+            elif kind == "noise_clock_add" and "noise_clock" in fields:
+                kind, value = "noise_clock", (fields["noise_clock"] + value) & 0x3F
+            elif kind == "noise_clock_add":
+                value = (fields.get("noise_clock_add", 0) + value) & 0x3F
+            fields.update({"note": args[0], "len": args[1]} if kind == "note" else {FIELD.get(kind, kind): value})
         for tick, fields in merged.items():
             bar = bars[bisect.bisect_right(bars, tick) - 1]
             cells[bar].append([tick - bar, ch, fields])

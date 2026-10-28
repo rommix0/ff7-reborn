@@ -351,8 +351,12 @@ Read from `seq_step_channel`'s note and tie paths:
   - **Values in the songs:** mostly −2…+1 (≈ ±14 cents, chorus-style), plus −128 (exactly one octave down) and ±60.
 - **`A4 n s` (`seq_cmd_bend`):** stores a slide length `n` (0 = 256, at `+0x68`) and a signed semitone amount `s`
   (`+0xD2`).
-  - **Start:** the next **tie** starts the bend. The target key becomes the current key + `s`, and the pitch slides
+  - **Start:** the next **note or tie** starts the bend. Both reach the same check in `seq_step_channel` (`.L8003161C`,
+    after a note's key-on): a non-zero `+0xD2` makes the target key the current key + `s`, and the pitch slides
     linearly *in frequency* to the target's pitch (transpose and detune included) over `n` ticks.
+  - **Songs and effects:** most songs put `A4` before a tie. Effects often put it before a note (effect 1: +15 and
+    +12; effect 36: +32), and so do songs 9 and 66. We used to start bends only on ties, which dropped those.
+  - **Glide:** a `DA` glide writes the same fields on a note, so a pending `A4` bend is lost.
   - **One-shot:** the amount is then cleared, and later ties hold the new pitch.
   - **Song 7 channel 16:** a 2-tick note, `A4 04 01`, a 10-tick tie, repeated.
   - **Scale:** 321 bends in the songs, from ±1 semitone over 4 ticks up to +65 over 8.
@@ -381,6 +385,8 @@ Read from `seq_step_channel`'s note and tie paths:
   sample. 305 of the 721 effects use it (effect 36's first channel hisses, rising).
   - **Clock (`AC n`, `0x80032D6C`):** n sets it (0–63). With either top bit set, it adds n & 0x3F instead, wrapping at
     64. Effects keep it at `0x80099FFA` and songs at `+0x52`; it starts at 0.
+  - **One tick, several `AC`s** (effect 36 adds 1, then sets 46): the export folds them into one cell field in the
+    driver's order. A set drops the earlier adds, and adds after it go onto it.
   - **The generator** (psx-spx): a 16-bit register that shifts in the inverted parity of bits 15, 12, 11 and 10, at
     most once per 44.1 kHz sample. A timer of 0x20000 >> (clock >> 2) counts down by 4 + (clock & 3) each sample.
     From power-on it repeats every 65,535 shifts. One generator and one clock serve every voice.
