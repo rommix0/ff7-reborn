@@ -17,3 +17,5 @@ seq_note_lengths = 0x80049C28;
 snd_queue_count = 0x80063010;
 instrument_table = 0x80075F28; // absolute:True
 snd_queue = 0x80081DC8; // absolute:True
+load_instrument_bank = 0x800297A4; // type:func
+load_instrument_bank2 = 0x80029818; // type:func

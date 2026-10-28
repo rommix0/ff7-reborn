@@ -33,6 +33,12 @@ python tools/akao.py check assets
 `check` parses every song and sound effect it finds and reports anything that doesn't parse (~3 minutes for three
 discs).
 
+Convert the instrument samples to WAV (with loop points) and a CSV of their settings:
+
+```bash
+python tools/instruments.py "assets/Final Fantasy VII (USA) (Disc 1)/SOUND"
+```
+
 ## Build toolchain (Linux or WSL)
 
 ```bash
