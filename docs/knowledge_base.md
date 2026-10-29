@@ -456,7 +456,7 @@ Read from `seq_step_channel`'s note and tie paths:
   channels, as offsets from `0x1000` (`0xFFFF` = none). That gives 721 effects: 702 with two channels and 19 with
   one, the 1,423 streams. 90 loop forever (ambient sounds).
 - **Playing one:** the sound commands around `0x20`–`0x34` (we read the handlers at `0x8002B6AC` and
-  `0x8002B8B4`) look up the id and hand both streams to `func_8002A094`. It sets up a pair of effect channels
+  `0x8002B8B4`) look up the id and hand both streams to `snd_start_effect`. It sets up a pair of effect channels
   (`0x80096608` + slot × `0x108`): the pan from the command, and flag `+0x54` = 1.
 - **Flag `+0x54`:** `B4`/`B8` (vibrato/tremolo on) take no delay, and a non-zero first byte becomes the depth
   instead.
@@ -624,7 +624,7 @@ Read from the command handlers, the note path at `0x80031518` and `seq_channel_l
     the depth, and `DD n d` slides the depth.
   - `B8`/`B9`/`BA`/`DE` do the same for tremolo.
   - `BC rate wave` and `BD d` are the pan LFO, and `BE` (`0x80032A98`) turns it off.
-  - A channel with flag `+0x54` set (by `func_8002A094`, never by songs) reads `B4`/`B8`'s first byte as the depth
+  - A channel with flag `+0x54` set (by `snd_start_effect`, never by songs) reads `B4`/`B8`'s first byte as the depth
     instead of the delay.
 - **Timing:** each note restarts the LFOs.
   - **The commands act on the sounding note at once.** `B4`/`B8`/`BC` (`0x80032614`, `0x80032804`, `0x8003298C`)
@@ -912,7 +912,7 @@ Rules for C that has to build both ways (and keep matching):
   `funcs.c` (also from `native_syms.py`) gives each driver function's game address.
 - **Structs with pointers grow on the PC** (`SeqChannel` isn't `0x108` bytes there). The driver copies them as
   `sizeof(...) / 4` words, which still works; nothing depends on the PS1 size.
-- **A function still in assembly needs its C under `#ifdef NON_MATCHING`** (`func_8002A28C`); `NATIVE` turns
+- **A function still in assembly needs its C under `#ifdef NON_MATCHING`** (`snd_start_lasting_effect`); `NATIVE` turns
   `INCLUDE_ASM` off.
 - **The `-G8` file's tentative definitions stay common** (`-fcommon`), so they resolve into `snd_ram` as they resolve
   to the data section's labels on the PS1. The link is `-no-pie`, since those addresses are absolute.
@@ -1035,11 +1035,11 @@ Lessons from getting it to match:
   - `F8`/`F9` reach `effect_voices` through a pointer: only then does GCC keep its address in a register as the
     game does.
   - `C9`/`CA` slide `C8`'s value (to, or from–to), `C0`/`C1`/`C2` set or slide `snd_master_volume`, `D2`/`D6` are `D0`'s and
-    `D4`'s from–to slides, and `E4` sets a byte and flag `0x10` at `0x80062FF8` with it.
+    `D4`'s from–to slides, and `E4` sets a byte and `snd_flags`' `SND_REVERB_SCALED` with it.
 - **Playing effects (sound commands `20`–`34`):** look the id up with `func_8002A6C4` (its two streams), then start it
-  with `func_8002A094(pan, pair, first, second)` after `snd_stop_effect_pairs` on the pair. `20`/`28` play on pair `0x34`,
+  with `snd_start_effect(pan, pair, first, second)` after `snd_stop_effect_pairs` on the pair. `20`/`28` play on pair `0x34`,
   `29` on `0x32`, `2A` on `0x30`, `2B` on `0x36`; `21`, `22` and `23` play two, three or four effects together from
-  `0x30` (or `0x32`) up; `30` hands its effect to `func_8002A28C`; `34` plays two streams the caller gives, centred.
+  `0x30` (or `0x32`) up; `30` hands its effect to `snd_start_lasting_effect`; `34` plays two streams the caller gives, centred.
 - **Songs (sound commands `10`, `14`, `15`, `18`, `19`):** `seq_song`'s `+0x4A` is the playing song's id (0 = none).
   - **`10` a b id** loads with `func_80029B78`, then resumes a saved song with that id (either slot,
     `snd_resume_song`) or starts it (`snd_start_song`); song 14 is saved first when it's playing.
@@ -1071,7 +1071,7 @@ Lessons from getting it to match:
     fields zeroed.
   - `snd_flush_queue`: runs each queued command through `snd_command_handlers`, unless `0x80062F8C` holds it.
   - `snd_stop_song`: every voice the song holds (layers and overlaps too) gets a 2-tick key-off and steps into an
-    end stub at `0x80049C40`; the song's voice masks are cleared.
+    end stub `seq_end_stub` (`0x80049C40`); the song's voice masks are cleared.
   - **The sample stream** (`snd_stream_*`): the game streams sample data from main RAM through a double buffer at
     SPU `0x77000`–`0x78FFF`, on voice 16 (mono) or voices 16/17 (stereo, 2 KB each per half).
     - **Setup:** `snd_stream_voice_mono` / `snd_stream_voices_stereo` set the voices up through `snd_direct_voice`.
@@ -1085,7 +1085,7 @@ Lessons from getting it to match:
     that end one) and returns `CA` or `A0`. It matched once the test sat inside a `for (;;)` with the return there.
 - **Pause and resume (sound commands `9A`–`9D`):**
   - **`9B` pauses the music:** its voices (not the effects' or the stream's) get volume 0 and a held sustain
-    through `snd_direct_voice`. Its `active_voices` move to `paused_voices` (`+0x14`) and `0x80062FF8` bit 0 is set.
+    through `snd_direct_voice`. Its `active_voices` move to `paused_voices` (`+0x14`) and `snd_flags` bit 0 (`SND_MUSIC_PAUSED`) is set.
   - **`9A` resumes it:** the voices rewrite volume and sustain, the masks move back, and the noise, reverb and FM
     voices go to the SPU again.
   - **`9D`/`9C`** do the same for the effects (bit 1), but a kind 2 effect on channels 54/55 (`+0x54` = 2) keeps
@@ -1105,7 +1105,7 @@ Lessons from getting it to match:
     reverb.
   - `snd_key_off_voices` does the same with the `key_off_voices` masks (`+0x10`).
   - **A second song block** (`seq_song2`, `0x8009A164`, right after `seq_song`) owns channels 24–47, its voices
-    limited by `0x80062F68`: the song fading out under `18`/`19`, and a waystation for `15` and `F4`.
+    limited by `seq_song2_voices` (`0x80062F68`): the song fading out under `18`/`19`, and a waystation for `15` and `F4`.
   - The masks are written as one expression with the "free voices" mask repeated as the last argument: computed
     first into a local, it schedules differently.
 - **More recovered this round:**
@@ -1115,12 +1115,12 @@ Lessons from getting it to match:
     still keyed on, or whose `F8` overlap voice is. `snd_keep_looping_effects` runs before `F4`: an effect whose
     stream ends in `CA` stays.
   - **The clock:** `snd_timer_tick` runs the sequencer ticks due since the last call (scanlines ÷ 66, 1–8, doubled
-    by `0x80062FF8` bit 2). It keeps how long the last four calls took in `snd_tick_time[4]` and their sum in
+    by `snd_flags` bit 2 (`SND_DOUBLE_SPEED`)). It keeps how long the last four calls took in `snd_tick_time[4]` and their sum in
     `snd_tick_time_total`.
-  - **`func_8002A094` (effect start) is C:** its pan parameter is `unsigned short` (every caller casts to it), and
+  - **`snd_start_effect` (effect start) is C:** its pan parameter is `unsigned short` (every caller casts to it), and
     the shifted pan goes back into the parameter. A separate local put the pan and the second stream in swapped
     saved registers.
-  - **Parked:** `func_8002A28C` (the kind 2 effect's start): the game keeps `&seq_channels[54]` in `s1` across
+  - **Parked:** `snd_start_lasting_effect` (the kind 2 effect's start): the game keeps `&seq_channels[54]` in `s1` across
     the first `channel_reset`; GCC here treats it as a constant, rebuilds it for each use and addresses channel 55's
     fields from it. An hour of decomp-permuter (about 190,000 tries) didn't find the form either.
 - **Voice output, song start and resume, the stream start (this round):**
@@ -1184,7 +1184,7 @@ Lessons from getting it to match:
       like `snd_pitch_scale`), to its phase. On a carry, every channel's gate counts down: the key-off at the high
       byte, the next event (`seq_step_channel`) at the low one. The effects have their own tempo and phase
       (`effect_tempo`, `effect_tempo_phase`).
-    - **Effects:** they run only while not paused, except kind 2, and each counts its ticks in `+0x50`.
+    - **Effects:** they run only while not paused, except kind 2, and each counts its ticks in `effect_ticks` (`+0x50`).
     - **Afterwards:** the first song's tempo, reverb and meter counters advance, a pause queued by `F3`
       (`pause_pending`, `+0x54`) runs as `9B`, the queue flushes, the global slides run and voices key off.
   - **`snd_slow_slides`** runs every 4th tick (`snd_slow_slide_tick`):

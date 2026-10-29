@@ -23,6 +23,8 @@ options:
   gp_value: 0x80062D44
   o_as_suffix: True
   use_legacy_include_asm: False
+  # include/include_asm.h and the .inc files are ours now (include_asm.h has the NATIVE guard): don't regenerate.
+  generate_asm_macros_files: False
   section_order: [".rodata", ".text", ".data", ".bss"]
 
   subalign: 2

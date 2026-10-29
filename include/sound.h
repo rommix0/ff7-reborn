@@ -11,6 +11,18 @@
 #define CHANNEL_LAYER         0x100 /* F4: a second voice under this one */
 #define CHANNEL_OVERLAP       0x200 /* F8: notes take turns between two voices */
 
+/* SeqSong.output_mode: how a channel's volume splits between the sides */
+#define OUTPUT_STEREO 1 /* by its pan */
+#define OUTPUT_MONO   2 /* both sides at the centre's share (any value but the other two) */
+#define OUTPUT_INVERT 4 /* by its pan, one side inverted: the right on odd voices, the left on even ones */
+
+/* snd_flags */
+#define SND_MUSIC_PAUSED   0x1   /* 9B */
+#define SND_EFFECTS_PAUSED 0x2   /* 9D: only a kind 2 effect keeps stepping */
+#define SND_DOUBLE_SPEED   0x4   /* never set by the driver: two sequencer steps per timer tick, on every tick */
+#define SND_REVERB_SCALED  0x10  /* E4 with a non-zero value */
+#define SND_EFFECTS_ASIDE  0x100 /* F4 set the effects aside in channels 24-31 */
+
 /* SeqSong.flags */
 #define SONG_UPDATE_NOISE  0x10 /* the noise voices or clock changed */
 #define SONG_UPDATE_REVERB 0x80 /* the reverb depth changed */
@@ -69,7 +81,7 @@ typedef struct SeqChannel {
     int volume;                         /* 0x44 A8 value << 23 */
     int volume_slide_step;              /* 0x48 */
     int bend_step;                      /* 0x4C bend_offset's step per tick */
-    int unk_50;                         /* 0x50 an effect start sets it to -1 */
+    int effect_ticks;                   /* 0x50 an effect's steps since it started (from -1); the driver never reads it */
     unsigned short is_effect;           /* 0x54 a sound effect's channel */
     unsigned short gate;                /* 0x56 key-off countdown << 8 | ticks to the next event */
     unsigned short instrument;          /* 0x58 */
@@ -133,7 +145,7 @@ typedef struct SeqChannel {
 
 /* The song or effect that owns the channels, handed to every command handler. */
 typedef struct SeqSong {
-    unsigned int unk_00;                /* 0x00 sound commands 80/81/82 set 1/2/4 */
+    unsigned int output_mode;           /* 0x00 OUTPUT_*: sound commands 80/81/82 */
     unsigned int active_voices;         /* 0x04 the song's own channels */
     unsigned int key_on_voices;         /* 0x08 voices to key on at the next output pass */
     unsigned int update_voices;         /* 0x0C voices the driver keeps updating (key-off takes a voice out) */
@@ -211,9 +223,9 @@ typedef struct Instrument {
 extern Instrument instrument_table[128];
 
 extern SeqSong seq_song;
-/* A second song block on channels 24-47, its voices limited to D_80062F68. What plays there isn't known yet. */
+/* A second song block on channels 24-47, its voices limited to seq_song2_voices. What plays there isn't known yet. */
 extern SeqSong seq_song2;
-extern unsigned int D_80062F68;
+extern unsigned int seq_song2_voices;
 /* The two blocks were one array in the original: code that touches both reaches the first through the second's
  * address, which GCC only does within one symbol. */
 extern SeqSong seq_songs[2];
@@ -259,7 +271,7 @@ extern unsigned int effect_tempo; /* << 16, like a song's */
 extern unsigned int effect_tempo_phase;
 extern SoundCommand snd_request; /* the game fills it and calls snd_submit_request (seq_tick also hands it to 9B for F3) */
 
-extern int D_80062F04; /* when set, layer voices are numbered from 24 */
+extern int seq_stepping_song2; /* when set, layer voices are numbered from 24 */
 
 /* Every channel, music and effects. A music channel's spare voice (F4, F8) keeps its settings in that voice's entry,
  * and an effect hands its voice back to that voice's entry when it ends. */
@@ -293,14 +305,14 @@ extern int snd_muted_voices;
 extern unsigned short snd_reverb_balance;
 extern short snd_cd_volume_slide_ticks;
 extern int snd_cd_volume; /* C8, << 16 */
-extern unsigned char D_80049C40[]; /* where snd_stop_song points every channel */
+extern unsigned char seq_end_stub[]; /* where snd_stop_song points every channel */
 extern int snd_cd_volume_slide_step;
 extern int snd_master_volume; /* C0: 0-127 << 16 */
 extern unsigned short snd_master_volume_top; /* its top half, as the voice update reads it */
 extern int snd_master_volume_step;
 extern short snd_master_volume_ticks;
 extern unsigned short snd_reverb_scale;
-extern unsigned int D_80062FF8;
+extern unsigned int snd_flags;
 extern unsigned short snd_fade_ticks;
 extern unsigned short snd_slow_slide_tick; /* snd_slow_slides runs on every 4th */
 
@@ -329,8 +341,8 @@ extern int snd_queue_count;
 void snd_effect_streams(unsigned char **first, unsigned char **second, int effect);
 extern unsigned short *effect_offsets; /* EFFECT.ALL's table: two stream offsets per effect, 0xFFFF = none */
 extern unsigned char *effect_data;     /* what the offsets count from */
-void func_8002A094(unsigned short pan, unsigned short pair, unsigned char *first, unsigned char *second); /* starts an effect */
-void func_8002A28C(unsigned char *first, unsigned char *second);
+void snd_start_effect(unsigned short pan, unsigned short pair, unsigned char *first, unsigned char *second);
+void snd_start_lasting_effect(unsigned char *first, unsigned char *second);
 void snd_fade_out_song(void);
 void snd_load_song(unsigned int *data, unsigned int size); /* copies the song into song_data */
 void snd_start_song(void); /* starts the loaded song */

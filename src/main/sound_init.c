@@ -10,7 +10,7 @@ unsigned short *effect_offsets;
 unsigned char *effect_data;
 int snd_master_volume;
 int snd_cd_volume;
-unsigned int D_80062F68;
+unsigned int seq_song2_voices;
 unsigned int snd_stream_voices;
 short snd_cd_volume_slide_ticks;
 short snd_master_volume_ticks;
@@ -23,7 +23,7 @@ unsigned short snd_timer_last_count;
 int snd_queue_locked;
 int snd_queue_count;
 int snd_muted_voices;
-unsigned int D_80062FF8;
+unsigned int snd_flags;
 unsigned short snd_reverb_balance;
 
 
@@ -67,7 +67,7 @@ void snd_reset(void)
     SeqChannel *ch;
     ChannelFade *fade;
 
-    seq_song.unk_00 = 1;
+    seq_song.output_mode = OUTPUT_STEREO;
     snd_master_volume = 0x7F0000;
     snd_cd_volume = 0x7FFF0000;
     saved_songs[1].song_id = 0;
@@ -79,7 +79,7 @@ void snd_reset(void)
     effect_voices = 0;
     seq_song2.active_voices = 0;
     seq_song_active_voices = 0;
-    D_80062F68 = 0;
+    seq_song2_voices = 0;
     snd_stream_voices = 0;
     effect_paused_voices = 0;
     seq_song_paused_voices = 0;
@@ -122,15 +122,15 @@ void snd_reset(void)
     snd_queue_locked = 0;
     snd_queue_count = 0;
     snd_muted_voices = 0;
-    D_80062F68 = 0;
-    D_80062FF8 = 0;
+    seq_song2_voices = 0;
+    snd_flags = 0;
     snd_reverb_balance = 0x40;
     fade = snd_channel_fades;
     ch = seq_channels;
     for (i = 0; i < 24; i++, ch++, fade++) {
         fade->ticks = 0;
         fade->step = 0;
-        ch->unk_50 = 0;
+        ch->effect_ticks = 0;
         ch->flags = 0;
         ch->voice.voice = i;
         ch->is_effect = 0;
@@ -142,7 +142,7 @@ void snd_reset(void)
         ch->pitch_shift_slide_ticks = 0;
         ch->pitch_shift = 0;
         ch->balance_slide_ticks = 0;
-        ch->unk_50 = 0;
+        ch->effect_ticks = 0;
         ch->flags = 0;
         ch->overlap_voice = i;
         ch->voice.voice = i;

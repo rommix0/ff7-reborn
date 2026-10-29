@@ -163,7 +163,7 @@ void snd_start_song(void)
     seq_song_key_on_voices = 0;
     seq_song_overlap_voices = 0;
     seq_song_layer_voices = 0;
-    if (D_80062FF8 & 1) {
+    if (snd_flags & SND_MUSIC_PAUSED) {
         seq_song_paused_voices = seq_song_active_voices;
         seq_song_active_voices = 0;
     }
@@ -195,7 +195,7 @@ void snd_stop_song(void)
         if (voices & bit) {
             voices ^= bit;
             ch->gate = 0x204;
-            ch->pos = D_80049C40;
+            ch->pos = seq_end_stub;
         }
         bit <<= 1;
         ch++;
@@ -224,7 +224,7 @@ void snd_stop_songs(void)
             if (voices & bit) {
                 voices ^= bit;
                 ch->gate = 0x204;
-                ch->pos = D_80049C40;
+                ch->pos = seq_end_stub;
             }
             bit <<= 1;
             ch++;
@@ -247,7 +247,7 @@ void snd_stop_songs(void)
         if (voices & bit) {
             voices ^= bit;
             ch->gate = 0x204;
-            ch->pos = D_80049C40;
+            ch->pos = seq_end_stub;
         }
         bit <<= 1;
         ch++;
@@ -258,7 +258,7 @@ void snd_stop_songs(void)
  * no slide. The pair's voices join the effects, any it already held key off first, and none of them carries old
  * noise, reverb or FM. While the effects are paused (9D), they go straight to the paused set, but a kind 2 effect on
  * 54/55 stays out of it. */
-void func_8002A094(unsigned short pan, unsigned short pair, unsigned char *first, unsigned char *second)
+void snd_start_effect(unsigned short pan, unsigned short pair, unsigned char *first, unsigned char *second)
 {
     SeqChannel *ch;
     unsigned int *held;
@@ -270,12 +270,12 @@ void func_8002A094(unsigned short pan, unsigned short pair, unsigned char *first
     ch = &seq_channels[pair];
     ch[0].gate = 0x101;
     ch[1].gate = 0x101;
-    ch[0].pos = D_80049C40;
-    ch[1].pos = D_80049C40;
+    ch[0].pos = seq_end_stub;
+    ch[1].pos = seq_end_stub;
     ch[0].is_effect = 1;
     ch[1].is_effect = 1;
-    ch[0].unk_50 = -1;
-    ch[1].unk_50 = -1;
+    ch[0].effect_ticks = -1;
+    ch[1].effect_ticks = -1;
     if (first) {
         voices = 1;
         channel_reset(ch, first);
@@ -301,7 +301,7 @@ void func_8002A094(unsigned short pan, unsigned short pair, unsigned char *first
     effect_noise_voices &= voices;
     effect_reverb_voices &= voices;
     effect_fm_voices &= voices;
-    if (D_80062FF8 & 2) {
+    if (snd_flags & SND_EFFECTS_PAUSED) {
         voices = *held;
         if (seq_channels[54].is_effect == 2) {
             *held = voices & 0xC00000;
@@ -319,19 +319,19 @@ void func_8002A094(unsigned short pan, unsigned short pair, unsigned char *first
 /* 30: starts the kind 2 effect on channels 54/55 (voices 22/23), centred. It stays through F1 and 9D. */
 #ifdef NON_MATCHING
 /* Same code, but the game keeps &seq_channels[54] in s1 where GCC rebuilds the constant. */
-void func_8002A28C(unsigned char *first, unsigned char *second)
+void snd_start_lasting_effect(unsigned char *first, unsigned char *second)
 {
     SeqChannel *ch = &seq_channels[54];
     unsigned int voices = 0;
 
     seq_channels[54].gate = 0x101;
     seq_channels[55].gate = 0x101;
-    ch->pos = D_80049C40;
-    seq_channels[55].pos = D_80049C40;
+    ch->pos = seq_end_stub;
+    seq_channels[55].pos = seq_end_stub;
     seq_channels[54].is_effect = 2;
     seq_channels[55].is_effect = 2;
-    seq_channels[54].unk_50 = -1;
-    seq_channels[55].unk_50 = -1;
+    seq_channels[54].effect_ticks = -1;
+    seq_channels[55].effect_ticks = -1;
     if (first) {
         voices = 1;
         channel_reset(ch, first);
@@ -357,7 +357,7 @@ void func_8002A28C(unsigned char *first, unsigned char *second)
     effect_paused_voices &= ~0xC00000;
 }
 #else
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A28C);
+INCLUDE_ASM("asm/nonmatchings/main/sound", snd_start_lasting_effect);
 #endif
 
 /* F1: every effect ends (it steps into snd_stop_song's end stub), all but a kind 2 effect on channels 54/55, whose
@@ -370,7 +370,7 @@ void snd_stop_effects(void)
     for (i = 48; i < 56; i++, ch++) {
         if (ch->is_effect != 2) {
             ch->gate = 0x204;
-            ch->pos = D_80049C40;
+            ch->pos = seq_end_stub;
         }
     }
     if (seq_channels[54].is_effect == 2) {
@@ -417,7 +417,7 @@ void snd_stop_effect_pairs(unsigned short pair, int pairs)
     }
     for (; n; n--, ch--) {
         ch->gate = 0x204;
-        ch->pos = D_80049C40;
+        ch->pos = seq_end_stub;
     }
 }
 
@@ -599,7 +599,7 @@ void snd_resume_song(int slot)
         for (n = 24; n; n--, ch++, bit <<= 1) {
             if (!(voices & bit)) {
                 ch->gate = 0x204;
-                ch->pos = D_80049C40;
+                ch->pos = seq_end_stub;
             }
         }
     }
@@ -625,7 +625,7 @@ void snd_resume_song(int slot)
         snd_master_volume = 0xA0000;
     }
     saved_songs[s].song_id = 0;
-    if (D_80062FF8 & 1) {
+    if (snd_flags & SND_MUSIC_PAUSED) {
         seq_song_paused_voices = seq_song_active_voices;
         seq_song_active_voices = 0;
     }
@@ -685,8 +685,8 @@ void snd_fade_out_song(void)
         snd_channel_fades[i].ticks = left * snd_fade_ticks;
         left--;
     }
-    D_80062F68 = 0xFFFFFF;
-    D_80062FF8 &= ~0x100;
+    seq_song2_voices = 0xFFFFFF;
+    snd_flags &= ~SND_EFFECTS_ASIDE;
 }
 
 /* Copies the playing song's 24 channels and its state into a save slot. */
@@ -752,7 +752,7 @@ void snd_cmd_15(SoundCommand *cmd)
 {
     SeqSong *song;
 
-    D_80062FF8 &= ~0x100;
+    snd_flags &= ~SND_EFFECTS_ASIDE;
     snd_load_song((unsigned int *)cmd->arg[0], cmd->arg[1]);
     snd_keep_sounding_voices();
     if (saved_songs[0].song_id == (unsigned short)cmd->arg[2]) {
@@ -811,7 +811,7 @@ void snd_cmd_19(SoundCommand *cmd)
 void snd_cmd_34(SoundCommand *cmd)
 {
     snd_stop_effect_pairs(4, 1);
-    func_8002A094(0x40, 0x34, (unsigned char *)cmd->arg[0], (unsigned char *)cmd->arg[1]);
+    snd_start_effect(0x40, 0x34, (unsigned char *)cmd->arg[0], (unsigned char *)cmd->arg[1]);
 }
 
 /* 21 pan a b: play effects a and b together, on the pairs at 0x32 and 0x34. */
@@ -822,9 +822,9 @@ void snd_cmd_21(SoundCommand *cmd)
 
     snd_stop_effect_pairs(4, 2);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x32, first, second);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[2]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x34, first, second);
 }
 
 /* 22 / 23 pan a b c (d): three or four effects together, on the pairs from 0x30 up. */
@@ -836,11 +836,11 @@ void snd_cmd_22(SoundCommand *cmd)
     snd_stop_effect_pairs(4, 3);
     snd_stream_stop();
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x30, first, second);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[2]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x32, first, second);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[3]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x34, first, second);
 }
 
 void snd_cmd_23(SoundCommand *cmd)
@@ -851,16 +851,16 @@ void snd_cmd_23(SoundCommand *cmd)
     snd_stop_effect_pairs(6, 4);
     snd_stream_stop();
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x30, first, second);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[2]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x32, first, second);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[3]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x34, first, second);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[4]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x36, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x36, first, second);
 }
 
-/* 30 id: play effect id through func_8002A28C. */
+/* 30 id: play effect id through snd_start_lasting_effect. */
 void snd_cmd_30(SoundCommand *cmd)
 {
     unsigned char *first;
@@ -868,7 +868,7 @@ void snd_cmd_30(SoundCommand *cmd)
 
     snd_stop_effect_pairs(6, 1);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[0]);
-    func_8002A28C(first, second);
+    snd_start_lasting_effect(first, second);
 }
 
 /* 20 (and 28) / 29 / 2B pan id: play effect id on the pair at 0x34 / 0x32 / 0x36, after snd_stop_effect_pairs on it. */
@@ -879,7 +879,7 @@ void snd_cmd_20(SoundCommand *cmd)
 
     snd_stop_effect_pairs(4, 1);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x34, first, second);
 }
 
 void snd_cmd_29(SoundCommand *cmd)
@@ -889,7 +889,7 @@ void snd_cmd_29(SoundCommand *cmd)
 
     snd_stop_effect_pairs(2, 1);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x32, first, second);
 }
 
 /* 2A pan id: play effect id on the pair at 0x30, after snd_stop_effect_pairs on pair 0 and snd_stream_stop. */
@@ -901,7 +901,7 @@ void snd_cmd_2A(SoundCommand *cmd)
     snd_stop_effect_pairs(0, 1);
     snd_stream_stop();
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x30, first, second);
 }
 
 void snd_cmd_2B(SoundCommand *cmd)
@@ -911,7 +911,7 @@ void snd_cmd_2B(SoundCommand *cmd)
 
     snd_stop_effect_pairs(6, 1);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
-    func_8002A094((unsigned short)cmd->arg[0], 0x36, first, second);
+    snd_start_effect((unsigned short)cmd->arg[0], 0x36, first, second);
 }
 
 /* C0 v / C1 t v / C2 t a b: set or slide a value at 0x80062F5C (v & 0x7F) << 16, then call snd_refresh_song_volumes. */
@@ -1311,21 +1311,21 @@ void snd_cmd_F1(SoundCommand *cmd)
 
 void snd_cmd_80(SoundCommand *cmd)
 {
-    seq_song.unk_00 = 1;
+    seq_song.output_mode = OUTPUT_STEREO;
     snd_refresh_song_volumes();
     snd_refresh_effect_volumes();
 }
 
 void snd_cmd_82(SoundCommand *cmd)
 {
-    seq_song.unk_00 = 4;
+    seq_song.output_mode = OUTPUT_INVERT;
     snd_refresh_song_volumes();
     snd_refresh_effect_volumes();
 }
 
 void snd_cmd_81(SoundCommand *cmd)
 {
-    seq_song.unk_00 = 2;
+    seq_song.output_mode = OUTPUT_MONO;
     snd_refresh_song_volumes();
     snd_refresh_effect_volumes();
 }
@@ -1376,7 +1376,7 @@ void snd_cmd_9B(SoundCommand *cmd)
         seq_song_paused_voices = seq_song_active_voices;
         seq_song_active_voices = 0;
     }
-    D_80062FF8 |= 1;
+    snd_flags |= SND_MUSIC_PAUSED;
 }
 
 /* 9A: resumes the music. Its voices rewrite their volume and sustain. */
@@ -1403,7 +1403,7 @@ void snd_cmd_9A(SoundCommand *cmd)
         snd_apply_reverb_voices();
         snd_apply_fm_voices();
     }
-    D_80062FF8 &= ~1;
+    snd_flags &= ~SND_MUSIC_PAUSED;
 }
 
 /* 9D: pauses the effects, all but voices 22/23 while channel 54 plays a kind 2 effect. */
@@ -1435,7 +1435,7 @@ void snd_cmd_9D(SoundCommand *cmd)
             voice++;
         }
     }
-    D_80062FF8 |= 2;
+    snd_flags |= SND_EFFECTS_PAUSED;
 }
 
 /* 9C: resumes the effects. */
@@ -1462,7 +1462,7 @@ void snd_cmd_9C(SoundCommand *cmd)
         snd_apply_reverb_voices();
         snd_apply_fm_voices();
     }
-    D_80062FF8 &= ~2;
+    snd_flags &= ~SND_EFFECTS_PAUSED;
 }
 
 void snd_cmd_E0(SoundCommand *cmd)
@@ -1471,16 +1471,16 @@ void snd_cmd_E0(SoundCommand *cmd)
     seq_song_flags |= SONG_UPDATE_REVERB;
 }
 
-/* E4 n: stores n (a byte) and sets flag 0x10 at 0x80062FF8 when it's non-zero; the reverb is updated. */
+/* E4 n: stores n (a byte) as snd_reverb_scale, with SND_REVERB_SCALED when it's non-zero; the reverb is updated. */
 void snd_cmd_E4(SoundCommand *cmd)
 {
     unsigned short n = (unsigned char)cmd->arg[0];
 
     snd_reverb_scale = n;
     if (n)
-        D_80062FF8 |= 0x10;
+        snd_flags |= SND_REVERB_SCALED;
     else
-        D_80062FF8 &= ~0x10;
+        snd_flags &= ~SND_REVERB_SCALED;
     snd_apply_reverb_voices();
     seq_song_flags |= SONG_UPDATE_REVERB;
 }
@@ -1523,7 +1523,7 @@ void snd_cmd_F4(SoundCommand *cmd)
         saved[0] &= ~0xC00000;
         saved[1] &= ~0xC00000;
     }
-    D_80062FF8 |= 0x100;
+    snd_flags |= SND_EFFECTS_ASIDE;
     snd_stop_effects();
     cmd->arg[0] = 0x7F;
     snd_cmd_B8(cmd);
@@ -1539,7 +1539,7 @@ void snd_cmd_F5(SoundCommand *cmd)
     unsigned int *state;
     unsigned short n;
 
-    if (!(D_80062FF8 & 0x100))
+    if (!(snd_flags & SND_EFFECTS_ASIDE))
         return;
     src = (unsigned int *)&seq_channels[24];
     dst = (unsigned int *)&seq_channels[48];
@@ -1557,7 +1557,7 @@ void snd_cmd_F5(SoundCommand *cmd)
         *dst++ = *src++;
     } while (n);
     effect_key_off_voices = held & ~effect_voices;
-    D_80062FF8 &= ~0x100;
+    snd_flags &= ~SND_EFFECTS_ASIDE;
     snd_apply_noise_voices();
     snd_apply_reverb_voices();
     snd_apply_fm_voices();
@@ -2356,12 +2356,12 @@ void seq_channel_lfo(SeqChannel *ch, unsigned int voice, unsigned short index)
         if (snd_channel_fades[0].ticks)
             volume = (volume * (short)(snd_channel_fades[index].volume >> 16)) >> 7;
         value = ((ch->pan >> 8) + ch->pan_lfo_offset) & 0xFF;
-        switch (seq_song.unk_00) {
-        case 1:
+        switch (seq_song.output_mode) {
+        case OUTPUT_STEREO:
             ch->voice.volume[0] = (volume * snd_pan_left[value]) >> 15;
             ch->voice.volume[1] = (volume * snd_pan_right[value]) >> 15;
             break;
-        case 4:
+        case OUTPUT_INVERT:
             ch->voice.volume[0] = (volume * snd_pan_left[value]) >> 15;
             ch->voice.volume[1] = (volume * snd_pan_right[value]) >> 15;
             if (voice & 0xAAAAAA)
@@ -2453,12 +2453,12 @@ void seq_effect_lfo(SeqChannel *ch, unsigned int voice)
             volume = (volume * (ch->balance >> 8)) >> 7;
             value = ((ch->pan >> 8) + ch->pan_lfo_offset) & 0xFF;
         }
-        switch (seq_song.unk_00) {
-        case 1:
+        switch (seq_song.output_mode) {
+        case OUTPUT_STEREO:
             ch->voice.volume[0] = (volume * snd_pan_left[value]) >> 15;
             ch->voice.volume[1] = (volume * snd_pan_right[value]) >> 15;
             break;
-        case 4:
+        case OUTPUT_INVERT:
             ch->voice.volume[0] = (volume * snd_pan_left[value]) >> 15;
             ch->voice.volume[1] = (volume * snd_pan_right[value]) >> 15;
             if (voice & 0xAAAAAA)
@@ -2556,7 +2556,7 @@ void seq_update_voices(void)
         bit = 1;
         index = 0;
         ch = &seq_channels[24];
-        free = ~(effect_voices | snd_stream_voices) & D_80062F68;
+        free = ~(effect_voices | snd_stream_voices) & seq_song2_voices;
         voices &= free & seq_song2.update_voices;
         key_on = free & seq_song2.key_on_voices;
         do {
@@ -2598,7 +2598,7 @@ void seq_update_voices(void)
         bit = 1;
         index = 0;
         ch = seq_channels;
-        free = ~(D_80062F68 | effect_voices | snd_stream_voices);
+        free = ~(seq_song2_voices | effect_voices | snd_stream_voices);
         voices &= free & seq_song_update_voices;
         key_on |= free & seq_song_key_on_voices;
         do {
@@ -2698,15 +2698,15 @@ void snd_key_off_voices(void)
     unsigned int voices;
 
     if (seq_song2.active_voices) {
-        voices = seq_song2.key_off_voices & D_80062F68 & ~(effect_voices | snd_stream_voices);
+        voices = seq_song2.key_off_voices & seq_song2_voices & ~(effect_voices | snd_stream_voices);
         if (voices)
             snd_add_spare_voices(&seq_channels[24], &mask, voices, ~(effect_voices | snd_stream_voices));
         seq_song2.key_off_voices = 0;
     }
     if (seq_song_active_voices) {
-        voices = ~(D_80062F68 | effect_voices | snd_stream_voices) & seq_song_key_off_voices;
+        voices = ~(seq_song2_voices | effect_voices | snd_stream_voices) & seq_song_key_off_voices;
         if (voices)
-            snd_add_spare_voices(seq_channels, &mask, voices, ~(D_80062F68 | effect_voices | snd_stream_voices));
+            snd_add_spare_voices(seq_channels, &mask, voices, ~(seq_song2_voices | effect_voices | snd_stream_voices));
         seq_song_key_off_voices = 0;
     }
     mask |= effect_key_off_voices;
@@ -2722,12 +2722,12 @@ void snd_apply_noise_voices(void)
     unsigned int mask = 0;
     unsigned int voices;
 
-    voices = seq_song2.noise_voices & D_80062F68 & ~(*held | snd_stream_voices);
+    voices = seq_song2.noise_voices & seq_song2_voices & ~(*held | snd_stream_voices);
     if (voices)
         snd_add_spare_voices(&seq_channels[24], &mask, voices, ~(*held | snd_stream_voices));
-    voices = ~(D_80062F68 | *held | snd_stream_voices) & seq_song.noise_voices;
+    voices = ~(seq_song2_voices | *held | snd_stream_voices) & seq_song.noise_voices;
     if (voices)
-        snd_add_spare_voices(seq_channels, &mask, voices, ~(D_80062F68 | *held | snd_stream_voices));
+        snd_add_spare_voices(seq_channels, &mask, voices, ~(seq_song2_voices | *held | snd_stream_voices));
     mask |= effect_noise_voices;
     func_80037964(1, mask);
     mask ^= 0xFFFFFF;
@@ -2741,15 +2741,15 @@ void snd_apply_reverb_voices(void)
     unsigned int mask = 0;
     unsigned int voices;
 
-    voices = seq_song2.reverb_voices & D_80062F68 & ~(*held | snd_stream_voices);
+    voices = seq_song2.reverb_voices & seq_song2_voices & ~(*held | snd_stream_voices);
     if (voices)
         snd_add_spare_voices(&seq_channels[24], &mask, voices, ~(*held | snd_stream_voices));
-    if (D_80062FF8 & 0x10) {
+    if (snd_flags & SND_REVERB_SCALED) {
         mask = 0xFFFFFF;
     } else {
-        voices = ~(D_80062F68 | *held | snd_stream_voices) & seq_song.reverb_voices;
+        voices = ~(seq_song2_voices | *held | snd_stream_voices) & seq_song.reverb_voices;
         if (voices)
-            snd_add_spare_voices(seq_channels, &mask, voices, ~(D_80062F68 | *held | snd_stream_voices));
+            snd_add_spare_voices(seq_channels, &mask, voices, ~(seq_song2_voices | *held | snd_stream_voices));
     }
     mask |= effect_reverb_voices;
     func_800388C4(1, mask);
@@ -2764,12 +2764,12 @@ void snd_apply_fm_voices(void)
     unsigned int mask = 0;
     unsigned int voices;
 
-    voices = seq_song2.fm_voices & D_80062F68 & ~(*held | snd_stream_voices);
+    voices = seq_song2.fm_voices & seq_song2_voices & ~(*held | snd_stream_voices);
     if (voices)
         snd_add_spare_voices(&seq_channels[24], &mask, voices, ~(*held | snd_stream_voices));
-    voices = ~(D_80062F68 | *held | snd_stream_voices) & seq_song.fm_voices;
+    voices = ~(seq_song2_voices | *held | snd_stream_voices) & seq_song.fm_voices;
     if (voices)
-        snd_add_spare_voices(seq_channels, &mask, voices, ~(D_80062F68 | *held | snd_stream_voices));
+        snd_add_spare_voices(seq_channels, &mask, voices, ~(seq_song2_voices | *held | snd_stream_voices));
     mask |= effect_fm_voices;
     func_80039010(1, mask);
     mask ^= 0xFFFFFF;
@@ -2777,7 +2777,7 @@ void snd_apply_fm_voices(void)
 }
 
 /* Root counter 2's interrupt: runs the sequencer ticks due since the last call (scanlines / 66, 1-8 of them, doubled
- * by 0x80062FF8 bit 2), and keeps how long the last four calls took (counter 2 units) and their total. */
+ * by SND_DOUBLE_SPEED), and keeps how long the last four calls took (counter 2 units) and their total. */
 unsigned int snd_timer_tick(void)
 {
     int start = GetRCnt(0xF2000002);
@@ -2791,7 +2791,7 @@ unsigned int snd_timer_tick(void)
         ticks = 1;
     snd_timer_last_count = count;
     count = ticks;
-    if (D_80062FF8 & 4)
+    if (snd_flags & SND_DOUBLE_SPEED)
         ticks <<= 1;
     while (ticks) {
         ticks--;
@@ -2829,7 +2829,7 @@ void snd_slow_slides(void)
         snd_cd_volume += snd_cd_volume_slide_step;
         snd_apply_cd_volume();
     }
-    if (!(D_80062FF8 & 1)) {
+    if (!(snd_flags & SND_MUSIC_PAUSED)) {
         if (snd_master_volume_ticks) {
             value = snd_master_volume + snd_master_volume_step;
             if (!--snd_master_volume_ticks && !(value & 0x7F0000) && snd_master_volume_step < 0)
@@ -2869,7 +2869,7 @@ void snd_slow_slides(void)
                         effect_key_on_voices &= ~bit;
                         effect_update_voices &= ~bit;
                         pos = &ch->pos;
-                        *pos = D_80049C40;
+                        *pos = seq_end_stub;
                     } else if ((value & 0xFF00) != (ch->balance & 0xFF00)) {
                         ch->voice.update |= UPDATE_VOLUME;
                     }
@@ -2910,8 +2910,8 @@ void snd_slow_slides(void)
         fade->volume += fade->step;
         ch->voice.update |= UPDATE_VOLUME;
         main->voice.update |= UPDATE_VOLUME;
-        if (!fade->ticks && D_80062F68 & bit) {
-            D_80062F68 ^= bit;
+        if (!fade->ticks && seq_song2_voices & bit) {
+            seq_song2_voices ^= bit;
             if (*active & bit) {
                 seq_cmd_end(ch, &seq_songs[1], bit);
                 seq_songs[1].key_on_voices &= ~bit;
@@ -2959,11 +2959,11 @@ void seq_tick(void)
         }
         value = tempo + seq_song_tempo_phase;
         seq_song_tempo_phase = value;
-        if (value & 0xFFFF0000 || D_80062FF8 & 4) {
+        if (value & 0xFFFF0000 || snd_flags & SND_DOUBLE_SPEED) {
             bit = 1;
             ch = seq_channels;
             seq_song_tempo_phase = value & 0xFFFF;
-            D_80062F04 = 0;
+            seq_stepping_song2 = 0;
             do {
                 if (voices & bit) {
                     /* Through a plain pointer: the game never moves the mask loads above this store. */
@@ -3012,9 +3012,9 @@ void seq_tick(void)
         }
         value = tempo + seq_song2.tempo_phase;
         seq_song2.tempo_phase = value;
-        if (value & 0xFFFF0000 || D_80062FF8 & 4) {
+        if (value & 0xFFFF0000 || snd_flags & SND_DOUBLE_SPEED) {
             seq_song2.tempo_phase = value & 0xFFFF;
-            D_80062F04 = 1;
+            seq_stepping_song2 = 1;
             bit = 1;
             ch = &seq_channels[24];
             do {
@@ -3044,14 +3044,14 @@ void seq_tick(void)
     if (voices) {
         value = (effect_tempo >> 16) + effect_tempo_phase;
         effect_tempo_phase = value;
-        if (value & 0xFFFF0000 || D_80062FF8 & 4) {
+        if (value & 0xFFFF0000 || snd_flags & SND_DOUBLE_SPEED) {
             effect_tempo_phase = value & 0xFFFF;
             bit = 0x10000;
             ch = &seq_channels[48];
             do {
                 if (voices & bit) {
-                    if (!(D_80062FF8 & 2) || ch->is_effect == 2) {
-                        ch->unk_50++;
+                    if (!(snd_flags & SND_EFFECTS_PAUSED) || ch->is_effect == 2) {
+                        ch->effect_ticks++;
                         gate = &ch->gate;
                         *gate += 0xFEFF;
                         if (!(*gate & 0xFF)) {
@@ -3481,7 +3481,7 @@ void seq_cmd_layer_on(SeqChannel *ch, SeqSong *song, unsigned int voice)
 
     if (!(ch->flags & CHANNEL_LAYER)) {
         used = song->active_voices | song->layer_voices | song->overlap_voices;
-        n = D_80062F04 ? 24 : 0;
+        n = seq_stepping_song2 ? 24 : 0;
         for (;;) {
             /* In its own block: as the loop's condition, GCC would rotate the loop, which the game's code isn't. */
             {
@@ -3517,7 +3517,7 @@ void seq_cmd_layer_off(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
     int layer = (unsigned short)ch->layer_voice;
 
-    if (D_80062F04)
+    if (seq_stepping_song2)
         layer -= 24;
     if (ch->flags & CHANNEL_LAYER) {
         ch->flags &= ~CHANNEL_LAYER;
@@ -3590,7 +3590,7 @@ void seq_cmd_instrument(SeqChannel *ch, SeqSong *song, unsigned int voice)
     int n = *ch->pos++;
     Instrument *inst;
 
-    if (D_80062F04)
+    if (seq_stepping_song2)
         layer -= 24;
     if (ch->flags & CHANNEL_LAYER) {
         song->layer_voices &= ~(1 << layer);
@@ -4294,7 +4294,7 @@ void seq_cmd_end(SeqChannel *ch, SeqSong *song, unsigned int voice)
         song->fm_voices &= keep;
         if (ch->flags & CHANNEL_LAYER) {
             layer = (unsigned short)ch->layer_voice;
-            if (D_80062F04)
+            if (seq_stepping_song2)
                 layer -= 24;
             song->layer_voices &= ~(1 << layer);
         }
