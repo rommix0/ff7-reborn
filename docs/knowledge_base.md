@@ -949,8 +949,8 @@ Lessons from getting it to match:
   `#include` from a Windows drive under WSL (it can't `stat` the large inode numbers). The build preprocesses with the
   host `cpp -P -undef -nostdinc` instead, which doesn't change the generated code.
 
-**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 38 in C so far), two files told apart by their assembler:
-- **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 21 of 30 in C): boots the sound driver, sets up the display and
+**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 43 in C so far), two files told apart by their assembler:
+- **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 26 of 30 in C): boots the sound driver, sets up the display and
   has the main loop (`func_80011C1C`, 3 KB, still asm). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed load goes through `addiu $at`
   (`lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`). Its divides carry ASPSX's checks.
 - **`src/main/loader.c`** (`0x800144D8`–`0x80014A00`, all 17 in C): disc reads and module starts. **ASPSX 2.34**:
@@ -983,8 +983,19 @@ Lessons from getting it to match:
   `copy_frame` copies the shown buffer to the other one. `vsync_callback` runs what `D_80095DD4` picks (1
   `flip_frame`), then advances the play-time clock: `D_8009D26C` gains `0x444` a frame, so its top half is one second
   at 60 Hz, counted in `D_8009D264`; `D_8009D270` drives the countdown `D_8009D268` the same way.
-- **Screen fade:** `func_80013624` moves a colour from `D_8009AC4C`–`50` to `D_8009AC52`–`56` over `D_8009AC44`
-  steps through `func_800135C0` (`from + (to - from) * t / n`) and draws it with `func_800131B8`.
+- **Screen fade:** `func_800138EC` runs the fade each frame, a switch on its mode `D_8009AC40` (14 cases, written
+  in the order 0, 1, 2, 7, 8, 3, 13, 4, 5, 6, 9, 10, 11, 12, as the game lays them out). The modes pick a blend
+  (`func_80012840` sets both draw modes' tpage), step the level `D_8009AC42` down or up (`func_800134F4`,
+  `func_80013564`) or count it to an end, and draw. `func_80013624` moves a colour from `D_8009AC4C`–`50` to
+  `D_8009AC52`–`56` over `D_8009AC44` steps through `func_800135C0` (`from + (to - from) * t / n`). The draw
+  routines clear the frame's ordering table, colour both tiles of `D_8009A068[frame]` and link the tiles and the
+  draw mode: `func_800131B8` in a colour, `func_80012DB0` in a colour scaled by the level (`level * c / 256`),
+  `func_80012A8C` in grey. `func_800128B8` sets the tiles up (160x224 each, side by side).
+- **libgpu macros:** the colour, size and position stores only match written the way libgpu's `setRGB0`/`setWH`/
+  `setXY0` expand, through `&array[frame].tile[j]`: GCC then holds the tile's address (a symbol plus an offset) in a
+  register and adds the field offset, where `array[frame].tile[j].r0` folds the whole address into the `$at` form.
+  `main.c` has them as `set_rgb`, `set_wh` and `set_xy`. Linking is libgpu's 24-bit `next` field (the
+  `0xFF000000`/`0xFFFFFF` masks), written as a bitfield in `add_prim`.
 - **`volatile`:** `game_mode`, `frame`, a fade level and step (`0x8009AC42`/`0x8009AC44`) and the state block at
   `0x8009D274` (`func_800119E4` saves it, `func_80011AEC` restores it) only match as `volatile`: the game loads such a
   `short` with `lhu` and sign-extends it with shifts, reloads it after storing it, and keeps the reads in order (one
@@ -993,20 +1004,18 @@ Lessons from getting it to match:
   (`*(volatile int *)&x`), which puts the address in a register as the game does; the same variable can be plain in
   one function and cast in the next. The state block is a struct: as separate
   globals, GCC moves a table load above the stores, which it doesn't do between two struct accesses.
-- **Parked:** `func_80011BB4` (resets the state block: its first field's store is plain here, but a volatile struct gives it a
-  register-held address) and `func_800128B8` (sets up the fade's two 160x224 tiles per buffer: the game steps a
-  pointer for the calls and indexes for the field stores; neither form reproduces it).
-- **In progress:** the fade's draw routines `func_80012A8C` (grey) and `func_800131B8` (RGB) clear the frame's
-  ordering table, colour both tiles and link the tiles and the draw mode in. Linking is libgpu's 24-bit `next` field
-  (the `0xFF000000`/`0xFFFFFF` masks), written here as a bitfield. The game's frame is 24 bytes bigger (an unused
-  local array reproduces it), and it reaches the second tile's colour through a register base where GCC uses the
-  symbol. `func_800140F4` (a screen transition: its own display, the screen copied in four strips with every
+- **Parked:** `func_80011BB4` (resets the state block): 4 lines off. A volatile struct puts the first field's
+  address in a register, and a plain store there is scheduled two slots late; the game has neither.
+- **In progress:** `func_800140F4` (a screen transition: its own display, the screen copied in four strips with every
   pixel's semi-transparency bit set, and a 10x7 grid of textured quads with an 11x8 vertex grid) and
   `func_80013C9C` (draws it each frame: alternates two quad grids, fades or re-pages them, rotates and scales the
   vertex grid with the GTE and links the projected quads) are drafted, 129 and 198 differing lines under GCC
   2.6.3. Their addresses at `0x8019xxxx` are passed as integer constants (pointers load with `lui`/`ori`), while
   scalars there are reached by symbol, which keeps GCC from holding the address in a register. The quads go through a
-  local pointer, which the game spills to the stack.
+  local pointer, which the game spills to the stack. In `func_800140F4` the strip's row is a strength-reduced
+  `i * 74 + 240` (that puts the loop's constants in the game's order). Left: the game keeps a loop counter's `= 0`
+  both in a branch's delay slot and after the branch, where ours only has the delay slot copy, and its quad loop adds
+  the row base to the column offset the other way round.
 
 **The sound driver as C** (`src/main/sound.c`, `0x800293D0`–`0x80033A90`):
 - **Split:** its own `c` subsegment in `config/main.yaml`, plus a `.rodata` piece for its one jump table

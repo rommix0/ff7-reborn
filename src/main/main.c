@@ -25,6 +25,38 @@ typedef struct DRAWENV {
     unsigned int dr_env[16];
 } DRAWENV;
 
+/* libgpu primitives: each starts with an ordering-table link, the next primitive's address in 24 bits. */
+typedef struct OTag {
+    unsigned int next : 24;
+    unsigned int len : 8;
+} OTag;
+
+typedef struct DR_MODE {
+    unsigned int tag;
+    unsigned int code[2];
+} DR_MODE;
+
+typedef struct TILE {
+    unsigned int tag;
+    unsigned char r0, g0, b0, code;
+    short x0, y0;
+    short w, h;
+} TILE;
+
+/* Links primitive p in after ordering-table entry ot, as libgpu's addPrim. */
+#define add_prim(ot, p) (((OTag *)(p))->next = ((OTag *)(ot))->next, ((OTag *)(ot))->next = (unsigned int)(p))
+/* libgpu's setRGB0. The game passes a fresh &array[frame] each time, so the pointer is rebuilt for every field. */
+#define set_rgb(p, r, g, b) ((p)->r0 = (r), (p)->g0 = (g), (p)->b0 = (b))
+#define set_xy(p, x, y) ((p)->x0 = (x), (p)->y0 = (y))
+#define set_wh(p, _w, _h) ((p)->w = (_w), (p)->h = (_h))
+
+/* A full-screen fade for one of the two buffers: its blend mode and two 160-pixel-wide tiles. */
+typedef struct FadeTiles {
+    DR_MODE mode;
+    TILE tile[2];
+    unsigned int pad;
+} FadeTiles;
+
 /* An entry of the table at 0x80074EB0, 0x84 bytes. */
 typedef struct FieldObject {
     int x;                              /* 0x00 << 12 */
@@ -77,7 +109,7 @@ extern short D_8009ABF8;
 extern short D_8009ABFA;
 extern short D_8009AC16;
 extern short D_8009AC18;
-extern unsigned char D_8009A068[];
+extern FadeTiles D_8009A068[2];
 extern int D_8019DAA0;
 extern unsigned int *D_8019D5E8;
 extern DiscFile D_80048D2C;
@@ -116,6 +148,7 @@ void func_800140A4(void);
 void func_800146A4(void);
 short func_800135C0(short from, short to, short t, short n);
 void func_800131B8(short r, short g, short b);
+void func_80012DB0(short r, short g, short b);
 void func_80012A8C(int n);
 short func_800A460C(int *a, int *b, void *c, void *d);
 void func_800D8D78(void);
@@ -140,6 +173,10 @@ void func_8004433C(unsigned int *ot);                         /* probably DrawOT
 unsigned short GetTPage(int tp, int abr, int x, int y);
 void func_80044A68(void *p, int dfe, int dtd, int tpage, RECT *tw); /* probably SetDrawMode */
 void MoveImage(RECT *rect, int x, int y);
+void func_80044244(unsigned int *ot, int n);
+void SetTile(TILE *p);
+void func_80046848(void *p, int on); /* probably SetSemiTrans */
+void func_80046870(void *p, int on); /* probably SetShadeTex */
 
 void play_effect_alone(unsigned short id)
 {
@@ -369,11 +406,29 @@ void func_80012840(int abr)
 {
     unsigned short tpage = GetTPage(0, abr, 0, 0);
 
-    func_80044A68(D_8009A068, 0, 0, tpage, 0);
-    func_80044A68(D_8009A068 + 0x30, 0, 0, tpage, 0);
+    func_80044A68(&D_8009A068[0].mode, 0, 0, tpage, 0);
+    func_80044A68(&D_8009A068[1].mode, 0, 0, tpage, 0);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800128B8);
+void func_800128B8(void)
+{
+    int i;
+    int j;
+
+    for (i = 0; i < 2; i++) {
+        for (j = 0; j < 2; j++) {
+            SetTile(&D_8009A068[i].tile[j]);
+            func_80046848(&D_8009A068[i].tile[j], 1);
+            func_80046870(&D_8009A068[i].tile[j], 1);
+            set_rgb(&D_8009A068[i].tile[j], 0, 0, 0);
+            set_wh(&D_8009A068[i].tile[j], 0xA0, 0xE0);
+        }
+    }
+    set_xy(&D_8009A068[0].tile[0], 0, 0);
+    set_xy(&D_8009A068[0].tile[1], 0xA0, 0);
+    set_xy(&D_8009A068[1].tile[0], 0, 0);
+    set_xy(&D_8009A068[1].tile[1], 0xA0, 0);
+}
 
 void copy_frame(void)
 {
@@ -382,11 +437,39 @@ void copy_frame(void)
         ;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80012A8C);
+void func_80012A8C(int level)
+{
+    func_80044244(&D_8007E7A0[frame], 1);
+    set_rgb(&D_8009A068[frame].tile[0], level, level, level);
+    set_rgb(&D_8009A068[frame].tile[1], level, level, level);
+    add_prim(&D_8007E7A0[frame], &D_8009A068[frame].tile[0]);
+    add_prim(&D_8007E7A0[frame], &D_8009A068[frame].tile[1]);
+    add_prim(&D_8007E7A0[frame], &D_8009A068[frame].mode);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80012DB0);
+/* Draws the fade tiles in colour (r, g, b) scaled by the fade level. */
+void func_80012DB0(short r, short g, short b)
+{
+    /* The level is read through a pointer: the game keeps its address in a register. */
+    func_80044244(&D_8007E7A0[frame], 1);
+    set_rgb(&D_8009A068[frame].tile[0], *(volatile short *)&D_8009AC42 * r / 256,
+            *(volatile short *)&D_8009AC42 * g / 256, *(volatile short *)&D_8009AC42 * b / 256);
+    set_rgb(&D_8009A068[frame].tile[1], *(volatile short *)&D_8009AC42 * r / 256,
+            *(volatile short *)&D_8009AC42 * g / 256, *(volatile short *)&D_8009AC42 * b / 256);
+    add_prim(&D_8007E7A0[frame], &D_8009A068[frame].tile[0]);
+    add_prim(&D_8007E7A0[frame], &D_8009A068[frame].tile[1]);
+    add_prim(&D_8007E7A0[frame], &D_8009A068[frame].mode);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800131B8);
+void func_800131B8(short r, short g, short b)
+{
+    func_80044244(&D_8007E7A0[frame], 1);
+    set_rgb(&D_8009A068[frame].tile[0], r, g, b);
+    set_rgb(&D_8009A068[frame].tile[1], r, g, b);
+    add_prim(&D_8007E7A0[frame], &D_8009A068[frame].tile[0]);
+    add_prim(&D_8007E7A0[frame], &D_8009A068[frame].tile[1]);
+    add_prim(&D_8007E7A0[frame], &D_8009A068[frame].mode);
+}
 
 void func_800134F4(void)
 {
@@ -453,7 +536,91 @@ void func_80013800(void)
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800138EC);
+void func_800138EC(void)
+{
+    /* The first fade variable each case reads goes through a pointer: the game puts its address in a register. */
+    switch (*(volatile short *)&D_8009AC40) {
+    case 0:
+        *(volatile unsigned char *)&D_8009AC2C = 0;
+        D_8009AC4C = 0;
+        D_8009AC4E = 0;
+        D_8009AC50 = 0;
+        break;
+    case 1:
+        func_80012840(2);
+        func_800134F4();
+        func_80012DB0(0x100 - *(volatile short *)&D_8009AC46, 0x100 - D_8009AC48, 0x100 - D_8009AC4A);
+        break;
+    case 2:
+        func_80012840(2);
+        func_80013564();
+        func_80012DB0(0x100 - *(volatile short *)&D_8009AC46, 0x100 - D_8009AC48, 0x100 - D_8009AC4A);
+        break;
+    case 7:
+        func_80012840(2);
+        func_800134F4();
+        func_800131B8(0x100 - *(volatile short *)&D_8009AC46, 0x100 - D_8009AC48, 0x100 - D_8009AC4A);
+        break;
+    case 8:
+        func_80012840(2);
+        func_80013564();
+        func_800131B8(0x100 - *(volatile short *)&D_8009AC46, 0x100 - D_8009AC48, 0x100 - D_8009AC4A);
+        break;
+    case 3:
+        (*(volatile short *)&D_8009AC42)++;
+        if (*(volatile short *)&D_8009AC42 == 0x22) {
+            D_8009AC40 = 0;
+            D_80095DD4 = 0;
+            break;
+        }
+        func_80012840(2);
+        func_80012A8C(0x10);
+        break;
+    case 13:
+        (*(volatile short *)&D_8009AC42)++;
+        if (*(volatile short *)&D_8009AC42 == 0x12) {
+            D_8009AC40 = 0;
+            D_80095DD4 = 0;
+            break;
+        }
+        func_80012840(2);
+        func_80012A8C(0x20);
+        break;
+    case 4:
+        *(volatile unsigned char *)&D_8009AC2C = 1;
+        break;
+    case 5:
+        func_80012840(1);
+        func_800134F4();
+        func_80012DB0(*(volatile short *)&D_8009AC46, D_8009AC48, D_8009AC4A);
+        break;
+    case 6:
+        *(volatile unsigned char *)&D_8009AC2C = 0;
+        func_80012840(1);
+        func_80013564();
+        func_80012DB0(D_8009AC46, D_8009AC48, D_8009AC4A);
+        break;
+    case 9:
+        func_80012840(1);
+        func_800134F4();
+        func_800131B8(*(volatile short *)&D_8009AC46, D_8009AC48, D_8009AC4A);
+        break;
+    case 10:
+        *(volatile unsigned char *)&D_8009AC2C = 0;
+        func_80012840(1);
+        func_80013564();
+        func_800131B8(D_8009AC46, D_8009AC48, D_8009AC4A);
+        break;
+    case 11:
+        func_80012840(1);
+        func_80013624();
+        break;
+    case 12:
+        func_80012840(2);
+        func_80013624();
+        break;
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_80013C9C);
 
