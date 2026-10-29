@@ -5,6 +5,7 @@ ORIG_EXE ?= assets/Final Fantasy VII (USA) (Disc 1)/SCUS_941.63
 PYTHON   := toolchain/venv/bin/python
 GCC      ?= 2.7.2
 CFLAGS   ?= -O2 -G0
+ASPSX    ?= 2.79
 ASFLAGS  := -EL -march=r3000 -mtune=r3000 -no-pad-sections -G0 -Iinclude
 CROSS    := mipsel-linux-gnu-
 
@@ -36,12 +37,18 @@ build/asm/%.o: asm/%.s
 	@mkdir -p $(dir $@)
 	$(CROSS)as $(ASFLAGS) $< -o $@
 
+# The period cpp is 32-bit and cannot stat files on a Windows drive under WSL; preprocessing does not affect the
+# generated code, so the host cpp does it.
 build/src/%.o: src/%.c
 	@mkdir -p $(dir $@)
-	toolchain/gcc-$(GCC)/cpp -P -undef -D__GNUC__=2 -Iinclude $< > build/src/$*.i
+	cpp -P -undef -nostdinc -D__GNUC__=2 -Iinclude $< > build/src/$*.i
 	toolchain/gcc-$(GCC)/cc1 -quiet $(CFLAGS) build/src/$*.i -o build/src/$*.s
-	$(PYTHON) toolchain/maspsx/maspsx.py --aspsx-version=2.79 < build/src/$*.s > build/src/$*.ms
+	$(PYTHON) toolchain/maspsx/maspsx.py --aspsx-version=$(ASPSX) < build/src/$*.s > build/src/$*.ms
 	$(CROSS)as $(ASFLAGS) build/src/$*.ms -o $@
+
+# The sound driver was assembled by an older ASPSX: `li 1` becomes `ori` (2.34 and older), and `$$at` expansions
+# have no leading nop (2.30 and newer).
+build/src/main/sound.o: ASPSX = 2.34
 
 clean:
 	rm -rf build asm

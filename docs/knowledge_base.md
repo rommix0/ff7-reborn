@@ -883,7 +883,7 @@ then built them with the Win32 `CC1PSX` → `ASPSX` → `PSYLINK /p`:
 | maspsx | mkst/maspsx at commit `4ffa8b51` | MIT | Rewrites GCC output the way SN's ASPSX would: delay slots, `$at` expansions, `nop`s |
 | GNU binutils (`mipsel-linux-gnu-*`) | Ubuntu package `binutils-mipsel-linux-gnu` | GPL | Assemble, link, objdump |
 
-Pipeline: `cpp` → `cc1 -O2 -G0` → `maspsx --aspsx-version=2.79` → `as -march=r3000 -G0 -O1` → `ld` at the exact address →
+Pipeline: `cpp` → `cc1 -O2 -G0` → `maspsx --aspsx-version=2.79` (2.34 for the sound driver) → `as -march=r3000 -G0 -O1` → `ld` at the exact address →
 `objcopy -O binary`. `tools/match.sh <file.c> <addr> [gcc]` runs it and either prints `MATCH` or diffs the disassembly
 against your exe.
 
@@ -891,7 +891,8 @@ against your exe.
 with GCC 2.7.2. GCC 2.6.3 matches only one of the three, so that part of the exe was built with 2.7.2.
 
 **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml`, and `make` relinks it. The result is
-SHA1-identical to retail, with `bitops.c` compiled from C and the rest still assembly.
+SHA1-identical to retail, with `bitops.c` and `sound.c` compiled from C (the latter mostly `INCLUDE_ASM` so far)
+and the rest still assembly.
 
 Main exe layout (found by splat, then corrected by hand):
 
@@ -914,6 +915,21 @@ Lessons from getting it to match:
   `goto` to come out unrotated.
 - **Assembler version:** `--aspsx-version` made no difference for these simple leaf functions (2.21–2.79 all
   match). Recheck it on functions with `div`, `li` or `$gp` access.
+- **Preprocessor:** the period `cpp` is a 32-bit binary and fails with "Value too large for defined data type" on any
+  `#include` from a Windows drive under WSL (it can't `stat` the large inode numbers). The build preprocesses with the
+  host `cpp -P -undef -nostdinc` instead, which doesn't change the generated code.
+
+**The sound driver as C** (`src/main/sound.c`, `0x800293D0`–`0x80033A90`):
+- **Split:** its own `c` subsegment in `config/main.yaml`, plus a `.rodata` piece for its one jump table
+  (`0x80010394`, `seq_look_ahead`'s `switch`). splat found 229 functions; unrecovered ones are `INCLUDE_ASM`.
+- **Assembler: ASPSX 2.34.** `seq_cmd_slur_on` loads 1 with `ori`, which only ASPSX 2.34 and older do (2.56+ use
+  `addiu`), and its `$at` expansions have no leading `nop` (2.30+). The `Makefile` sets `ASPSX = 2.34` for
+  `sound.o`; `ASPSX=2.34 tools/match.sh …` does the same for a single file.
+- **Compiler:** GCC 2.7.2 `-O2 -G0` matches so far.
+- **Channel struct:** `SeqChannel` in `include/sound.h`, `0x108` bytes, filled in as functions are recovered.
+- **Recovered:** `seq_cmd_set_octave`, `seq_cmd_octave_up`, `seq_cmd_octave_down` (the step is an `unsigned short`
+  −1: the game adds `0xFFFF`), `seq_cmd_slur_on`, `seq_cmd_full_length_on`. `seq_cmd_slur_off` and
+  `seq_cmd_full_length_off` are empty in the game.
 
 ## 8. Sony library map (main exe)
 

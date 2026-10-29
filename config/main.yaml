@@ -46,9 +46,14 @@ segments:
     vram: 0x80010000
     subsegments:
       - [0x800, rodata, 800]
+      - [0xB94, .rodata, main/sound] # seq_look_ahead's switch table
+      - [0xC38, rodata, C38]
       # splat guessed 0x18AC, but 0x18AC-0x18B7 is the string " (%08x)\n".
       - [0x18B8, asm, 18B8]
       - [0x5200, c, main/bitops]
       - [0x5284, asm, 5284]
+      # The AKAO sound driver, 0x800293D0-0x80033A90 (docs/knowledge_base.md §4).
+      - [0x19BD0, c, main/sound]
+      - [0x24290, asm, 24290]
       - [0x39518, data, 39518] # estimated
   - [0x61000]
