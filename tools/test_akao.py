@@ -85,6 +85,10 @@ channels, loop_start, loop_end, loop_lengths, runaway = play_song(two)
 assert (loop_start, loop_end) == (96, 192)
 assert [(e[0], e[3]) for e in channels[1] if e[1] == "note"] == [(0, 46), (48, 94), (144, 48)]  # cut at 192
 assert bar_lines([(0, 192), (2, 144), (146, 120)], 400) == [0, 2, 146, 266, 386]  # FD restarts the bar count
+# A loop whose first pass plays its notes differently starts a pass later: CC before a looping note slurs every
+# pass but the first (effect 493), so the part that repeats is the slurred one, from tick 96.
+channels, loop_start, loop_end, *_ = play_song(one_channel(bytes([0xCC, 0xC8, 0x01, 0xCA])))
+assert (loop_start, loop_end) == (96, 192) and at(channels[0], "slur") == [(96,)]
 
 # Pitch: C0 transposes keys, D8 sets detune, and A4 n s bends by s semitones over n ticks, starting at the next
 # tie (one-shot). Song 7 channel 16 does exactly this: 2-tick note, A4 04 01, 10-tick tie.

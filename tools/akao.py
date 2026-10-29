@@ -548,13 +548,24 @@ def play_song(block: bytes, trim_notes: bool = True, starts: list[int] | None = 
     # ponytail: a song whose loops don't share a short common period would get a huge file; none on disc does.
     if period > 8 * max(lengths):
         period = max(lengths)
+    # Three passes: a possibly later loop start, plus the extra pass untrimmed notes need (a loop that opens with a
+    # tie lengthens the note held at its end).
+    played = [play_channel(block, start, until=loop_start + 3 * period, effect=effect)[0] if loop is not None
+              else events for start, (events, loop, _) in zip(starts, first)]
+
+    def one_pass(events, at):
+        return [[e[0] - at, *e[1:]] for e in events if at <= e[0] < at + period and e[1] in ("note", "slur", "bend")]
+    # A loop's first pass can play its notes differently from the rest: after a CC slur, every pass but the first
+    # slurs into its note without a key-on (effect 493). Then what repeats starts a pass later, if it does repeat
+    # from there. (Settings made once at the start, like the channel defaults, carry over and don't count.)
+    passes = [[one_pass(events, loop_start + k * period) for k in range(3)]
+              for events, (_, loop, _) in zip(played, first) if loop is not None]
+    if any(p[0] != p[1] for p in passes) and all(p[1] == p[2] for p in passes):
+        loop_start += period
     loop_end = loop_start + period
     channels = []
-    # Untrimmed notes need one more pass: a loop that opens with a tie lengthens the note held at its end.
     play_to = loop_end if trim_notes else loop_end + period
-    for start, (events, loop, end) in zip(starts, first):
-        if loop is not None and end < play_to:
-            events, _, _ = play_channel(block, start, until=play_to, effect=effect)
+    for events in played:
         kept = [e for e in events if e[0] < loop_end]
         for e in kept:
             if e[1] == "note" and trim_notes:

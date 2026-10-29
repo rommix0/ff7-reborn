@@ -338,6 +338,12 @@ exports use it. No command is involved; it's how the data is laid out. Before th
 earliest start to the latest end, which added extra bars: song 7 had 5,760 ticks per loop instead of 5,376, and
 song 74 had 6,147 instead of 4,608.
 
+**A loop's first pass can play differently.** After `CC` (slur) before a loop, every pass but the first slurs into
+its note with no key-on, so the sample keeps running instead of restarting each time (effect 493, a drone). A bend
+(`A4`) set before a loop fires on the first pass only (effect 244). The export compares each looping channel's
+notes, slurs and bends over three passes; when the first differs and the next two match, the loop starts a pass
+later. That moves 14 effects' loops and no song's.
+
 Check: in all **98 songs, every looping channel repeats the same length**, or a length that divides it, such as a
 one-bar drum loop. Echo channels may start a few ticks late. Before `F0` was handled, 5 songs failed this check,
 which is how its meaning was confirmed. No channel runs past 4,000 bars.
