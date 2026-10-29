@@ -1009,12 +1009,15 @@ Lessons from getting it to match:
 - **`main`:** sets up memory, the display and the boot files, then loops forever: load the sound files and the first
   module, then run modules by `game_mode` (a 16-case switch, most cases read a file to `0x80180000`, unpack it to
   `0x800A0000` and call into it) until `D_8009ABF5` asks for 5, `0x0A` or `0x1A`, then shut the sound down and start
-  over. It has an unused local `"battle.x"`. Its C is in `main.c` behind `NON_MATCHING`: same instructions as the game
-  except one register. The game also keeps `&D_8009ABF5` in a saved register across the loop (and so saves one more
-  register and has a bigger frame); ours rebuilds it where it's used. Getting this far took: one base symbol each for
-  `D_8009D2A0`..`D_8009D588` (GCC derives one address from the other) and for `D_8009ABF4`..`D_8009AC38`, an `int` pad
-  word `D_80095DDC`, `D_8009A004` as its own `long`, the failure path as a `goto` to a label after the mode-5 block,
-  and `*(volatile T *)&x` exactly where the game uses a register-held address.
+  over. It has an unused local `"battle.x"`. Its C is in `main.c` behind `NON_MATCHING`: the same instructions as the
+  game, with about 83% of the words identical. What's left is one register: GCC keeps `&D_8009AC32` in a saved
+  register for the whole function, where the game rebuilds it at the top of each pass and derives `&D_8009ABF5` and
+  `&D_8009ABF6` from it before the middle loop. Getting this far took: one base symbol each for
+  `D_8009D2A0`..`D_8009D588` and `D_8009ABF4`..`D_8009AC38` (GCC derives one address from another), an `int` pad word
+  `D_80095DDC`, `D_8009A004` as its own `long`, the failure path as a `goto` to a label after the mode-5 block,
+  `*(volatile T *)&x` exactly where the game uses a register-held address, and a local pointer to `D_8009ABF5` set
+  just before the middle loop. Where that pointer is set decides which addresses GCC hoists out of which loop; every
+  other position tried is worse.
 - **Register-held addresses:** with optimisation GCC 2.6.3 loads the address of a pointer-expression access
   (`*(T *)&x`, a struct field) into a register, and a plain scalar global stays a `lui`/`%lo` access. In a loop those
   registers are hoisted out, which is why `main`'s draft needs the casts exactly where the game has them.

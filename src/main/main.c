@@ -402,8 +402,8 @@ INCLUDE_ASM("asm/nonmatchings/main/main", func_80011BB4);
 
 #ifdef NON_MATCHING
 /* The game's main: boots, then runs modules by game_mode until D_8009ABF5 asks for 5, 0x0A or 0x1A, and starts over.
- * Same instructions as the game except that the game also keeps &D_8009ABF5 in a register across the loop, which
- * shifts every saved register by one. */
+ * Same instructions as the game, but GCC also keeps &D_8009AC32 in a register for the whole function where the game
+ * rebuilds it each pass, which costs one more saved register. */
 extern DiscFile D_80048D34, D_80048D3C, D_80048D44, D_80048D4C, D_80048D54;
 extern DiscFile D_80048D5C, D_80048D64, D_80048D6C, D_80048D74;
 extern unsigned char D_8009D2A0[];
@@ -490,6 +490,7 @@ int main(void)
     char name[] = "battle.x";
     RECT rect = {0, 0, 480, 472};
     unsigned short flags;
+    unsigned char *mode;
     unsigned short result;
 
     SetMem(8);
@@ -499,7 +500,7 @@ int main(void)
     func_800A0030();
     load_boot_files();
     for (;;) {
-        *(short *)&D_8009ABF4.ac32 = 0;
+        *(volatile short *)&D_8009ABF4.ac32 = 0;
         D_8009ABF4.ac2f = 0;
         func_800148A0();
         load_sound_files();
@@ -520,6 +521,8 @@ int main(void)
             func_80011BB4();
         }
         func_80026090();
+        /* Through a pointer: the game keeps this address in a register across the loop. */
+        mode = &D_8009ABF4.abf5;
         do {
             if (D_8009D588 != func_800343F0()) {
                 func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
@@ -692,9 +695,9 @@ int main(void)
                         func_80025040();
                         break;
                     }
-                    if (D_8009ABF4.abf5 != 0x19)
+                    if (*mode != 0x19)
                         func_800CF60C();
-                    D_8009ABF4.ac1a = 2;
+                    *(short *)(mode + 0x25) = 2; /* D_8009ABF4.ac1a, relative to the same register */
                     D_800965EC = 0xD;
                     game_mode = 1;
                     break;
@@ -786,15 +789,15 @@ int main(void)
                     D_8009ABF4.abf5 = 1;
                     break;
                 }
-            } while (D_8009ABF4.abf5 != 5 && D_8009ABF4.abf5 != 0x1A && D_8009ABF4.abf5 != 0xA);
-            if (D_8009ABF4.abf5 == 5) {
+            } while (*mode != 5 && *mode != 0x1A && *mode != 0xA);
+            if (*mode == 5) {
                 func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
                 func_800A04C4(1);
                 goto quit;
             }
-        } while (D_8009ABF4.abf5 != 0x1A && D_8009ABF4.abf5 != 0xA);
-        if (D_8009ABF4.abf5 == 0x1A) {
-            D_8009ABF4.abf5 = 0;
+        } while (*mode != 0x1A && *mode != 0xA);
+        if (*mode == 0x1A) {
+            *mode = 0;
             snd_submit_request();
             func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
             func_800A0C58();
@@ -802,7 +805,7 @@ int main(void)
             D_8009A004 = 0x7F;
             snd_submit_request();
         } else {
-            D_8009ABF4.abf5 = 0;
+            *mode = 0;
         }
         goto quit;
     fail:
