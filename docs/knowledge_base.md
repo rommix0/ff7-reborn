@@ -929,7 +929,7 @@ Lessons from getting it to match:
   - **GCC 2.6.3:** `seq_cmd_loop_point` reloads the loop level after storing it, and `seq_cmd_jump` adds into a
     different register. 2.7.2 gets both wrong, and every function matched so far also matches with 2.6.3.
   - **ASPSX 2.21:** `seq_cmd_slur_on` loads 1 with `ori` (2.34 and older), and the envelope setters' indexed stores
-    into `effect_channels` expand through `lui`/`addiu $at`/`addu` (before 2.30). My first guess, 2.34, came from
+    into `seq_channels` expand through `lui`/`addiu $at`/`addu` (before 2.30). My first guess, 2.34, came from
     the first functions alone, which had no such store.
 - **`match.sh`** links against `config/symbols.main*.txt`, splat's `build/undefined_*_auto.txt` and every symbol in
   the last full build, so a function that calls another or reads a global can be checked on its own.
@@ -950,20 +950,30 @@ Lessons from getting it to match:
     `effect_reverb_voices`, `effect_fm_voices` (`0x80099FEC`–`F4`) and `effect_noise_clock` (`0x80099FFA`).
   - `Instrument`: the 64-byte `INSTR.DAT` entry in `instrument_table`. `F9` restores the release rate from its
     `adsr[4]`, using the channel's instrument number (`+0x58`).
-  - `effect_channels` (`0x80096608`): one `SeqChannel` per SPU voice. Effects play on them, and a layer's second
-    voice keeps its envelope in its voice's entry, so the envelope commands write both.
-- **Recovered: 78 of the file's 230 functions are C** (75 written here; `seq_cmd_slur_off`,
+  - `seq_channels` (`0x80096608`): every channel, music and effects (`A0` showed it: an ending effect sets the full
+    update mask on the entry its `+0x28` names, handing the voice back to that voice's music channel). A layer's
+    spare voice keeps its envelope in its voice's entry, so the envelope commands write both.
+  - `load_channel_instrument` copies the instrument's sample and loop addresses and all eight envelope bytes, and
+    sets update bits `0x1FF80` (sample `0x80`, envelope `0xFF00`, loop `0x10000`). `A1` and `F2` rescale a sounding
+    note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
+    (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
+    `F2` sets the sample to `0x76FE0`, the silent blocks.
+- **Recovered: 81 of the file's 230 functions are C** (78 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). All are sequence
   command handlers: octave, slur and full length, volume, pan, transpose, detune, lengths (`A2`, `DC`), glide and
   bend, loops, repeats and jumps (`C8`, `C9`, `CA`, `EE`, `F0`, `F1`, `EF`), drum kit, tempo and its slide, reverb
   depth and its slide, time signature and bar number, the tremolo and pan-LFO starts, the LFO depths, depth slides
   and off commands, volume, pan and balance slides, noise (on, off, clock, timed), FM and reverb on/off, pitch and
   volume follow, layer balance and layer off, overlap off, the envelope setters, `B0` and `B3`, `CB` (all off), and
-  `F3` (`func_800335CC`, which sets the song's `+0x54`).
-  - **Handlers still asm:** `B4` (vibrato start), `F4` and `F8` (they take a spare voice), `A1`, `F2` and `A0`.
+  `F3` (`func_800335CC`, which sets the song's `+0x54`), the instrument changes `A1` and `F2`, and
+  `load_channel_instrument`.
+  - **Handlers still asm:** `B4` (vibrato start), `F4` and `F8` (they take a spare voice), and `A0`.
   - **Parked, close:** `B4` differs only in where one store is scheduled. `F4`/`F8` scan the voice masks for a free
     voice; every loop form tried either gets rotated or has its exit threaded straight to the return, where the
-    game re-tests the bit.
+    game re-tests the bit. `A0` copies the voice bit into another register before its first branch, where the game
+    keeps it in `a2`; declaration order and `register` don't change that.
+  - **Statement order matters at the ends of functions:** in `A1` and `F2` the voice-update `|=` has to come after the
+    last field copy for the stores to schedule as in the game.
   - **`F1`** is `F0` that also pops the loop level; **`EF`** jumps when the song's `+0x4E` (set by the game) is
     non-zero and at least n, and records n at `+0x4C`.
   - `vibrato_amount` (`+0x7C`) is a signed `short`: only then does GCC pick the game's arithmetic shift.

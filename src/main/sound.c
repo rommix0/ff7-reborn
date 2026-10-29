@@ -290,7 +290,25 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", seq_tick);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_step_channel);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", load_channel_instrument);
+/* A program change: the instrument's sample, loop and whole envelope. */
+void load_channel_instrument(SeqChannel *ch, unsigned short instrument)
+{
+    Instrument *inst;
+
+    ch->instrument = instrument;
+    inst = &instrument_table[instrument];
+    ch->sample = inst->sample;
+    ch->loop = inst->loop;
+    ch->attack_mode = inst->adsr[5];
+    ch->sustain_mode = inst->adsr[6];
+    ch->release_mode = inst->adsr[7];
+    ch->attack_rate = inst->adsr[0];
+    ch->decay_rate = inst->adsr[1];
+    ch->sustain_level = inst->adsr[2];
+    ch->sustain_rate = inst->adsr[3];
+    ch->release_rate = inst->adsr[4];
+    ch->voice_update |= UPDATE_SAMPLE | UPDATE_ENVELOPE | UPDATE_LOOP;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_look_ahead);
 
@@ -447,9 +465,71 @@ void seq_cmd_octave_down(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->octave = (ch->octave + (unsigned short)-1) & 0xF;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_instrument);
+/* A1 n: instrument n. It frees an F4 layer's voice, rescales a sounding note's pitch to the new instrument (unless
+ * an effect holds the voice), and with F8 overlap on keeps the release rate and mode. */
+void seq_cmd_instrument(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int layer = (unsigned short)ch->layer_voice;
+    int n = *ch->pos++;
+    Instrument *inst;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_instrument_from_loop);
+    if (D_80062F04)
+        layer -= 24;
+    if (ch->flags & CHANNEL_LAYER) {
+        song->layer_voices &= ~(1 << layer);
+        ch->flags &= ~CHANNEL_LAYER;
+    }
+    if (ch->is_effect || !(song->update_voices & voice & effect_voices)) {
+        ch->voice_update |= UPDATE_PITCH;
+        ch->note_pitch = ch->note_pitch * instrument_table[n].pitch[0] / instrument_table[ch->instrument].pitch[0];
+    }
+    if (ch->flags & CHANNEL_OVERLAP) {
+        inst = &instrument_table[n];
+        ch->instrument = n;
+        ch->sample = inst->sample;
+        ch->loop = inst->loop;
+        ch->attack_rate = inst->adsr[0];
+        ch->decay_rate = inst->adsr[1];
+        ch->sustain_level = inst->adsr[2];
+        ch->sustain_rate = inst->adsr[3];
+        ch->attack_mode = inst->adsr[5];
+        ch->sustain_mode = inst->adsr[6];
+        ch->voice_update |= UPDATE_SAMPLE | UPDATE_ATTACK_MODE | UPDATE_SUSTAIN_MODE | UPDATE_ATTACK_RATE |
+                            UPDATE_DECAY_RATE | UPDATE_SUSTAIN_RATE | UPDATE_SUSTAIN_LEVEL | UPDATE_LOOP;
+    } else {
+        load_channel_instrument(ch, n);
+    }
+}
+
+/* F2 n: instrument n, but notes start on the silent blocks at SPU 0x76FE0 and jump to the instrument's loop
+ * point, so they play from the loop on (until the next A1). It rescales a sounding note's pitch like A1. */
+void seq_cmd_instrument_from_loop(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int n = *ch->pos++;
+    Instrument *inst = &instrument_table[n];
+
+    if (ch->is_effect || !(song->update_voices & voice & effect_voices)) {
+        ch->voice_update |= UPDATE_PITCH;
+        ch->note_pitch = ch->note_pitch * inst->pitch[0] / instrument_table[ch->instrument].pitch[0];
+    }
+    ch->instrument = n;
+    ch->sample = 0x76FE0;
+    ch->loop = inst->loop;
+    ch->attack_rate = inst->adsr[0];
+    ch->decay_rate = inst->adsr[1];
+    ch->sustain_level = inst->adsr[2];
+    ch->sustain_rate = inst->adsr[3];
+    ch->attack_mode = inst->adsr[5];
+    ch->sustain_mode = inst->adsr[6];
+    if (ch->flags & CHANNEL_OVERLAP) {
+        ch->voice_update |= UPDATE_SAMPLE | UPDATE_ATTACK_MODE | UPDATE_SUSTAIN_MODE | UPDATE_ATTACK_RATE |
+                            UPDATE_DECAY_RATE | UPDATE_SUSTAIN_RATE | UPDATE_SUSTAIN_LEVEL | UPDATE_LOOP;
+    } else {
+        ch->release_rate = inst->adsr[4];
+        ch->release_mode = inst->adsr[7];
+        ch->voice_update |= UPDATE_SAMPLE | UPDATE_ENVELOPE | UPDATE_LOOP;
+    }
+}
 
 /* B3: the instrument's envelope back, on the layer voice too. */
 void seq_cmd_envelope_reset(SeqChannel *ch, SeqSong *song, unsigned int voice)
@@ -467,7 +547,7 @@ void seq_cmd_envelope_reset(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->release_mode = inst->adsr[7];
     ch->voice_update |= UPDATE_ENVELOPE;
     if (ch->flags & CHANNEL_LAYER) {
-        layer = &effect_channels[ch->layer_voice];
+        layer = &seq_channels[ch->layer_voice];
         layer->attack_rate = ch->attack_rate;
         layer->decay_rate = ch->decay_rate;
         layer->sustain_level = ch->sustain_level;
@@ -743,7 +823,7 @@ void seq_cmd_attack_rate(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->attack_rate = *ch->pos++;
     ch->voice_update |= UPDATE_ATTACK_RATE | UPDATE_ATTACK_MODE;
     if (ch->flags & CHANNEL_LAYER)
-        effect_channels[ch->layer_voice].attack_rate = ch->attack_rate;
+        seq_channels[ch->layer_voice].attack_rate = ch->attack_rate;
 }
 
 void seq_cmd_decay_rate(SeqChannel *ch, SeqSong *song, unsigned int voice)
@@ -751,7 +831,7 @@ void seq_cmd_decay_rate(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->decay_rate = *ch->pos++;
     ch->voice_update |= UPDATE_DECAY_RATE;
     if (ch->flags & CHANNEL_LAYER)
-        effect_channels[ch->layer_voice].decay_rate = ch->decay_rate;
+        seq_channels[ch->layer_voice].decay_rate = ch->decay_rate;
 }
 
 void seq_cmd_sustain_level(SeqChannel *ch, SeqSong *song, unsigned int voice)
@@ -759,7 +839,7 @@ void seq_cmd_sustain_level(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->sustain_level = *ch->pos++;
     ch->voice_update |= UPDATE_SUSTAIN_LEVEL;
     if (ch->flags & CHANNEL_LAYER)
-        effect_channels[ch->layer_voice].sustain_level = ch->sustain_level;
+        seq_channels[ch->layer_voice].sustain_level = ch->sustain_level;
 }
 
 void seq_cmd_sustain_rate(SeqChannel *ch, SeqSong *song, unsigned int voice)
@@ -767,7 +847,7 @@ void seq_cmd_sustain_rate(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->sustain_rate = *ch->pos++;
     ch->voice_update |= UPDATE_SUSTAIN_RATE | UPDATE_SUSTAIN_MODE;
     if (ch->flags & CHANNEL_LAYER)
-        effect_channels[ch->layer_voice].sustain_rate = ch->sustain_rate;
+        seq_channels[ch->layer_voice].sustain_rate = ch->sustain_rate;
 }
 
 void seq_cmd_release_rate(SeqChannel *ch, SeqSong *song, unsigned int voice)
@@ -775,7 +855,7 @@ void seq_cmd_release_rate(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->release_rate = *ch->pos++;
     ch->voice_update |= UPDATE_RELEASE_RATE | UPDATE_RELEASE_MODE;
     if (ch->flags & CHANNEL_LAYER)
-        effect_channels[ch->layer_voice].release_rate = ch->release_rate;
+        seq_channels[ch->layer_voice].release_rate = ch->release_rate;
 }
 
 void seq_cmd_attack_mode(SeqChannel *ch, SeqSong *song, unsigned int voice)
@@ -783,7 +863,7 @@ void seq_cmd_attack_mode(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->attack_mode = *ch->pos++;
     ch->voice_update |= UPDATE_ATTACK_MODE;
     if (ch->flags & CHANNEL_LAYER)
-        effect_channels[ch->layer_voice].attack_mode = ch->attack_mode;
+        seq_channels[ch->layer_voice].attack_mode = ch->attack_mode;
 }
 
 void seq_cmd_sustain_mode(SeqChannel *ch, SeqSong *song, unsigned int voice)
@@ -791,7 +871,7 @@ void seq_cmd_sustain_mode(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->sustain_mode = *ch->pos++;
     ch->voice_update |= UPDATE_SUSTAIN_MODE;
     if (ch->flags & CHANNEL_LAYER)
-        effect_channels[ch->layer_voice].sustain_mode = ch->sustain_mode;
+        seq_channels[ch->layer_voice].sustain_mode = ch->sustain_mode;
 }
 
 void seq_cmd_release_mode(SeqChannel *ch, SeqSong *song, unsigned int voice)
@@ -799,7 +879,7 @@ void seq_cmd_release_mode(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->release_mode = *ch->pos++;
     ch->voice_update |= UPDATE_RELEASE_MODE;
     if (ch->flags & CHANNEL_LAYER)
-        effect_channels[ch->layer_voice].release_mode = ch->release_mode;
+        seq_channels[ch->layer_voice].release_mode = ch->release_mode;
 }
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_overlap_on);

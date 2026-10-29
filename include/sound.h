@@ -18,6 +18,7 @@
 /* SeqChannel.voice_update: which SPU voice settings snd_update_voice writes next (libspu's voice attribute mask) */
 #define UPDATE_VOLUME        0x3 /* both sides */
 #define UPDATE_PITCH         0x10
+#define UPDATE_SAMPLE        0x80 /* the sample's start address */
 #define UPDATE_ATTACK_MODE   0x100
 #define UPDATE_SUSTAIN_MODE  0x200
 #define UPDATE_RELEASE_MODE  0x400
@@ -27,6 +28,7 @@
 #define UPDATE_RELEASE_RATE  0x4000
 #define UPDATE_SUSTAIN_LEVEL 0x8000
 #define UPDATE_ENVELOPE      0xFF00 /* all of the above from the attack mode on */
+#define UPDATE_LOOP          0x10000 /* the sample's loop address */
 
 /* One sequence channel of the AKAO driver, 0x108 bytes (docs/knowledge_base.md §4). Fields get names as the
  * functions that use them are recovered; the pads are still unread. */
@@ -38,7 +40,7 @@ typedef struct SeqChannel {
     short *tremolo_wave_pos;            /* 0x1C */
     short *pan_lfo_wave_pos;            /* 0x20 */
     unsigned int layer_voice;           /* 0x24 F4: the SPU voice of the second voice */
-    unsigned int overlap_voice;         /* 0x28 F8: the second voice notes take turns on */
+    unsigned int overlap_voice;         /* 0x28 F8: the second voice notes take turns on; an effect's own voice */
     unsigned int volume_scale;          /* 0x2C A3 */
     int note_pitch;                     /* 0x30 the sounding note's pitch register (vibrato scales with it) */
     unsigned char pad_34[0x04];
@@ -107,7 +109,8 @@ typedef struct SeqChannel {
     short pan_lfo_offset;               /* 0xDA */
     unsigned char pad_DC[0x04];
     unsigned int voice_update;          /* 0xE0 UPDATE_* */
-    unsigned char pad_E4[0x08];
+    unsigned int sample;                /* 0xE4 the instrument's SPU sample address */
+    unsigned int loop;                  /* 0xE8 and loop address */
     unsigned int attack_mode;           /* 0xEC B7 */
     unsigned int sustain_mode;          /* 0xF0 BB */
     unsigned int release_mode;          /* 0xF4 BF */
@@ -124,7 +127,10 @@ typedef struct SeqChannel {
 typedef struct SeqSong {
     unsigned char pad_00[0x04];
     unsigned int active_voices;         /* 0x04 the song's own channels */
-    unsigned char pad_08[0x10];
+    unsigned int voices_08;             /* 0x08 a voice mask (A0 on an effect clears its bit) */
+    unsigned int update_voices;         /* 0x0C voices the driver keeps updating (key-off takes a voice out) */
+    unsigned int voices_10;             /* 0x10 a voice mask (likewise) */
+    unsigned char pad_14[0x04];
     unsigned int tempo;                 /* 0x18 E8 value << 16 */
     int tempo_slide_step;               /* 0x1C E9 */
     unsigned char pad_20[0x04];
@@ -138,7 +144,7 @@ typedef struct SeqSong {
     int reverb_depth;                   /* 0x40 EA value << 16 */
     int reverb_slide_step;              /* 0x44 EB */
     unsigned short tempo_slide_ticks;   /* 0x48 */
-    unsigned char pad_4A[0x02];
+    unsigned short playing;             /* 0x4A A0 clears it when the last channel ends */
     unsigned short branch_taken;        /* 0x4C EF: the n of the last branch taken */
     unsigned short branch_level;        /* 0x4E EF branches when this is non-zero and at least n (set by the game) */
     unsigned short reverb_slide_ticks;  /* 0x50 */
@@ -165,18 +171,24 @@ extern SeqSong seq_song;
 
 /* Each LFO waveform: its steps, which the LFOs walk through. */
 extern short *lfo_waveforms[];
-extern unsigned int seq_song_flags; /* seq_song.flags, which the driver reads and writes as a plain variable */
+/* seq_song fields the driver reads and writes as plain variables (as struct members GCC would share the address). */
+extern unsigned int seq_song_voices_08;
+extern unsigned int seq_song_update_voices;
+extern unsigned int seq_song_voices_10;
+extern unsigned int seq_song_flags;
 
 /* The effect channels' copies of the song voice masks, and of the noise clock. */
 extern unsigned int effect_noise_voices;
 extern unsigned int effect_reverb_voices;
 extern unsigned int effect_fm_voices;
 extern unsigned short effect_noise_clock;
+extern unsigned int effect_voices; /* voices sound effects hold */
 
 extern int D_80062F04; /* when set, layer voices are numbered from 24 */
 
-/* One per SPU voice: effects play on them, and a layer's second voice keeps its settings in its voice's entry. */
-extern SeqChannel effect_channels[24];
+/* Every channel, music and effects. A music channel's spare voice (F4, F8) keeps its settings in that voice's entry,
+ * and an effect hands its voice back to that voice's entry when it ends. */
+extern SeqChannel seq_channels[];
 
 /* Every sequence command handler: the channel, its song (or the effects'), and the channel's SPU voice bit. */
 void seq_cmd_end(SeqChannel *ch, SeqSong *song, unsigned int voice);
@@ -185,7 +197,7 @@ void seq_cmd_fm_on(SeqChannel *ch, SeqSong *song, unsigned int voice);
 void seq_cmd_decay_rate(SeqChannel *ch, SeqSong *song, unsigned int voice);
 void seq_cmd_sustain_level(SeqChannel *ch, SeqSong *song, unsigned int voice);
 
-void load_channel_instrument(SeqChannel *ch, int instrument);
+void load_channel_instrument(SeqChannel *ch, unsigned short instrument);
 
 void func_80030038(void); /* hands the reverb voice masks to the SPU (by analogy with func_80030148) */
 void func_80030148(void); /* hands the FM voice masks to the SPU */
