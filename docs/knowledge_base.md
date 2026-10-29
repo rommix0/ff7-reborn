@@ -949,9 +949,9 @@ Lessons from getting it to match:
   `#include` from a Windows drive under WSL (it can't `stat` the large inode numbers). The build preprocesses with the
   host `cpp -P -undef -nostdinc` instead, which doesn't change the generated code.
 
-**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 36 in C so far), two files told apart by their assembler:
-- **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 19 of 30 in C): boots the sound driver, sets up the display and
-  has the main loop (`func_80011C1C`, 3 KB, still asm). **ASPSX 2.21**: an indexed load goes through `addiu $at`
+**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 38 in C so far), two files told apart by their assembler:
+- **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 21 of 30 in C): boots the sound driver, sets up the display and
+  has the main loop (`func_80011C1C`, 3 KB, still asm). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed load goes through `addiu $at`
   (`lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`). Its divides carry ASPSX's checks.
 - **`src/main/loader.c`** (`0x800144D8`–`0x80014A00`, all 17 in C): disc reads and module starts. **ASPSX 2.34**:
   `li` is still `ori`, but an indexed load folds into `%lo` (`lui at; addu at, at, a0; lw v0, %lo(sym)(at)`).
@@ -961,7 +961,9 @@ Lessons from getting it to match:
   entry 0 is an image for VRAM, file 2's entries go to the addresses in `D_80048DD4`. In `func_80014750` the entry
   size is an `int` taking the `unsigned short` result (found by decomp-permuter; `tools/permuter.sh` now takes
   `DIR`, `GCC`, `ASPSX` and `MASPSXFLAGS` for files other than `sound.c`).
-- **Toolchain:** GCC 2.7.2 and 2.6.3 match everything so far in both files. Before them sit an empty function and the
+- **Toolchain:** `func_800135C0` only matches with GCC 2.6.3 (2.7.2 keeps the quotient in another register), and
+  everything else in `main.c` matches with it too; in `loader.c` both compilers match everything so far, and it
+  builds with 2.7.2. Before them sit an empty function and the
   hand-written entry code at `0x800110C0` (clears BSS, sets `$sp`/`$gp`, calls the main loop), left as the asm
   segment `18B8`. `include/main.h` holds what both files share.
 - **Its rodata** (`0x80010000`–`0x80010100`: switch tables and the string `"battle.x"`) is the subsegment
@@ -991,10 +993,20 @@ Lessons from getting it to match:
   (`*(volatile int *)&x`), which puts the address in a register as the game does; the same variable can be plain in
   one function and cast in the next. The state block is a struct: as separate
   globals, GCC moves a table load above the stores, which it doesn't do between two struct accesses.
-- **Parked:** `func_800135C0` (`from + (to - from) * t / n` on shorts: only the quotient's register differs),
-  `func_80011BB4` (resets the state block: its first field's store is plain here, but a volatile struct gives it a
+- **Parked:** `func_80011BB4` (resets the state block: its first field's store is plain here, but a volatile struct gives it a
   register-held address) and `func_800128B8` (sets up the fade's two 160x224 tiles per buffer: the game steps a
   pointer for the calls and indexes for the field stores; neither form reproduces it).
+- **In progress:** the fade's draw routines `func_80012A8C` (grey) and `func_800131B8` (RGB) clear the frame's
+  ordering table, colour both tiles and link the tiles and the draw mode in. Linking is libgpu's 24-bit `next` field
+  (the `0xFF000000`/`0xFFFFFF` masks), written here as a bitfield. The game's frame is 24 bytes bigger (an unused
+  local array reproduces it), and it reaches the second tile's colour through a register base where GCC uses the
+  symbol. `func_800140F4` (a screen transition: its own display, the screen copied in four strips with every
+  pixel's semi-transparency bit set, and a 10x7 grid of textured quads with an 11x8 vertex grid) and
+  `func_80013C9C` (draws it each frame: alternates two quad grids, fades or re-pages them, rotates and scales the
+  vertex grid with the GTE and links the projected quads) are drafted, 129 and 198 differing lines under GCC
+  2.6.3. Their addresses at `0x8019xxxx` are passed as integer constants (pointers load with `lui`/`ori`), while
+  scalars there are reached by symbol, which keeps GCC from holding the address in a register. The quads go through a
+  local pointer, which the game spills to the stack.
 
 **The sound driver as C** (`src/main/sound.c`, `0x800293D0`–`0x80033A90`):
 - **Split:** its own `c` subsegment in `config/main.yaml`, plus a `.rodata` piece for its one jump table

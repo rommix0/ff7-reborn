@@ -11,6 +11,8 @@ extern DiscFile disc_files[]; /* by number */
 /* Picks what runs next (func_800146A4). Shared with the VSync callback, hence volatile: the game reloads it and reads
  * it through lhu. */
 extern volatile short game_mode;
+/* Written twice in a row by func_800111E4, so volatile. */
+extern volatile short D_800707BE;
 
 void func_80033E34(unsigned int lba, unsigned int size, void *dest, void (*callback)(void)); /* starts a disc read */
 int func_80034B44(void); /* a disc read is still running */

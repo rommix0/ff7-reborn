@@ -3,7 +3,7 @@
 #include "main.h"
 
 /* The game's boot file (0x8001117C-0x800144D8): it boots the sound driver, sets up the display and runs the main loop.
- * Assembled by ASPSX 2.21 (indexed loads go through `addiu $at`); GCC 2.7.2 and 2.6.3 both match so far. */
+ * Built like the sound driver: GCC 2.6.3, ASPSX 2.21 (indexed loads go through `addiu $at`). */
 
 /* libgpu's display and drawing environments (layouts from Sony's Libref). */
 typedef struct RECT {
@@ -94,6 +94,10 @@ extern volatile unsigned int D_8009D26C;
 extern volatile unsigned int D_8009D270;
 extern unsigned char D_8009D2E7;
 extern short D_8007E768;
+extern unsigned char D_8009D5E9;
+extern short D_8009AC32;
+extern unsigned char D_800716D0;
+extern short D_800707BC;
 
 /* A screen fade, shared with the VSync callback, hence volatile: the game reloads them and reads shorts through lhu.
  * func_80013624 moves the colour from D_8009AC4C-50 to D_8009AC52-56 over D_8009AC44 steps, D_8009AC42 counting. */
@@ -109,6 +113,7 @@ extern volatile short D_80095DD4; /* what the VSync callback runs */
 
 void vsync_callback(void);
 void func_800140A4(void);
+void func_800146A4(void);
 short func_800135C0(short from, short to, short t, short n);
 void func_800131B8(short r, short g, short b);
 void func_80012A8C(int n);
@@ -146,7 +151,18 @@ void play_effect_alone(unsigned short id)
     snd_submit_request();
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800111E4);
+void func_800111E4(void)
+{
+    snd_request.id = 0xF4;
+    snd_submit_request();
+    if (!(D_8009D5E9 & 0x30))
+        play_effect_alone(0x2B);
+    D_800707BC = D_8009ABF6;
+    D_800707BE = D_8009AC32;
+    D_800707BE = D_800716D0 | D_8009AC32;
+    func_800146A4();
+    D_800716D0 = 0;
+}
 
 void snd_load_bank2(void)
 {
@@ -391,7 +407,11 @@ void func_80013564(void)
         D_8009AC42 = 0xFF;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800135C0);
+/* Moves from `from` towards `to`: step t of n. */
+short func_800135C0(short from, short to, short t, short n)
+{
+    return from + (short)(to - from) * t / n;
+}
 
 void func_80013624(void)
 {
