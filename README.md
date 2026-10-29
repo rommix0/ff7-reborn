@@ -1,7 +1,8 @@
-# ff7_psx_recovery
+# FF7 Reborn (WIP)
 
-Code recovery for **Final Fantasy VII (PS1, NTSC-U, SCUS-94163/4/5)**. The original source is lost; this repo
-rebuilds it from the retail discs, plus scripts so owners of a legit copy can extract the game data themselves.
+Code recovery for **Final Fantasy VII (PS1, NTSC-U, SCUS-94163/4/5)**. The original source is lost; this repo rebuilds it from the retail discs, plus scripts so owners of a legit copy can extract the game data themselves.
+
+This it is made in part with the assistance of Claude. If any of you have a problem with that, you're free to leave and to never contribute here. Projects like these are why tools like Claude should exist.
 
 No game data is in this repo. `assets/` and any disc images are git-ignored. Bring your own discs.
 
@@ -53,6 +54,7 @@ python tools/ff7player.py assets/ff7song
 ```
 
 In the player:
+
 - **Playback:** Space plays and pauses. **Tempo** (25–400%) and **Transpose** (±24 semitones) change playback only,
   not the song; **Reset** puts them back. **Reverb** switches the SPU reverb on and off. Double-click a bar in the order list to jump there; click a channel
   heading to mute it.
@@ -111,6 +113,6 @@ name to `config/symbols.main.txt`. Then `make split && make`.
 
 ## License
 
-MIT (see `LICENSE`) for the code and docs in this repo. Final Fantasy VII and all its data belong to Square Enix
-and are not covered. Contributions must be original work: no code copied from copyleft or unlicensed sources
-(see `REFERENCES.md`).
+MIT (see `LICENSE`) for the code and docs in this repo. Final Fantasy VII and all its data belong to Square Enix and are not covered.
+
+Contributions are welcome (that's including Claude users granted you've actually tested the code).
