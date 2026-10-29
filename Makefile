@@ -43,7 +43,7 @@ build/src/%.o: src/%.c
 	@mkdir -p $(dir $@)
 	cpp -P -undef -nostdinc -D__GNUC__=2 -Iinclude $< > build/src/$*.i
 	toolchain/gcc-$(GCC)/cc1 -quiet $(CFLAGS) build/src/$*.i -o build/src/$*.s
-	$(PYTHON) toolchain/maspsx/maspsx.py --aspsx-version=$(ASPSX) < build/src/$*.s > build/src/$*.ms
+	$(PYTHON) toolchain/maspsx/maspsx.py --aspsx-version=$(ASPSX) $(MASPSXFLAGS) < build/src/$*.s > build/src/$*.ms
 	$(CROSS)as $(ASFLAGS) build/src/$*.ms -o $@
 
 # The sound driver was assembled by an older ASPSX: `li 1` becomes `ori` (2.34 and older), and indexed stores
@@ -51,6 +51,8 @@ build/src/%.o: src/%.c
 build/src/main/sound.o: ASPSX = 2.21
 # ...and compiled by GCC 2.6.3: 2.7.2 keeps a stored value in its register where the game reloads it (seq_cmd_loop_point).
 build/src/main/sound.o: GCC = 2.6.3
+# Its divides carry ASPSX's divide-by-zero and overflow checks.
+build/src/main/sound.o: MASPSXFLAGS = --expand-div
 
 clean:
 	rm -rf build asm
