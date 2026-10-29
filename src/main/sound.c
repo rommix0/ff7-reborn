@@ -296,17 +296,39 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", seq_look_ahead);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_80031A70);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_tempo);
+void seq_cmd_tempo(SeqChannel *ch, SeqSong *song)
+{
+    song->tempo = *ch->pos++ << 16;
+    song->tempo |= *ch->pos++ << 24;
+    song->tempo_slide_ticks = 0;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_80031AFC);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_reverb_depth);
+void seq_cmd_reverb_depth(SeqChannel *ch, SeqSong *song)
+{
+    int depth = *ch->pos++ << 16;
+
+    depth |= *ch->pos++ << 24;
+    song->reverb_slide_ticks = 0;
+    song->flags |= SONG_UPDATE_REVERB;
+    song->reverb_depth = depth;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_80031BE4);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_volume_scale);
+void seq_cmd_volume_scale(SeqChannel *ch)
+{
+    ch->volume_scale = *ch->pos++;
+    ch->voice_update |= UPDATE_VOLUME;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_volume);
+void seq_cmd_volume(SeqChannel *ch)
+{
+    ch->volume = *(signed char *)ch->pos++ << 23;
+    ch->volume_slide_ticks = 0;
+    ch->voice_update |= UPDATE_VOLUME;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_volume_slide);
 
@@ -314,11 +336,22 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_layer_on);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_layer_off);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_layer_balance);
+void seq_cmd_layer_balance(SeqChannel *ch)
+{
+    ch->balance = *ch->pos++ << 8;
+    ch->balance_slide_ticks = 0;
+    if (ch->flags & CHANNEL_LAYER)
+        ch->voice_update |= UPDATE_VOLUME;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_layer_balance_slide);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_pan);
+void seq_cmd_pan(SeqChannel *ch)
+{
+    ch->pan = *ch->pos++ << 8;
+    ch->pan_slide_ticks = 0;
+    ch->voice_update |= UPDATE_VOLUME;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_pan_slide);
 
@@ -340,23 +373,58 @@ void seq_cmd_octave_down(SeqChannel *ch)
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_instrument);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80032274);
+INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_instrument_from_loop);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800323CC);
+INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_envelope_reset);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_transpose);
+void seq_cmd_transpose(SeqChannel *ch)
+{
+    ch->transpose = (signed char)*ch->pos++;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_transpose_add);
+void seq_cmd_transpose_add(SeqChannel *ch)
+{
+    ch->transpose = (signed char)*ch->pos++ + ch->transpose;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_bend);
+/* A4 n s: the next note or tie bends s semitones over n ticks (0 = 256). */
+void seq_cmd_bend(SeqChannel *ch)
+{
+    int ticks = *ch->pos++;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_glide);
+    ch->bend_ticks = ticks;
+    if (!ticks)
+        ch->bend_ticks = 256;
+    ch->bend_semitones = (signed char)*ch->pos++;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800325B8);
+/* DA n: the next notes glide from the last one over n ticks (0 = 256). It also turns slur mode on. */
+void seq_cmd_glide(SeqChannel *ch)
+{
+    int ticks = *ch->pos++;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_detune);
+    ch->glide_ticks = ticks;
+    if (!ticks)
+        ch->glide_ticks = 256;
+    ch->last_transpose = 0;
+    ch->last_key = 0;
+    ch->note_mode = 1;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_detune_add);
+void seq_cmd_glide_off(SeqChannel *ch)
+{
+    ch->glide_ticks = 0;
+}
+
+void seq_cmd_detune(SeqChannel *ch)
+{
+    ch->detune = (signed char)*ch->pos++;
+}
+
+void seq_cmd_detune_add(SeqChannel *ch)
+{
+    ch->detune = (signed char)*ch->pos++ + ch->detune;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_vibrato);
 
@@ -364,35 +432,56 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_vibrato_depth);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_vibrato_depth_slide);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_vibrato_off);
+void seq_cmd_vibrato_off(SeqChannel *ch)
+{
+    ch->flags &= ~CHANNEL_VIBRATO;
+    ch->vibrato_offset = 0;
+    ch->voice_update |= UPDATE_PITCH;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_tremolo);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_tremolo_depth);
+void seq_cmd_tremolo_depth(SeqChannel *ch)
+{
+    ch->tremolo_depth = *ch->pos++ << 8;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_tremolo_depth_slide);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_tremolo_off);
+void seq_cmd_tremolo_off(SeqChannel *ch)
+{
+    ch->flags &= ~CHANNEL_TREMOLO;
+    ch->tremolo_offset = 0;
+    ch->voice_update |= UPDATE_VOLUME;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_pan_lfo);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_pan_lfo_depth);
+void seq_cmd_pan_lfo_depth(SeqChannel *ch)
+{
+    ch->pan_lfo_depth = *ch->pos++ << 7;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_80032A28);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80032A98);
+void seq_cmd_pan_lfo_off(SeqChannel *ch)
+{
+    ch->flags &= ~CHANNEL_PAN_LFO;
+    ch->pan_lfo_offset = 0;
+    ch->voice_update |= UPDATE_VOLUME;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80032ABC);
+INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_noise_on);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80032B30);
+INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_noise_off);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_fm_on);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_fm_off);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80032C8C);
+INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_reverb_on);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80032CE8);
+INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_reverb_off);
 
 void seq_cmd_slur_on(SeqChannel *ch)
 {
@@ -410,29 +499,82 @@ void seq_cmd_full_length_on(SeqChannel *ch)
 void seq_cmd_full_length_off(void) {
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80032D6C);
+INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_noise_clock);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_attack_rate);
+void seq_cmd_attack_rate(SeqChannel *ch)
+{
+    ch->attack_rate = *ch->pos++;
+    ch->voice_update |= UPDATE_ATTACK_RATE | UPDATE_ATTACK_MODE;
+    if (ch->flags & CHANNEL_LAYER)
+        effect_channels[ch->layer_voice].attack_rate = ch->attack_rate;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_decay_rate);
+void seq_cmd_decay_rate(SeqChannel *ch)
+{
+    ch->decay_rate = *ch->pos++;
+    ch->voice_update |= UPDATE_DECAY_RATE;
+    if (ch->flags & CHANNEL_LAYER)
+        effect_channels[ch->layer_voice].decay_rate = ch->decay_rate;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_sustain_level);
+void seq_cmd_sustain_level(SeqChannel *ch)
+{
+    ch->sustain_level = *ch->pos++;
+    ch->voice_update |= UPDATE_SUSTAIN_LEVEL;
+    if (ch->flags & CHANNEL_LAYER)
+        effect_channels[ch->layer_voice].sustain_level = ch->sustain_level;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_sustain_rate);
+void seq_cmd_sustain_rate(SeqChannel *ch)
+{
+    ch->sustain_rate = *ch->pos++;
+    ch->voice_update |= UPDATE_SUSTAIN_RATE | UPDATE_SUSTAIN_MODE;
+    if (ch->flags & CHANNEL_LAYER)
+        effect_channels[ch->layer_voice].sustain_rate = ch->sustain_rate;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_release_rate);
+void seq_cmd_release_rate(SeqChannel *ch)
+{
+    ch->release_rate = *ch->pos++;
+    ch->voice_update |= UPDATE_RELEASE_RATE | UPDATE_RELEASE_MODE;
+    if (ch->flags & CHANNEL_LAYER)
+        effect_channels[ch->layer_voice].release_rate = ch->release_rate;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80032FFC);
+void seq_cmd_attack_mode(SeqChannel *ch)
+{
+    ch->attack_mode = *ch->pos++;
+    ch->voice_update |= UPDATE_ATTACK_MODE;
+    if (ch->flags & CHANNEL_LAYER)
+        effect_channels[ch->layer_voice].attack_mode = ch->attack_mode;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80033060);
+void seq_cmd_sustain_mode(SeqChannel *ch)
+{
+    ch->sustain_mode = *ch->pos++;
+    ch->voice_update |= UPDATE_SUSTAIN_MODE;
+    if (ch->flags & CHANNEL_LAYER)
+        effect_channels[ch->layer_voice].sustain_mode = ch->sustain_mode;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800330C4);
+void seq_cmd_release_mode(SeqChannel *ch)
+{
+    ch->release_mode = *ch->pos++;
+    ch->voice_update |= UPDATE_RELEASE_MODE;
+    if (ch->flags & CHANNEL_LAYER)
+        effect_channels[ch->layer_voice].release_mode = ch->release_mode;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_overlap_on);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_overlap_off);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_loop_point);
+void seq_cmd_loop_point(SeqChannel *ch)
+{
+    ch->loop_level = (ch->loop_level + 1) & 3;
+    ch->loop_start[ch->loop_level] = ch->pos;
+    ch->loop_count[ch->loop_level] = 0;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_repeat);
 
@@ -440,46 +582,143 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_repeat_branch);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8003337C);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_loop_forever);
+void seq_cmd_loop_forever(SeqChannel *ch)
+{
+    ch->loop_count[ch->loop_level]++;
+    ch->pos = ch->loop_start[ch->loop_level];
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_next_length);
+/* A2: the next note's length, once. */
+void seq_cmd_next_length(SeqChannel *ch)
+{
+    int ticks = *ch->pos++;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_fixed_length);
+    ch->fixed_length = 0;
+    ch->gate = ticks | ticks << 8;
+    ch->last_length = ticks;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_drum_on);
+/* DC n: every note lasts the last length + n ticks (signed), clamped to 1-255; 0 turns it off. */
+void seq_cmd_fixed_length(SeqChannel *ch)
+{
+    short ticks = (signed char)*ch->pos++;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_drum_off);
+    if (ticks) {
+        ticks += ch->last_length;
+        if (ticks <= 0)
+            ticks = 1;
+        else if (ticks >= 256)
+            ticks = 255;
+    }
+    ch->fixed_length = ticks;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_time_signature);
+/* EC lo hi: drum-kit mode, with the key map at a signed offset from after the arguments. */
+void seq_cmd_drum_on(SeqChannel *ch)
+{
+    int offset = *ch->pos++;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_bar_number);
+    offset |= *ch->pos++ << 8;
+    ch->drum_map = ch->pos + (short)offset;
+    ch->flags |= CHANNEL_DRUMS;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800335CC);
+void seq_cmd_drum_off(SeqChannel *ch)
+{
+    ch->flags &= ~CHANNEL_DRUMS;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800335D8);
+void seq_cmd_time_signature(SeqChannel *ch, SeqSong *song)
+{
+    song->beat_ticks = *ch->pos++;
+    song->beats_per_bar = *ch->pos++;
+    song->bar_beat = 0;
+    song->beat_tick = 0;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80033628);
+void seq_cmd_bar_number(SeqChannel *ch, SeqSong *song)
+{
+    song->bar_number = *ch->pos++;
+    song->bar_number |= *ch->pos++ << 8;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8003366C);
+void func_800335CC(SeqChannel *ch, SeqSong *song)
+{
+    song->unk_54 = 1;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80033698);
+INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_decay_sustain);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800336DC);
+/* CE n: noise on now, and flipped after n + 1 ticks (0 = 257). */
+void seq_cmd_noise_on_timed(SeqChannel *ch, SeqSong *song)
+{
+    int ticks = *ch->pos++;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80033708);
+    ch->noise_ticks = ticks ? ticks + 1 : 257;
+    seq_cmd_noise_on(ch, song);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80033788);
+/* CF n: noise flipped after n + 1 ticks (0 = 257). */
+void seq_cmd_noise_timed(SeqChannel *ch)
+{
+    int ticks = *ch->pos++;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8003379C);
+    ch->noise_ticks = ticks ? ticks + 1 : 257;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800337B0);
+/* D2 n: FM on now, and flipped after n + 1 ticks (0 = 257). */
+void seq_cmd_fm_on_timed(SeqChannel *ch, SeqSong *song)
+{
+    int ticks = *ch->pos++;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800337C4);
+    ch->fm_ticks = ticks ? ticks + 1 : 257;
+    seq_cmd_fm_on(ch, song);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_jump);
+/* D3 n: FM flipped after n + 1 ticks (0 = 257). */
+void seq_cmd_fm_timed(SeqChannel *ch)
+{
+    int ticks = *ch->pos++;
+
+    ch->fm_ticks = ticks ? ticks + 1 : 257;
+}
+
+INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_all_off);
+
+void seq_cmd_pitch_follow_on(SeqChannel *ch)
+{
+    ch->flags |= CHANNEL_PITCH_FOLLOW;
+}
+
+void seq_cmd_pitch_follow_off(SeqChannel *ch)
+{
+    ch->flags &= ~CHANNEL_PITCH_FOLLOW;
+}
+
+void seq_cmd_volume_follow_on(SeqChannel *ch)
+{
+    ch->flags |= CHANNEL_VOLUME_FOLLOW;
+}
+
+void seq_cmd_volume_follow_off(SeqChannel *ch)
+{
+    ch->flags &= ~CHANNEL_VOLUME_FOLLOW;
+}
+
+void seq_cmd_jump(SeqChannel *ch)
+{
+    int offset = *ch->pos++;
+
+    offset |= *ch->pos++ << 8;
+    ch->pos += (short)offset;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_80033818);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_end);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_unknown);
+/* Every unused command byte ends the channel, as A0 does. */
+void seq_cmd_unknown(SeqChannel *ch)
+{
+    seq_cmd_end(ch);
+}

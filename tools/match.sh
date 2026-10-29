@@ -15,7 +15,9 @@ python3 toolchain/maspsx/maspsx.py --aspsx-version=${ASPSX:-2.79} < $w/f.s > $w/
 mipsel-linux-gnu-as -EL -march=r3000 -mtune=r3000 -no-pad-sections -O1 -G0 $w/f.ms -o $w/f.o
 # ld aligns .text to 16 bytes by default; most game functions aren't, so pin the address exactly.
 echo "SECTIONS { .text 0x$org : SUBALIGN(4) { *(.text) } }" > $w/f.ld
-mipsel-linux-gnu-ld -EL -T $w/f.ld -e 0 -o $w/f.elf $w/f.o
+# Calls and data references resolve to the game's addresses: our symbol files, plus splat's names once split.
+cat config/symbols.main.txt config/symbols.main.psyq.txt build/undefined_*_auto.txt 2>/dev/null | sed 's|//.*||' > $w/syms.ld
+mipsel-linux-gnu-ld -EL -T $w/f.ld -T $w/syms.ld -e 0 -o $w/f.elf $w/f.o
 mipsel-linux-gnu-objcopy -O binary -j .text $w/f.elf $w/ours.bin
 
 size=$(stat -c %s $w/ours.bin)

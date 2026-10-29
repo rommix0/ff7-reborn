@@ -922,14 +922,35 @@ Lessons from getting it to match:
 **The sound driver as C** (`src/main/sound.c`, `0x800293D0`–`0x80033A90`):
 - **Split:** its own `c` subsegment in `config/main.yaml`, plus a `.rodata` piece for its one jump table
   (`0x80010394`, `seq_look_ahead`'s `switch`). splat found 229 functions; unrecovered ones are `INCLUDE_ASM`.
-- **Assembler: ASPSX 2.34.** `seq_cmd_slur_on` loads 1 with `ori`, which only ASPSX 2.34 and older do (2.56+ use
-  `addiu`), and its `$at` expansions have no leading `nop` (2.30+). The `Makefile` sets `ASPSX = 2.34` for
-  `sound.o`; `ASPSX=2.34 tools/match.sh …` does the same for a single file.
-- **Compiler:** GCC 2.7.2 `-O2 -G0` matches so far.
-- **Channel struct:** `SeqChannel` in `include/sound.h`, `0x108` bytes, filled in as functions are recovered.
-- **Recovered:** `seq_cmd_set_octave`, `seq_cmd_octave_up`, `seq_cmd_octave_down` (the step is an `unsigned short`
-  −1: the game adds `0xFFFF`), `seq_cmd_slur_on`, `seq_cmd_full_length_on`. `seq_cmd_slur_off` and
-  `seq_cmd_full_length_off` are empty in the game.
+- **Toolchain: GCC 2.6.3 `-O2 -G0`, ASPSX 2.21 (or older).** The `Makefile` sets both for `sound.o`; for one file,
+  `ASPSX=2.21 tools/match.sh <file.c> <addr> 2.6.3`.
+  - **GCC 2.6.3:** `seq_cmd_loop_point` reloads the loop level after storing it, and `seq_cmd_jump` adds into a
+    different register. 2.7.2 gets both wrong, and every function matched so far also matches with 2.6.3.
+  - **ASPSX 2.21:** `seq_cmd_slur_on` loads 1 with `ori` (2.34 and older), and the envelope setters' indexed stores
+    into `effect_channels` expand through `lui`/`addiu $at`/`addu` (before 2.30). My first guess, 2.34, came from
+    the first functions alone, which had no such store.
+- **`match.sh`** now links against `config/symbols.main*.txt` and splat's `build/undefined_*_auto.txt`, so a
+  function that calls another or reads a global can be checked on its own.
+- **Structs** (`include/sound.h`), named from what the matched code does with them:
+  - `SeqChannel`, `0x108` bytes: read pointer, loop stack (`+0x04` starts, `+0xB8` level, `+0xBA` passes), drum map
+    (`+0x14`), layer voice (`+0x24`), volume, pan, octave, length fields, glide, bend, transpose and detune, LFO
+    depths and offsets, the noise and FM countdowns, the envelope (`+0xEC`–`+0x102`), and the flags at `+0x38`.
+  - `voice_update` (`+0xE0`) is libspu's voice attribute mask: `0x3` the two volumes, `0x10` pitch, `0x100`–`0x400`
+    the envelope modes, `0x800`–`0x8000` the rates and the sustain level.
+  - `SeqSong`, the handlers' second argument: tempo (`+0x18`), flags (`+0x38`, `0x80` = reverb depth changed),
+    reverb depth (`+0x40`), their slide counters, the noise clock (`+0x52`), and the meter and bar number
+    (`+0x56`–`+0x5E`).
+  - `effect_channels` (`0x80096608`): one `SeqChannel` per SPU voice. Effects play on them, and a layer's second
+    voice keeps its envelope in its voice's entry, so the envelope commands write both.
+- **Recovered: 50 of 229 functions** (plus `seq_cmd_slur_off` and `seq_cmd_full_length_off`, empty in the game, and
+  `func_800335CC`, the `F3` handler), all sequence command handlers: octave, slur and full length, volume, pan,
+  transpose, detune, lengths (`A2`, `DC`), glide and bend, loops and jumps, drum kit, tempo, reverb depth, time
+  signature and bar number, the LFO depth and off commands, the timed noise and FM pairs, pitch and volume follow,
+  layer balance, and the eight envelope setters.
+  - `seq_cmd_octave_down` adds an `unsigned short` −1 (the game adds `0xFFFF`).
+  - `seq_cmd_glide` (`DA`) also turns slur mode on, and `DB` only clears the glide ticks.
+  - `CE`/`CF` are the noise twins of `D2`/`D3`: noise on now (`CE` only) and flipped after n + 1 ticks.
+  - Every unused command byte calls `seq_cmd_end`.
 
 ## 8. Sony library map (main exe)
 

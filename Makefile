@@ -46,9 +46,11 @@ build/src/%.o: src/%.c
 	$(PYTHON) toolchain/maspsx/maspsx.py --aspsx-version=$(ASPSX) < build/src/$*.s > build/src/$*.ms
 	$(CROSS)as $(ASFLAGS) build/src/$*.ms -o $@
 
-# The sound driver was assembled by an older ASPSX: `li 1` becomes `ori` (2.34 and older), and `$$at` expansions
-# have no leading nop (2.30 and newer).
-build/src/main/sound.o: ASPSX = 2.34
+# The sound driver was assembled by an older ASPSX: `li 1` becomes `ori` (2.34 and older), and indexed stores
+# expand through `addiu $$at` (2.21 and older).
+build/src/main/sound.o: ASPSX = 2.21
+# ...and compiled by GCC 2.6.3: 2.7.2 keeps a stored value in its register where the game reloads it (seq_cmd_loop_point).
+build/src/main/sound.o: GCC = 2.6.3
 
 clean:
 	rm -rf build asm
