@@ -1,38 +1,99 @@
 #include "common.h"
 #include "sound.h"
+#include "main.h"
 
-/* The game's boot file: it loads the sound driver's files and runs the main loop. Built with ASPSX 2.34 (`li` as
- * `ori`, indexed loads folded into `%lo`); GCC 2.7.2 and 2.6.3 both match so far. */
+/* The game's boot file (0x8001117C-0x800144D8): it boots the sound driver, sets up the display and runs the main loop.
+ * Assembled by ASPSX 2.21 (indexed loads go through `addiu $at`); GCC 2.7.2 and 2.6.3 both match so far. */
 
-/* Where a file is on the disc. */
-typedef struct DiscFile {
-    unsigned int lba;
-    unsigned int size;
-} DiscFile;
+/* libgpu's display and drawing environments (layouts from Sony's Libref). */
+typedef struct RECT {
+    short x, y, w, h;
+} RECT;
+
+typedef struct DISPENV {
+    RECT disp;
+    RECT screen;
+    unsigned char isinter, isrgb24, pad0, pad1;
+} DISPENV;
+
+typedef struct DRAWENV {
+    RECT clip;
+    short ofs[2];
+    RECT tw;
+    unsigned short tpage;
+    unsigned char dtd, dfe, isbg, r0, g0, b0;
+    unsigned int dr_env[16];
+} DRAWENV;
+
+/* An entry of the table at 0x80074EB0, 0x84 bytes. */
+typedef struct FieldObject {
+    int x;                              /* 0x00 << 12 */
+    int y;                              /* 0x04 << 12 */
+    unsigned char pad_08[0x22];
+    unsigned char unk_2A;
+    unsigned char pad_2B[0x3B];
+    unsigned short unk_66;
+    unsigned char pad_68[0x1C];
+} FieldObject;
+
+/* State func_800119E4 saves and func_80011AEC puts back. Volatile: the game reads every field in order, and one field
+ * twice. */
+typedef struct SavedState {
+    int unk_00;
+    short mode;                         /* game_mode */
+    short unk_06;
+    short unk_08;
+    short unk_0A;                       /* a FieldObject's x */
+    short unk_0C;                       /* and y */
+    short unk_0E;
+    unsigned char unk_10;
+    unsigned char unk_11;
+    unsigned char unk_12;
+} SavedState;
 
 extern DiscFile instr_all_file;
 extern DiscFile effect_all_file;
 extern DiscFile instr_dat_file;
 extern DiscFile instr2_all_file;
 extern DiscFile instr2_dat_file;
-extern DiscFile disc_files[]; /* by number */
+extern DiscFile D_80048D24;
 extern unsigned short D_800965E8;
 extern unsigned short D_80071A5C;
-extern unsigned int D_80071744;
-extern unsigned int D_80095DD8;
-extern void *D_800722C8;
+extern DISPENV disp_env[2];
+extern DRAWENV draw_env[2];
+extern volatile short frame; /* which of the two buffers is being drawn */
+extern unsigned char D_80071A58;
+extern unsigned int D_8007E7A0[];
+extern volatile short D_800965EC;
+extern volatile SavedState D_8009D274;
+extern short D_8009A05C;
+extern short D_800965E0;
+extern FieldObject D_80074EB0[];
+extern unsigned char D_8009C540;
+extern unsigned char D_8009AD2C;
+extern int D_80071E28;
+extern short D_8009AC58;
+extern short D_8009ABF8;
+extern short D_8009ABFA;
+extern short D_8009AC16;
+extern short D_8009AC18;
+extern unsigned char D_8009A068[];
+extern int D_8019DAA0;
+extern unsigned int *D_8019D5E8;
 
-void func_80033E34(unsigned int lba, unsigned int size, void *dest, void (*callback)(void)); /* starts a disc read */
-int func_80034B44(void); /* a disc read is still running */
-void func_80033DAC(unsigned int lba, int mode);
-int DrawSync(int mode);
-void copy_words(int *dst, int *src, int bytes);
-void func_80015CA0(void *src, void *dest); /* unpacks a module */
-void func_80015C3C(void *src, void *dest, int n);
-void func_800140F4(void);
-void func_800148A0(void);
-void func_80044000(void *rect, unsigned int *data); /* VRAM upload */
+/* Shared with the VSync callback, hence volatile: the game reloads them and reads shorts through lhu. */
+extern volatile short D_8009AC40;
+extern volatile short D_8009AC42; /* a fade level, 0-255 */
+extern volatile short D_8009AC44; /* and its step */
+extern volatile short D_80114488;
+extern unsigned char D_8009AC2C;
+extern short D_80095DD4;
+
 void func_8001155C(void);
+void func_80013800(void);
+void func_80013C9C(void);
+void func_800CF60C(void);
+void func_800A16CC(void);
 void StopCallback(void);
 void ResetCallback(void);
 void VSyncCallback(void (*callback)(void));
@@ -41,20 +102,14 @@ void InitGeom(void);
 void func_80043938(int mode);
 void func_80036298(void);
 void func_80043BA8(int mode);
-/* Entry points of the modules run_overlay starts. */
-void D_800A00CC(void);
-void D_800A1158(void);
-
-/* Shared with the VSync callback, hence volatile: the game reloads them and reads shorts through lhu. */
-extern volatile short game_mode; /* 2 and 4 pick the module run_overlay starts next */
-extern volatile short D_8009AC40;
-extern volatile short D_8009AC42; /* a fade level, 0-255 */
-extern volatile short D_8009AC44; /* and its step */
-extern volatile short D_80114488;
-extern unsigned char D_8009AC2C;
-extern unsigned char D_8009C738[];
-extern short D_80095DD4;
-
+void SetDefDispEnv(DISPENV *env, int x, int y, int w, int h);
+void func_80043814(DRAWENV *env, int x, int y, int w, int h); /* probably SetDefDrawEnv */
+void func_800444AC(DISPENV *env);                             /* probably PutDispEnv */
+void PutDrawEnv(DRAWENV *env);
+void func_8004433C(unsigned int *ot);                         /* probably DrawOTag */
+unsigned short GetTPage(int tp, int abr, int x, int y);
+void func_80044A68(void *p, int dfe, int dtd, int tpage, RECT *tw); /* probably SetDrawMode */
+void MoveImage(RECT *rect, int x, int y);
 
 void play_effect_alone(unsigned short id)
 {
@@ -81,7 +136,17 @@ void snd_load_bank2(void)
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_800112E8);
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_8001146C);
+void flip_frame(void)
+{
+    if (D_80071A58) {
+        frame++;
+        frame = frame & 1;
+        func_80013800();
+        func_800444AC(&disp_env[frame]);
+        PutDrawEnv(&draw_env[frame]);
+        func_8004433C(&D_8007E7A0[frame]);
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_8001155C);
 
@@ -98,9 +163,37 @@ void func_8001171C(void)
     InitGeom();
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80011784);
+void init_display(void)
+{
+    SetDefDispEnv(&disp_env[0], 0, 232, 320, 240);
+    SetDefDispEnv(&disp_env[1], 0, 0, 320, 240);
+    func_80043814(&draw_env[0], 0, 8, 320, 224);
+    func_80043814(&draw_env[1], 0, 240, 320, 224);
+    draw_env[0].dtd = 1;
+    draw_env[1].dtd = 1;
+    draw_env[0].isbg = 0;
+    draw_env[1].isbg = 0;
+    func_800444AC(&disp_env[0]);
+    PutDrawEnv(&draw_env[0]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80011860);
+void func_80011860(void)
+{
+    if (D_800965EC != 5 && D_800965EC != 13) {
+        if (D_800965EC != 2) {
+            func_80033E34(D_80048D24.lba, D_80048D24.size, (void *)0x80180000, 0);
+            while (func_80034B44())
+                ;
+            func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+        } else {
+            while (func_80034B44())
+                ;
+            func_80015CA0((void *)0x801C0000, (void *)0x800A0000);
+        }
+    }
+    func_800CF60C();
+    func_800A16CC();
+}
 
 void func_80011920(void)
 {
@@ -123,19 +216,64 @@ void load_sound_files(void)
     snd_load_effects((unsigned int *)0x801B0000);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800119E4);
+void func_800119E4(void)
+{
+    int i;
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80011AEC);
+    /* Two stores go through a pointer: the game puts their addresses in a register. */
+    if (game_mode == 3) {
+        *(volatile int *)&D_8009D274.unk_00 = 2;
+        D_8009D274.mode = 3;
+    } else {
+        *(volatile int *)&D_8009D274.unk_00 = 0;
+        D_8009D274.mode = 1;
+    }
+    *(volatile short *)&D_8009D274.unk_06 = D_8009A05C;
+    i = D_800965E0;
+    D_8009D274.unk_0A = D_80074EB0[i].x >> 12;
+    D_8009D274.unk_0C = D_80074EB0[i].y >> 12;
+    D_8009D274.unk_0E = D_80074EB0[i].unk_66;
+    D_8009D274.unk_10 = D_80074EB0[i].unk_2A;
+    D_8009D274.unk_11 = D_8009C540;
+    D_8009D274.unk_12 = D_8009AD2C;
+}
+
+void func_80011AEC(void)
+{
+    D_80071E28 = D_8009D274.unk_00;
+    game_mode = D_8009D274.mode;
+    if (!game_mode)
+        game_mode = 1;
+    D_8009A05C = D_8009D274.unk_06;
+    D_8009AC58 = D_8009D274.unk_06;
+    D_8009ABF8 = D_8009D274.unk_0A;
+    D_8009ABFA = D_8009D274.unk_0C;
+    D_8009AC16 = D_8009D274.unk_0E;
+    D_8009AC18 = D_8009D274.unk_10;
+    D_8009C540 = D_8009D274.unk_11;
+    D_8009AD2C = D_8009D274.unk_12;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_80011BB4);
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_80011C1C);
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80012840);
+void func_80012840(int abr)
+{
+    unsigned short tpage = GetTPage(0, abr, 0, 0);
+
+    func_80044A68(D_8009A068, 0, 0, tpage, 0);
+    func_80044A68(D_8009A068 + 0x30, 0, 0, tpage, 0);
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_800128B8);
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800129D0);
+void copy_frame(void)
+{
+    MoveImage(&disp_env[frame].disp, disp_env[(frame + 1) & 1].disp.x, disp_env[(frame + 1) & 1].disp.y);
+    while (DrawSync(1))
+        ;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_80012A8C);
 
@@ -172,110 +310,12 @@ INCLUDE_ASM("asm/nonmatchings/main/main", func_800138EC);
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_80013C9C);
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800140A4);
+void func_800140A4(void)
+{
+    if (!(++D_8019DAA0 & 1)) {
+        func_8004433C(D_8019D5E8);
+        func_80013C9C();
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_800140F4);
-
-unsigned int disc_file_lba(int i)
-{
-    return disc_files[i].lba;
-}
-
-void func_800144F0(unsigned int lba)
-{
-    func_80033DAC(lba, 0);
-}
-
-void func_80014510(int i)
-{
-    func_800144F0(disc_files[i].lba);
-}
-
-void func_80014540(void)
-{
-    func_80033E34(D_80071744, D_80095DD8, D_800722C8, 0);
-}
-
-void read_disc_file(int i, void *dest, void (*callback)(void))
-{
-    func_80033E34(disc_files[i].lba, disc_files[i].size, dest, callback);
-}
-
-void wait_disc_read(void (*idle)(void))
-{
-    while (func_80034B44()) {
-        if (idle)
-            idle();
-    }
-}
-
-void func_80014608(void)
-{
-}
-
-void load_disc_table(void)
-{
-    int sector[0x800 / 4];
-
-    func_80033E34(0x266, 0x800, sector, 0);
-    wait_disc_read(0);
-    copy_words((int *)disc_files, sector, 0x50);
-}
-
-void run_overlay(int file, void (*entry)(void))
-{
-    read_disc_file(file, (void *)0x801B0000, 0);
-    wait_disc_read(0);
-    func_80015CA0((void *)0x801B0000, (void *)0x800A0000);
-    entry();
-}
-
-void func_800146A4(void)
-{
-    int running = -1;
-
-    do {
-        switch (game_mode) {
-        case 4:
-            wait_disc_read(0);
-            run_overlay(3, D_800A00CC);
-            break;
-        case 2:
-            func_800140F4();
-            run_overlay(5, D_800A1158);
-            break;
-        default:
-            running = 0;
-        }
-    } while (running);
-}
-
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80014750);
-
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80014804);
-
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800148A0);
-
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800148B4);
-
-void func_80014934(void)
-{
-    func_800148A0();
-    read_disc_file(2, (void *)0x801B0000, 0);
-    wait_disc_read(0);
-    func_80015C3C((void *)0x801B0000, D_8009C738, 3);
-}
-
-void load_tim(unsigned int *tim)
-{
-    if (tim[1] & 8) {
-        func_80044000(tim + 3, tim + 5);
-        tim += tim[2] >> 2;
-    }
-    func_80044000(tim + 3, tim + 5);
-}
-
-void func_800149E0(void)
-{
-    DrawSync(0);
-}

@@ -53,8 +53,11 @@ build/src/main/sound.o: ASPSX = 2.21
 build/src/main/sound.o: GCC = 2.6.3
 # Its divides carry ASPSX's divide-by-zero and overflow checks.
 build/src/main/sound.o: MASPSXFLAGS = --expand-div
-# The boot file was assembled by ASPSX 2.34: `li` as `ori`, but indexed loads fold into `%lo` (2.21 doesn't).
-build/src/main/main.o: ASPSX = 2.34
+# The boot file was assembled by ASPSX 2.21 (`li` as `ori`, indexed loads through `addiu $at`), the loader by 2.34
+# (indexed loads fold into `%lo`). The boot file's divides carry ASPSX's checks.
+build/src/main/main.o: ASPSX = 2.21
+build/src/main/main.o: MASPSXFLAGS = --expand-div
+build/src/main/loader.o: ASPSX = 2.34
 # The driver's first file (0x800293D0-0x80029A4C) reaches small globals through $gp: -G8. Its tentative definitions
 # of them stay common, so the linker resolves them to the data section's labels instead of adding storage.
 build/src/main/sound_init.o: ASPSX = 2.21
