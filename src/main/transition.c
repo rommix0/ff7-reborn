@@ -46,6 +46,15 @@ typedef struct Shards {
     POLY_FT4 poly[10][7];
 } Shards;
 
+/* The transition's buffers, back to back in the overlay area. The screen grid has to be reached as a field: its loads
+ * then fold the whole address into one constant, as the game's do. */
+typedef struct ShardState {
+    Shards frame[2];       /* drawn alternately */
+    unsigned int *ot;      /* the frame being drawn */
+    SVECTOR verts[11][8];  /* the grid corners */
+    DVECTOR screen[11][8]; /* and where they land on screen */
+} ShardState;
+
 /* libgpu's setRGB0, setUV4 and setXY4: written through a fresh pointer each time, as the game does. */
 #define set_rgb(p, r, g, b) ((p)->r0 = (r), (p)->g0 = (g), (p)->b0 = (b))
 #define set_uv4(p, _u0, _v0, _u1, _v1, _u2, _v2, _u3, _v3)                                                          \
@@ -55,9 +64,7 @@ typedef struct Shards {
     ((p)->x0 = (_x0), (p)->y0 = (_y0), (p)->x1 = (_x1), (p)->y1 = (_y1), (p)->x2 = (_x2), (p)->y2 = (_y2),           \
      (p)->x3 = (_x3), (p)->y3 = (_y3))
 
-#define shards ((Shards *)0x8019C000)                    /* two frames' worth, drawn alternately */
-#define shard_verts ((SVECTOR (*)[8])0x8019D5EC)         /* the 11x8 grid corners */
-#define shard_screen ((DVECTOR (*)[8])0x8019D8AC)        /* and where they land on screen */
+#define shard_state ((ShardState *)0x8019C000)
 #define shard_rot ((SVECTOR *)0x8019DA0C)
 #define shard_scale ((int *)0x8019DA14)
 #define shard_disp (*(DISPENV *)0x8019DA80)
@@ -70,8 +77,6 @@ extern int D_8019DA98;                           /* the scale's speed */
 extern int D_8019DA9C;                           /* frames so far */
 extern int D_8019DAA0;
 extern int D_8019DAA4;                           /* brightness while fading out */
-extern unsigned int *D_8019D5E8;
-extern DVECTOR D_8019D8AC[11][8];                /* shard_screen, reached by symbol in func_80013C9C's last loop */
 extern volatile short frame;
 extern volatile short D_80095DD4;
 extern RECT D_80062D44;
@@ -103,10 +108,7 @@ int RotTransPers(SVECTOR *v, DVECTOR *sxy, int *p, int *flag);
 void copy_words(int *dst, int *src, int bytes);
 void func_80013C9C(void);
 
-#ifdef NON_MATCHING
-/* Draws a frame of the transition. Same instructions as the game, but in the last loop the game adds the grid's address
- * to the index the other way round (`addu at, v0, at`): it reached the grid through an integer constant there, and as
- * one here GCC strength-reduces the loop, which the game doesn't. */
+/* Draws a frame of the transition. */
 void func_80013C9C(void)
 {
     Shards *s;
@@ -118,8 +120,8 @@ void func_80013C9C(void)
     int step;
 
     MoveImage(&D_80062D44, 0, 8);
-    s = &shards[++D_8019DA94 & 1];
-    D_8019D5E8 = (unsigned int *)s;
+    s = &shard_state->frame[++D_8019DA94 & 1];
+    shard_state->ot = (unsigned int *)s;
     if (D_8019DA9C++ >= 0x2F) {
         if (D_8019DAA4)
             D_8019DAA4--;
@@ -148,25 +150,23 @@ void func_80013C9C(void)
     D_8019DA18 += step >> 4;
     for (j = 0; j < 8; j++)
         for (i = 0; i < 11; i++)
-            RotTransPers(&shard_verts[i][j], &shard_screen[i][j], &depth, &flag);
+            RotTransPers(&shard_state->verts[i][j], &shard_state->screen[i][j], &depth, &flag);
     func_8004418C(&s->ot, 1);
     for (j = 0; j < 7; j++) {
         for (i = 0; i < 10; i++) {
-            set_xy4(&s->poly[i][j], D_8019D8AC[i][j].vx, D_8019D8AC[i][j].vy, D_8019D8AC[i + 1][j].vx,
-                    D_8019D8AC[i + 1][j].vy, D_8019D8AC[i][j + 1].vx, D_8019D8AC[i][j + 1].vy,
-                    D_8019D8AC[i + 1][j + 1].vx, D_8019D8AC[i + 1][j + 1].vy);
+            set_xy4(&s->poly[i][j], shard_state->screen[i][j].vx, shard_state->screen[i][j].vy,
+                    shard_state->screen[i + 1][j].vx, shard_state->screen[i + 1][j].vy,
+                    shard_state->screen[i][j + 1].vx, shard_state->screen[i][j + 1].vy,
+                    shard_state->screen[i + 1][j + 1].vx, shard_state->screen[i + 1][j + 1].vy);
             AddPrim(&s->ot, &s->poly[i][j]);
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/main/transition", func_80013C9C);
-#endif
 
 void func_800140A4(void)
 {
     if (!(++D_8019DAA0 & 1)) {
-        func_8004433C(D_8019D5E8);
+        func_8004433C(shard_state->ot);
         func_80013C9C();
     }
 }
@@ -237,14 +237,15 @@ void func_800140F4(void)
     D_8019DA10 = 0;
     D_8019DA9C = 0;
     D_8019DAA4 = 0x80;
+    /* Through the decayed pointer, unlike the draw's screen grid: the game keeps this base in a register for `.vx`. */
     for (j = 0; j < 8; j++) {
         for (i = 0; i < 11; i++) {
-            shard_verts[i][j].vx = i * 32 - 0xA0;
-            shard_verts[i][j].vy = j * 32 - 0x70;
-            shard_verts[i][j].vz = 0;
+            ((SVECTOR (*)[8])shard_state->verts)[i][j].vx = i * 32 - 0xA0;
+            ((SVECTOR (*)[8])shard_state->verts)[i][j].vy = j * 32 - 0x70;
+            ((SVECTOR (*)[8])shard_state->verts)[i][j].vz = 0;
         }
     }
-    s = shards;
+    s = shard_state->frame;
     for (j = 0; j < 7; j++) {
         for (i = 0; i < 10; i++) {
             SetPolyFT4(&s->poly[i][j]);
@@ -255,7 +256,7 @@ void func_800140F4(void)
                     (i * 32) & 0x3F, j * 32 + 0x27, ((i * 32) & 0x3F) + 0x1F, j * 32 + 0x27);
         }
     }
-    copy_words((int *)&shards[1], (int *)&shards[0], sizeof(Shards));
+    copy_words((int *)&shard_state->frame[1], (int *)&shard_state->frame[0], sizeof(Shards));
     func_80013C9C();
     D_80095DD4 = 3;
 }

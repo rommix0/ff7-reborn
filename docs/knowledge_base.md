@@ -949,21 +949,26 @@ Lessons from getting it to match:
   `#include` from a Windows drive under WSL (it can't `stat` the large inode numbers). The build preprocesses with the
   host `cpp -P -undef -nostdinc` instead, which doesn't change the generated code.
 
-**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 45 in C so far), three files by toolchain:
+**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 46 in C so far), three files by toolchain:
 - **`src/main/main.c`** (`0x8001117C`–`0x80013C9C`, 26 of 27 in C): boots the sound driver, sets up the display and
   has the game's `main` (`0x80011C1C`, 3 KB, drafted). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed
   load goes through `addiu $at` (`lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`). Its divides carry
   ASPSX's checks.
-- **`src/main/transition.c`** (`0x80013C9C`–`0x800144D8`, 2 of 3 in C): a screen transition. **GCC 2.7.2 and ASPSX
+- **`src/main/transition.c`** (`0x80013C9C`–`0x800144D8`, all 3 in C): a screen transition. **GCC 2.7.2 and ASPSX
   2.34** like the loader, but `-G0`. Under `main.c`'s toolchain its drafts sat at 129 and 198 differing lines with a
-  loop counter reset GCC 2.6.3 wouldn't duplicate; under this one the setup `func_800140F4` matches. `func_800140F4`
-  gives it its own display, copies the screen in four strips with every pixel's semi-transparency bit set, and sets up
-  a 10x7 grid of textured quads over an 11x8 vertex grid. `func_80013C9C` draws a frame: it alternates two quad grids,
-  fades or re-pages them, rotates and scales the vertex grid with the GTE and links the projected quads. It's in C
-  behind `NON_MATCHING`, 8 words off: in its last loop the game adds the grid's address to the index the other way
-  round (`addu at, v0, at`, what an integer-constant base gives), but with a constant base GCC strength-reduces that
-  loop, which the game doesn't. Pointers into the overlay area at `0x8019xxxx` are integer constants (`lui`/`ori`);
-  scalars there are reached by symbol. The quads' colour, texture coordinates and corners are written through
+  loop counter reset GCC 2.6.3 wouldn't duplicate. `func_800140F4` gives it its own display, copies the screen in four
+  strips with every pixel's semi-transparency bit set, and sets up a 10x7 grid of textured quads over an 11x8 vertex
+  grid. `func_80013C9C` draws a frame: it alternates two quad grids, fades or re-pages them, rotates and scales the
+  vertex grid with the GTE and links the projected quads. Its buffers sit back to back from `0x8019C000` (two quad
+  grids, the current one, the vertex grid, the projected grid), so they're one struct `ShardState`, and **how a grid is
+  reached shows in the code**:
+  - As a struct field (`shard_state->screen[i][j].vx`), GCC folds the whole address into one big constant
+    (`lhu v0, -2145789780(v1)`); maspsx expands that as `lui at; addu at, v1, at`, register first, as the game has.
+  - Through an extern symbol it expands as `addu at, at, v1` instead (8 words off).
+  - Through a bare constant pointer (`((DVECTOR (*)[8])0x8019D8AC)[i][j]`), GCC keeps the base in a register for the
+    offset-0 field and strength-reduces the loop. The setup's vertex grid does show that register (`a3` for `.vx`), so
+    it decays the field to a pointer first: `((SVECTOR (*)[8])shard_state->verts)[i][j]`.
+  Scalars past the grids are reached by symbol. The quads' colour, texture coordinates and corners are written through
   libgpu-style macros, as in the fade code.
 - **`src/main/loader.c`** (`0x800144D8`–`0x80014A00`, all 17 in C): disc reads and module starts. **ASPSX 2.34**:
   `li` is still `ori`, but an indexed load folds into `%lo` (`lui at; addu at, at, a0; lw v0, %lo(sym)(at)`).
