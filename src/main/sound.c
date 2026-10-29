@@ -105,7 +105,7 @@ void channel_reset(SeqChannel *ch, unsigned char *start)
     ch->noise_ticks = 0;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029C48);
+INCLUDE_ASM("asm/nonmatchings/main/sound", snd_start_song);
 
 /* Ends the song: every voice it holds (layers and overlaps too) keys off in 2 ticks and steps into a stub that ends
  * the channel. */
@@ -137,7 +137,57 @@ void snd_stop_song(void)
     } while (voices);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029F44);
+/* F0: stops both songs, as snd_stop_song does the first. */
+void snd_stop_songs(void)
+{
+    unsigned int voices = seq_song_active_voices;
+    unsigned int *active;
+    SeqChannel *ch;
+    unsigned int bit;
+
+    if (voices) {
+        ch = seq_channels;
+        bit = 1;
+        voices |= seq_song_layer_voices | seq_song_overlap_voices;
+        seq_song_overlap_voices = 0;
+        seq_song_layer_voices = 0;
+        seq_song_update_voices = 0;
+        seq_song_voices_08 = 0;
+        seq_song_active_voices = voices;
+        seq_song_key_off_voices |= voices;
+        do {
+            if (voices & bit) {
+                voices ^= bit;
+                ch->gate = 0x204;
+                ch->pos = D_80049C40;
+            }
+            bit <<= 1;
+            ch++;
+        } while (voices);
+    }
+    active = &seq_song2.active_voices;
+    voices = *active;
+    if (!voices)
+        return;
+    ch = &seq_channels[24];
+    bit = 1;
+    voices |= seq_song2.layer_voices | seq_song2.overlap_voices;
+    seq_song2.overlap_voices = 0;
+    seq_song2.layer_voices = 0;
+    seq_song2.update_voices = 0;
+    seq_song2.voices_08 = 0;
+    *active = voices;
+    seq_song2.key_off_voices |= voices;
+    do {
+        if (voices & bit) {
+            voices ^= bit;
+            ch->gate = 0x204;
+            ch->pos = D_80049C40;
+        }
+        bit <<= 1;
+        ch++;
+    } while (voices);
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A094);
 
@@ -167,7 +217,42 @@ void snd_stop_effects(void)
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A510);
+/* Stops pairs effect pairs, counting down from pair (channel 48 + pair + 1): their voices leave the effect masks and
+ * key off, and the channels step into the end stub. */
+void snd_stop_effect_pairs(unsigned short pair, int pairs)
+{
+    SeqChannel *ch = &seq_channels[49 + pair];
+    unsigned short n = pairs * 2;
+    unsigned int mask;
+
+    switch ((unsigned short)pairs) {
+    case 1:
+        mask = 3 << (pair + 16);
+        effect_voices_08 &= ~mask;
+        effect_update_voices &= ~mask;
+        effect_key_off_voices |= mask;
+        break;
+    case 2:
+        effect_voices_08 &= ~0x3C0000;
+        effect_update_voices &= ~0x3C0000;
+        effect_key_off_voices |= 0x3C0000;
+        break;
+    case 3:
+        effect_voices_08 &= ~0x3F0000;
+        effect_update_voices &= ~0x3F0000;
+        effect_key_off_voices |= 0x3F0000;
+        break;
+    case 4:
+        effect_voices_08 &= ~0xFF0000;
+        effect_update_voices &= ~0xFF0000;
+        effect_key_off_voices |= 0xFF0000;
+        break;
+    }
+    for (; n; n--, ch--) {
+        ch->gate = 0x204;
+        ch->pos = D_80049C40;
+    }
+}
 
 /* An effect's two streams (0 when it has none): EFFECT.ALL's offsets 2 * id and 2 * id + 1. */
 void snd_effect_streams(unsigned char **first, unsigned char **second, int effect)
@@ -219,13 +304,137 @@ void snd_refresh_effect_volumes(void)
     } while (voices);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A7E8);
+/* Before a song is saved: its voices still keyed on (or whose F8 overlap voice is, when that voice is free) stay
+ * held, the rest leave its masks. A held overlap channel gets flag 0x400. */
+void snd_keep_sounding_voices(void)
+{
+    unsigned int voices = (seq_song_active_voices | seq_song_layer_voices) & ~(effect_voices | snd_stream_voices);
+    SeqChannel *ch;
+    unsigned int bit;
+    unsigned int spare;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A958);
+    if (!voices)
+        return;
+    bit = 1;
+    seq_song_voices_08 = seq_song_update_voices;
+    ch = seq_channels;
+    do {
+        if (voices & bit) {
+            if (SpuGetKeyStatus(bit) == 1) {
+                if (ch->flags & CHANNEL_OVERLAP)
+                    ch->flags |= 0x400;
+                seq_song_voices_08 |= bit;
+            } else if ((ch->flags & 0x600) == 0x600
+                       && (~(effect_voices | snd_stream_voices) & (spare = 1 << ch->overlap_voice))
+                       && SpuGetKeyStatus(spare) == 1) {
+                seq_song_voices_08 |= bit;
+            } else {
+                seq_song_voices_08 &= ~bit;
+                seq_song_update_voices &= ~bit;
+            }
+            voices ^= bit;
+        }
+        ch++;
+        bit <<= 1;
+    } while (voices);
+}
+
+/* Before F4 sets the effects aside: an effect that loops forever (its stream ends in CA) stays, held while its voice
+ * is still keyed on, and rewrites everything when it comes back; one that ends is dropped (unless it's kind 2). */
+void snd_keep_looping_effects(void)
+{
+    unsigned int *state = &effect_voices;
+    unsigned int voices = *state;
+    unsigned int *held;
+    unsigned int bit = 0x10000;
+    SeqChannel *ch;
+
+    if (!voices)
+        return;
+    ch = &seq_channels[48];
+    held = state;
+    effect_voices_08 = effect_update_voices;
+    do {
+        if (voices & bit) {
+            if (func_80031A70(ch) == 0xCA) {
+                if (SpuGetKeyStatus(bit) == 1) {
+                    effect_voices_08 |= bit;
+                } else {
+                    effect_voices_08 &= ~bit;
+                    effect_update_voices &= ~bit;
+                }
+                ch->voice.update = UPDATE_ALL;
+            } else if (ch->is_effect != 2) {
+                *held &= ~bit;
+                effect_voices_08 &= ~bit;
+                effect_update_voices &= ~bit;
+            }
+            voices ^= bit;
+        }
+        ch++;
+        bit <<= 1;
+    } while (voices);
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", snd_resume_song);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002AFB8);
+/* 18/19, while a song plays: it moves to the second block (channels, state and its data 12 KB up, every pointer
+ * moved with it) to fade out there, channel n over (24 - n) * snd_fade_ticks ticks, while the new song starts. */
+void snd_fade_out_song(void)
+{
+    unsigned int *src;
+    unsigned int *dst;
+    unsigned int *song_src;
+    unsigned int *song_dst;
+    unsigned int *data_src;
+    unsigned int *data_dst;
+    SeqChannel *ch;
+    unsigned short i;
+    unsigned short left;
+
+    i = sizeof(SeqChannel) * 24 / 4;
+    src = (unsigned int *)seq_channels;
+    dst = (unsigned int *)&seq_channels[24];
+    do {
+        i--;
+        *dst++ = *src++;
+    } while (i);
+    i = sizeof(SeqSong) / 4;
+    song_src = (unsigned int *)&seq_song;
+    song_dst = song_src + sizeof(SeqSong) / 4;
+    do {
+        i--;
+        *song_dst++ = *song_src++;
+    } while (i);
+    data_src = song_data;
+    data_dst = song_data + 0xC00;
+    i = 0xC00;
+    do {
+        i--;
+        *data_dst++ = *data_src++;
+    } while (i);
+    ch = &seq_channels[24];
+    i = 24;
+    do {
+        i--;
+        ch->pos += 0x3000;
+        ch->drum_map += 0x3000;
+        ch->loop_start[0] += 0x3000;
+        ch->loop_start[1] += 0x3000;
+        ch->loop_start[2] += 0x3000;
+        ch->loop_start[3] += 0x3000;
+        ch->layer_voice += 24;
+        ch++;
+    } while (i);
+    for (i = 0, left = 24; i < 24; i++) {
+        snd_channel_fades[i].volume = 0x7F8000;
+        snd_channel_fades[i].step = -(0x7F8000 / (snd_fade_ticks * left));
+        snd_channel_fades[i].ticks = left * snd_fade_ticks;
+        left--;
+    }
+    D_80062F68 = 0xFFFFFF;
+    D_80062FF8 &= ~0x100;
+}
 
 /* Copies the playing song's 24 channels and its state into a save slot. */
 void snd_save_song(SeqChannel *channels, SeqChannel *saved_channels, SeqSong *song, SeqSong *saved)
@@ -253,7 +462,7 @@ void snd_cmd_10(SoundCommand *cmd)
 {
     snd_load_song(cmd->arg[0], cmd->arg[1]);
     if (seq_song_id == 14) {
-        func_8002A7E8();
+        snd_keep_sounding_voices();
         snd_save_song(seq_channels, saved_song_channels[1], &seq_song, &saved_songs[1]);
     }
     snd_stop_song();
@@ -262,20 +471,76 @@ void snd_cmd_10(SoundCommand *cmd)
     else if (saved_songs[1].song_id && saved_songs[1].song_id == (unsigned short)cmd->arg[2])
         snd_resume_song(1);
     else
-        func_80029C48();
+        snd_start_song();
     seq_song_id = cmd->arg[2];
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_cmd_14);
+void snd_cmd_14(SoundCommand *cmd)
+{
+    SeqSong *song;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B3B4);
+    snd_load_song(cmd->arg[0], cmd->arg[1]);
+    snd_keep_sounding_voices();
+    song = &seq_song;
+    if (seq_song_id) {
+        if (seq_song_id == 14)
+            snd_save_song(seq_channels, saved_song_channels[1], song, &saved_songs[1]);
+        else
+            snd_save_song(seq_channels, saved_song_channels[0], song, &saved_songs[0]);
+    }
+    snd_stop_song();
+    snd_start_song();
+    seq_song_id = cmd->arg[2];
+}
 
-/* 18 / 19: while a song plays (seq_song_id set), first func_8002AFB8 with the value at 0x80062FC8 = arg 3 (0 = 16); then as 10 / 14. */
+/* 15 a b id: like 10, but a saved song with that id swaps with the playing one: the playing song goes through the
+ * second block into a save slot (slot 1 if it's song 14) and the saved one resumes. */
+void snd_cmd_15(SoundCommand *cmd)
+{
+    SeqSong *song;
+
+    D_80062FF8 &= ~0x100;
+    snd_load_song(cmd->arg[0], cmd->arg[1]);
+    snd_keep_sounding_voices();
+    if (saved_songs[0].song_id == (unsigned short)cmd->arg[2]) {
+        snd_save_song(seq_channels, &seq_channels[24], &seq_song, &seq_song + 1);
+        snd_stop_song();
+        snd_resume_song(0);
+        if (seq_song2.song_id == 14)
+            snd_save_song(&seq_channels[24], saved_song_channels[1], &seq_song + 1, &saved_songs[1]);
+        else
+            snd_save_song(&seq_channels[24], saved_song_channels[0], &seq_song + 1, &saved_songs[0]);
+    } else if (saved_songs[1].song_id == (unsigned short)cmd->arg[2]) {
+        snd_save_song(seq_channels, &seq_channels[24], &seq_song, &seq_song + 1);
+        snd_stop_song();
+        snd_resume_song(1);
+        if (seq_song2.song_id == 14)
+            snd_save_song(&seq_channels[24], saved_song_channels[1], &seq_song + 1, &saved_songs[1]);
+        else
+            snd_save_song(&seq_channels[24], saved_song_channels[0], &seq_song + 1, &saved_songs[0]);
+    } else {
+        song = &seq_song;
+        if (seq_song_id) {
+            if (seq_song_id == 14)
+                snd_save_song(seq_channels, saved_song_channels[1], song, &saved_songs[1]);
+            else
+                snd_save_song(seq_channels, saved_song_channels[0], song, &saved_songs[0]);
+        }
+        snd_stop_song();
+        snd_start_song();
+    }
+    seq_song2.overlap_voices = 0;
+    seq_song2.layer_voices = 0;
+    seq_song2.active_voices = 0;
+    seq_song_id = cmd->arg[2];
+}
+
+/* 18 / 19: while a song plays (seq_song_id set), first snd_fade_out_song with the value at 0x80062FC8 = arg 3 (0 = 16); then as 10 / 14. */
 void snd_cmd_18(SoundCommand *cmd)
 {
     if (seq_song_id) {
-        D_80062FC8 = cmd->arg[3] ? (unsigned short)cmd->arg[3] : 16;
-        func_8002AFB8();
+        snd_fade_ticks = cmd->arg[3] ? (unsigned short)cmd->arg[3] : 16;
+        snd_fade_out_song();
     }
     snd_cmd_10(cmd);
 }
@@ -283,8 +548,8 @@ void snd_cmd_18(SoundCommand *cmd)
 void snd_cmd_19(SoundCommand *cmd)
 {
     if (seq_song_id) {
-        D_80062FC8 = cmd->arg[3] ? (unsigned short)cmd->arg[3] : 16;
-        func_8002AFB8();
+        snd_fade_ticks = cmd->arg[3] ? (unsigned short)cmd->arg[3] : 16;
+        snd_fade_out_song();
     }
     snd_cmd_14(cmd);
 }
@@ -292,7 +557,7 @@ void snd_cmd_19(SoundCommand *cmd)
 /* 34 first second: play two streams the caller gives, centred, on the pair at 0x34. */
 void snd_cmd_34(SoundCommand *cmd)
 {
-    func_8002A510(4, 1);
+    snd_stop_effect_pairs(4, 1);
     func_8002A094(0x40, 0x34, (unsigned char *)cmd->arg[0], (unsigned char *)cmd->arg[1]);
 }
 
@@ -302,7 +567,7 @@ void snd_cmd_21(SoundCommand *cmd)
     unsigned char *first;
     unsigned char *second;
 
-    func_8002A510(4, 2);
+    snd_stop_effect_pairs(4, 2);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[2]);
@@ -315,7 +580,7 @@ void snd_cmd_22(SoundCommand *cmd)
     unsigned char *first;
     unsigned char *second;
 
-    func_8002A510(4, 3);
+    snd_stop_effect_pairs(4, 3);
     snd_stream_stop();
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
@@ -330,7 +595,7 @@ void snd_cmd_23(SoundCommand *cmd)
     unsigned char *first;
     unsigned char *second;
 
-    func_8002A510(6, 4);
+    snd_stop_effect_pairs(6, 4);
     snd_stream_stop();
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
@@ -348,18 +613,18 @@ void snd_cmd_30(SoundCommand *cmd)
     unsigned char *first;
     unsigned char *second;
 
-    func_8002A510(6, 1);
+    snd_stop_effect_pairs(6, 1);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[0]);
     func_8002A28C(first, second);
 }
 
-/* 20 (and 28) / 29 / 2B pan id: play effect id on the pair at 0x34 / 0x32 / 0x36, after func_8002A510 on it. */
+/* 20 (and 28) / 29 / 2B pan id: play effect id on the pair at 0x34 / 0x32 / 0x36, after snd_stop_effect_pairs on it. */
 void snd_cmd_20(SoundCommand *cmd)
 {
     unsigned char *first;
     unsigned char *second;
 
-    func_8002A510(4, 1);
+    snd_stop_effect_pairs(4, 1);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
 }
@@ -369,18 +634,18 @@ void snd_cmd_29(SoundCommand *cmd)
     unsigned char *first;
     unsigned char *second;
 
-    func_8002A510(2, 1);
+    snd_stop_effect_pairs(2, 1);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
 }
 
-/* 2A pan id: play effect id on the pair at 0x30, after func_8002A510 on pair 0 and snd_stream_stop. */
+/* 2A pan id: play effect id on the pair at 0x30, after snd_stop_effect_pairs on pair 0 and snd_stream_stop. */
 void snd_cmd_2A(SoundCommand *cmd)
 {
     unsigned char *first;
     unsigned char *second;
 
-    func_8002A510(0, 1);
+    snd_stop_effect_pairs(0, 1);
     snd_stream_stop();
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
@@ -391,7 +656,7 @@ void snd_cmd_2B(SoundCommand *cmd)
     unsigned char *first;
     unsigned char *second;
 
-    func_8002A510(6, 1);
+    snd_stop_effect_pairs(6, 1);
     snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x36, first, second);
 }
@@ -770,7 +1035,7 @@ void snd_cmd_D6(SoundCommand *cmd)
 
 void snd_cmd_F0(SoundCommand *cmd)
 {
-    func_80029F44();
+    snd_stop_songs();
 }
 
 void snd_cmd_F1(SoundCommand *cmd)
@@ -973,7 +1238,7 @@ void snd_cmd_F4(SoundCommand *cmd)
     unsigned int *saved;
     unsigned short n;
 
-    func_8002A958();
+    snd_keep_looping_effects();
     src = (unsigned int *)&seq_channels[48];
     dst = (unsigned int *)&seq_channels[24];
     n = sizeof(SeqChannel) * 8 / 4;
@@ -1429,7 +1694,37 @@ void snd_apply_fm_voices(void)
     func_80039010(0, mask);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_timer_tick);
+/* Root counter 2's interrupt: runs the sequencer ticks due since the last call (scanlines / 66, 1-8 of them, doubled
+ * by 0x80062FF8 bit 2), and keeps how long the last four calls took (counter 2 units) and their total. */
+unsigned int snd_timer_tick(void)
+{
+    int start = GetRCnt(0xF2000002);
+    unsigned int count = VSync(1);
+    unsigned short ticks;
+
+    if (count < snd_timer_last_count)
+        snd_timer_last_count = 0;
+    ticks = (count - snd_timer_last_count) / 66;
+    if (ticks == 0 || ticks > 8)
+        ticks = 1;
+    snd_timer_last_count = count;
+    count = ticks;
+    if (D_80062FF8 & 4)
+        ticks <<= 1;
+    while (ticks) {
+        ticks--;
+        seq_tick();
+    }
+    start = GetRCnt(0xF2000002) - start;
+    if (start <= 0)
+        start += 0x43D1;
+    snd_tick_time[0] = snd_tick_time[1];
+    snd_tick_time[1] = snd_tick_time[2];
+    snd_tick_time[2] = snd_tick_time[3];
+    snd_tick_time[3] = start;
+    snd_tick_time_total = snd_tick_time[0] + snd_tick_time[1] + snd_tick_time[2] + snd_tick_time[3];
+    return count;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_80030380);
 

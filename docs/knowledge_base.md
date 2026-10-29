@@ -198,7 +198,7 @@ starts:
     - **Now:** the carry is kept as a fraction of a step, which a new rate continues.
     - **Reach:** 50 songs and 193 effects change an envelope rate on a cell without a note, and any song with a
       slow release (`B2`, the `F8` ring) after a held sustain.
-- **Song start** (`func_80029C48`): tempo `0xFFFF` (`D_8009A11E`) and accumulator 1 (`D_8009A124`).
+- **Song start** (`snd_start_song`): tempo `0xFFFF` (`D_8009A11E`) and accumulator 1 (`D_8009A124`).
   - **Before the first `E8`:** a song runs at about a tick per timer interrupt. Song 50 sets its tempo at tick 4,
     and song 85 at tick 72.
   - **Player bug this caused:** the player used to start at tempo 0, so those two songs never got past tick 0.
@@ -961,7 +961,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 189 of the file's 232 functions are C** (186 written here; `seq_cmd_slur_off`,
+- **Recovered: 197 of the file's 232 functions are C** (194 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -1008,16 +1008,22 @@ Lessons from getting it to match:
   - `C9`/`CA` slide `C8`'s value (to, or from–to), `C0`/`C1`/`C2` set or slide `0x80062F5C`, `D2`/`D6` are `D0`'s and
     `D4`'s from–to slides, and `E4` sets a byte and flag `0x10` at `0x80062FF8` with it.
 - **Playing effects (sound commands `20`–`34`):** look the id up with `func_8002A6C4` (its two streams), then start it
-  with `func_8002A094(pan, pair, first, second)` after `func_8002A510` on the pair. `20`/`28` play on pair `0x34`,
+  with `func_8002A094(pan, pair, first, second)` after `snd_stop_effect_pairs` on the pair. `20`/`28` play on pair `0x34`,
   `29` on `0x32`, `2A` on `0x30`, `2B` on `0x36`; `21`, `22` and `23` play two, three or four effects together from
   `0x30` (or `0x32`) up; `30` hands its effect to `func_8002A28C`; `34` plays two streams the caller gives, centred.
-- **Songs (sound commands `10`, `14`, `18`, `19`):** `seq_song`'s `+0x4A` is the playing song's id (0 = none).
+- **Songs (sound commands `10`, `14`, `15`, `18`, `19`):** `seq_song`'s `+0x4A` is the playing song's id (0 = none).
   - **`10` a b id** loads with `func_80029B78`, then resumes a saved song with that id (either slot,
-    `snd_resume_song`) or starts it (`func_80029C48`); song 14 is saved first when it's playing.
-  - **`14` a b id** saves whatever is playing (`snd_save_song`) before starting the new one (parked: the game
-    computes `&seq_song` once before its branch).
-  - **`18`/`19`** are `10`/`14` with `func_8002AFB8` first while a song plays, given arg 3 (0 = 16) at
-    `0x80062FC8` *(probably a fade-out and its length; unverified)*.
+    `snd_resume_song`) or starts it (`snd_start_song`); song 14 is saved first when it's playing.
+  - **`14` a b id** saves whatever is playing (`snd_save_song`) before starting the new one. The game computes
+    `&seq_song` once before the branch, so the C takes it into a local there.
+  - **`15` a b id** is `10` that swaps: the playing song goes through the second block into a save slot while
+    the saved one resumes (or, with no saved match, it's saved and the new one starts).
+  - **`18`/`19`** are `10`/`14` that cross-fade: while a song plays, `snd_fade_out_song` first moves it to the
+    second block and fades it out. Arg 3 (0 = 16) is `snd_fade_ticks` (`0x80062FC8`).
+    - **The move:** channels 0–23 go to 24–47 and `seq_song` to `seq_song2`. The song data goes 12 KB up, with
+      every read, loop and drum-map pointer moved by `0x3000` and the layer voices renumbered from 24.
+    - **The fade:** `snd_channel_fades[24]` (`0x8009C5A0`, 12 bytes each) takes channel n from `0x7F8000` to 0
+      over (24 − n) × `snd_fade_ticks` ticks.
   - **Two save slots:** `saved_song_channels[2][24]` (`0x8007EC10`) and `saved_songs[2]` (`0x80083334`); slot 1
     holds song 14 and slot 0 any other. `F2`/`F3` empty them. Their stride confirms `SeqSong` is `0x60` bytes.
 - **CD audio volume:** sound commands `C8`/`C9`/`CA` set, slide and slide from–to `snd_cd_volume` (`0x80062FD4`,
@@ -1070,9 +1076,20 @@ Lessons from getting it to match:
     reverb.
   - `snd_key_off_voices` does the same with the `key_off_voices` masks (`+0x10`).
   - **A second song block** (`seq_song2`, `0x8009A164`, right after `seq_song`) owns channels 24–47, its voices
-    limited by `0x80062F68`. Nothing here says what plays there.
+    limited by `0x80062F68`: the song fading out under `18`/`19`, and a waystation for `15` and `F4`.
   - The masks are written as one expression with the "free voices" mask repeated as the last argument: computed
     first into a local, it schedules differently.
+- **More recovered this round:**
+  - **Stopping:** `snd_stop_songs` (`F0`) runs `snd_stop_song`'s work on both song blocks. `snd_stop_effect_pairs`
+    stops one to four effect pairs.
+  - **Keeping what still sounds:** `snd_keep_sounding_voices` runs before a song is saved and keeps the voices
+    still keyed on, or whose `F8` overlap voice is. `snd_keep_looping_effects` runs before `F4`: an effect whose
+    stream ends in `CA` stays.
+  - **The clock:** `snd_timer_tick` runs the sequencer ticks due since the last call (scanlines ÷ 66, 1–8, doubled
+    by `0x80062FF8` bit 2). It keeps how long the last four calls took in `snd_tick_time[4]` and their sum in
+    `snd_tick_time_total`.
+  - **Parked:** `func_8002A094` (effect start) differs only in which saved registers two values get.
+    `func_8002A28C` (the kind 2 effect's start) shares field addresses differently whichever way it's written.
 - **A second file at the start of the range:** `0x800293D0`–`0x80029A4C` (11 functions, including `snd_init` and
   the instrument-bank loaders) reach small globals through `$gp`, so that part was compiled with `-G8`; from
   `0x80029A50` on, small globals like `0x80062F00` are reached with `lui`, which is `-G0`.

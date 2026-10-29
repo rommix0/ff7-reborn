@@ -68,7 +68,8 @@ typedef struct SeqChannel {
     int pitch_shift_step;               /* 0x40 */
     int volume;                         /* 0x44 A8 value << 23 */
     int volume_slide_step;              /* 0x48 */
-    unsigned char pad_4C[0x08];
+    unsigned char pad_4C[0x04];
+    int unk_50;                         /* 0x50 an effect start sets it to -1 */
     unsigned short is_effect;           /* 0x54 a sound effect's channel */
     unsigned short gate;                /* 0x56 key-off countdown << 8 | ticks to the next event */
     unsigned short instrument;          /* 0x58 */
@@ -280,15 +281,15 @@ extern int D_80062F2C;
 extern unsigned short D_80062F44;
 extern unsigned short D_80062FB8;
 extern unsigned int D_80062FF8;
-extern unsigned short D_80062FC8;
+extern unsigned short snd_fade_ticks;
 
 void snd_stream_stop(void);
-void func_80029F44(void);
+void snd_stop_songs(void);
 void snd_stop_effects(void);
 void snd_refresh_song_volumes(void);
 void snd_refresh_effect_volumes(void);
 void func_8002CFC0(SoundCommand *cmd);
-void func_8002A510(int pair, int arg);
+void snd_stop_effect_pairs(unsigned short pair, int pairs);
 void snd_refresh_song_volumes(void);
 void snd_refresh_effect_volumes(void);
 void func_80039034(SpuCommonAttr *attr); /* probably SpuSetCommonAttr */
@@ -307,14 +308,13 @@ extern int snd_queue_count;
 void snd_effect_streams(unsigned char **first, unsigned char **second, int effect);
 extern unsigned short *effect_offsets; /* EFFECT.ALL's table: two stream offsets per effect, 0xFFFF = none */
 extern unsigned char *effect_data;     /* what the offsets count from */
-void func_8002A094(int pan, int pair, unsigned char *first, unsigned char *second); /* starts an effect */
+void func_8002A094(int pan, unsigned short pair, unsigned char *first, unsigned char *second); /* starts an effect */
 void func_8002A28C(unsigned char *first, unsigned char *second);
-void func_8002AFB8(void);
+void snd_fade_out_song(void);
 void snd_load_song(unsigned int *data, unsigned int size); /* copies the song into song_data */
-void func_80029C48(void); /* starts the loaded song */
+void snd_start_song(void); /* starts the loaded song */
 void snd_stop_song(void);
-void func_8002A7E8(void);
-void func_8002A958(void); /* F4 calls it before setting the effects aside */
+void snd_keep_sounding_voices(void);
 void snd_resume_song(int slot);
 void snd_save_song(SeqChannel *channels, SeqChannel *saved_channels, SeqSong *song, SeqSong *saved);
 
@@ -372,5 +372,23 @@ void func_80038F04(unsigned char *data, unsigned int size); /* SpuWrite */
 void func_800396C0(unsigned int voice, unsigned int addr); /* a voice's loop address */
 void snd_stream_fill_mono_b(void);
 void snd_stream_fill_stereo_b(void);
+
+void snd_keep_looping_effects(void);
+unsigned char func_80031A70(SeqChannel *ch); /* skips to the stream's last command: CA (loops forever) or A0 (ends) */
+int SpuGetKeyStatus(unsigned int voice);
+int GetRCnt(unsigned int counter);
+int VSync(int mode);
+void seq_tick(void);
+extern unsigned short snd_timer_last_count; /* VSync(1) at the last snd_timer_tick */
+extern int snd_tick_time[4];
+extern int snd_tick_time_total;
+
+/* A fading channel of the second block (18/19): volume << 16, its step per tick, and the ticks left. */
+typedef struct ChannelFade {
+    int volume;
+    int step;
+    unsigned short ticks;
+} ChannelFade;
+extern ChannelFade snd_channel_fades[24];
 
 #endif
