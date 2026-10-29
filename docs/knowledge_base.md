@@ -952,14 +952,20 @@ Lessons from getting it to match:
     `adsr[4]`, using the channel's instrument number (`+0x58`).
   - `effect_channels` (`0x80096608`): one `SeqChannel` per SPU voice. Effects play on them, and a layer's second
     voice keeps its envelope in its voice's entry, so the envelope commands write both.
-- **Recovered: 71 of 229 functions**, all sequence command handlers: octave, slur and full length, volume, pan,
-  transpose, detune, lengths (`A2`, `DC`), glide and bend, loops and jumps, drum kit, tempo, reverb depth, time
-  signature and bar number, the LFO depths, depth slides and off commands, volume, pan and balance slides, noise
-  (on, off, clock, timed), FM and reverb on/off, pitch and volume follow, layer balance and layer off, overlap off,
-  the envelope setters and `B0`, `CB` (all off), and `F3` (`func_800335CC`, which sets the song's `+0x54`).
-  `seq_cmd_slur_off` and `seq_cmd_full_length_off` are empty in the game.
-  - **Still asm among the handlers:** the LFO starts (`B4`, `B8`, `BC`), `B3`, `C9`, `F0`, `F1`, `EF`, `E9`, `EB`,
-    `F4`, `F8`, `A1`, `F2` and `A0`.
+- **Recovered: 78 of the file's 230 functions are C** (75 written here; `seq_cmd_slur_off`,
+  `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). All are sequence
+  command handlers: octave, slur and full length, volume, pan, transpose, detune, lengths (`A2`, `DC`), glide and
+  bend, loops, repeats and jumps (`C8`, `C9`, `CA`, `EE`, `F0`, `F1`, `EF`), drum kit, tempo and its slide, reverb
+  depth and its slide, time signature and bar number, the tremolo and pan-LFO starts, the LFO depths, depth slides
+  and off commands, volume, pan and balance slides, noise (on, off, clock, timed), FM and reverb on/off, pitch and
+  volume follow, layer balance and layer off, overlap off, the envelope setters, `B0` and `B3`, `CB` (all off), and
+  `F3` (`func_800335CC`, which sets the song's `+0x54`).
+  - **Handlers still asm:** `B4` (vibrato start), `F4` and `F8` (they take a spare voice), `A1`, `F2` and `A0`.
+  - **Parked, close:** `B4` differs only in where one store is scheduled. `F4`/`F8` scan the voice masks for a free
+    voice; every loop form tried either gets rotated or has its exit threaded straight to the return, where the
+    game re-tests the bit.
+  - **`F1`** is `F0` that also pops the loop level; **`EF`** jumps when the song's `+0x4E` (set by the game) is
+    non-zero and at least n, and records n at `+0x4C`.
   - `vibrato_amount` (`+0x7C`) is a signed `short`: only then does GCC pick the game's arithmetic shift.
   - `seq_cmd_octave_down` adds an `unsigned short` −1 (the game adds `0xFFFF`).
   - `seq_cmd_glide` (`DA`) also turns slur mode on, and `DB` only clears the glide ticks.

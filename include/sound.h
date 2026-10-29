@@ -26,6 +26,7 @@
 #define UPDATE_SUSTAIN_RATE  0x2000
 #define UPDATE_RELEASE_RATE  0x4000
 #define UPDATE_SUSTAIN_LEVEL 0x8000
+#define UPDATE_ENVELOPE      0xFF00 /* all of the above from the attack mode on */
 
 /* One sequence channel of the AKAO driver, 0x108 bytes (docs/knowledge_base.md §4). Fields get names as the
  * functions that use them are recovered; the pads are still unread. */
@@ -33,7 +34,9 @@ typedef struct SeqChannel {
     unsigned char *pos;                 /* 0x00 read pointer into the sequence */
     unsigned char *loop_start[4];       /* 0x04 C8, one per loop level */
     unsigned char *drum_map;            /* 0x14 EC: 5 bytes per key */
-    unsigned char pad_18[0x0C];
+    short *vibrato_wave_pos;            /* 0x18 the LFO's place in its waveform (lfo_waveforms) */
+    short *tremolo_wave_pos;            /* 0x1C */
+    short *pan_lfo_wave_pos;            /* 0x20 */
     unsigned int layer_voice;           /* 0x24 F4: the SPU voice of the second voice */
     unsigned int overlap_voice;         /* 0x28 F8: the second voice notes take turns on */
     unsigned int volume_scale;          /* 0x2C A3 */
@@ -58,16 +61,29 @@ typedef struct SeqChannel {
     unsigned short last_key;            /* 0x6A the last note's key, 0 = none */
     unsigned short glide_ticks;         /* 0x6C DA */
     unsigned short note_mode;           /* 0x6E bit 0 slur (CC), bit 1 this note slurs from the last, bit 2 full length (D0) */
-    unsigned char pad_70[0x0C];
+    unsigned char pad_70[0x02];
+    unsigned short vibrato_delay;       /* 0x72 B4: ticks after a note before it starts */
+    unsigned short vibrato_delay_count; /* 0x74 */
+    unsigned short vibrato_rate;        /* 0x76 ticks per waveform step */
+    unsigned short vibrato_step_count;  /* 0x78 */
+    unsigned short vibrato_wave;        /* 0x7A waveform number */
     short vibrato_amount;               /* 0x7C the depth applied to the note's pitch */
     unsigned short vibrato_depth;       /* 0x7E B5 value << 8: bits 8-14 depth, bit 15 full scale */
     unsigned short vibrato_slide_ticks; /* 0x80 DD */
     short vibrato_slide_step;           /* 0x82 */
-    unsigned char pad_84[0x0C];
+    unsigned char pad_84[0x02];
+    unsigned short tremolo_delay;       /* 0x86 B8 */
+    unsigned short tremolo_delay_count; /* 0x88 */
+    unsigned short tremolo_rate;        /* 0x8A */
+    unsigned short tremolo_step_count;  /* 0x8C */
+    unsigned short tremolo_wave;        /* 0x8E */
     unsigned short tremolo_depth;       /* 0x90 B9 value << 8 */
     unsigned short tremolo_slide_ticks; /* 0x92 DE */
     short tremolo_slide_step;           /* 0x94 */
-    unsigned char pad_96[0x08];
+    unsigned char pad_96[0x02];
+    unsigned short pan_lfo_rate;        /* 0x98 BC (no delay) */
+    unsigned short pan_lfo_step_count;  /* 0x9A */
+    unsigned short pan_lfo_wave;        /* 0x9C */
     unsigned short pan_lfo_depth;       /* 0x9E BD value << 7 */
     unsigned short pan_lfo_slide_ticks; /* 0xA0 DF */
     short pan_lfo_slide_step;           /* 0xA2 */
@@ -106,9 +122,12 @@ typedef struct SeqChannel {
 
 /* The song or effect that owns the channels, handed to every command handler. */
 typedef struct SeqSong {
-    unsigned char pad_00[0x18];
+    unsigned char pad_00[0x04];
+    unsigned int active_voices;         /* 0x04 the song's own channels */
+    unsigned char pad_08[0x10];
     unsigned int tempo;                 /* 0x18 E8 value << 16 */
-    unsigned char pad_1C[0x08];
+    int tempo_slide_step;               /* 0x1C E9 */
+    unsigned char pad_20[0x04];
     unsigned int layer_voices;          /* 0x24 voices held by F4 layers */
     unsigned int overlap_voices;        /* 0x28 voices held by F8 overlaps */
     unsigned int noise_voices;          /* 0x2C C4/C5 */
@@ -117,9 +136,11 @@ typedef struct SeqSong {
     unsigned int flags;                 /* 0x38 SONG_* */
     unsigned char pad_3C[0x04];
     int reverb_depth;                   /* 0x40 EA value << 16 */
-    unsigned char pad_44[0x04];
+    int reverb_slide_step;              /* 0x44 EB */
     unsigned short tempo_slide_ticks;   /* 0x48 */
-    unsigned char pad_4A[0x06];
+    unsigned char pad_4A[0x02];
+    unsigned short branch_taken;        /* 0x4C EF: the n of the last branch taken */
+    unsigned short branch_level;        /* 0x4E EF branches when this is non-zero and at least n (set by the game) */
     unsigned short reverb_slide_ticks;  /* 0x50 */
     unsigned short noise_clock;         /* 0x52 AC */
     unsigned short unk_54;              /* 0x54 F3 sets it to 1 */
@@ -141,6 +162,9 @@ typedef struct Instrument {
 extern Instrument instrument_table[128];
 
 extern SeqSong seq_song;
+
+/* Each LFO waveform: its steps, which the LFOs walk through. */
+extern short *lfo_waveforms[];
 extern unsigned int seq_song_flags; /* seq_song.flags, which the driver reads and writes as a plain variable */
 
 /* The effect channels' copies of the song voice masks, and of the noise clock. */
@@ -160,6 +184,8 @@ void seq_cmd_noise_on(SeqChannel *ch, SeqSong *song, unsigned int voice);
 void seq_cmd_fm_on(SeqChannel *ch, SeqSong *song, unsigned int voice);
 void seq_cmd_decay_rate(SeqChannel *ch, SeqSong *song, unsigned int voice);
 void seq_cmd_sustain_level(SeqChannel *ch, SeqSong *song, unsigned int voice);
+
+void load_channel_instrument(SeqChannel *ch, int instrument);
 
 void func_80030038(void); /* hands the reverb voice masks to the SPU (by analogy with func_80030148) */
 void func_80030148(void); /* hands the FM voice masks to the SPU */

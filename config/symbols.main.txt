@@ -122,3 +122,7 @@ effect_fm_voices = 0x80099FF4; // absolute:True
 effect_noise_clock = 0x80099FFA; // absolute:True
 seq_cmd_pan_lfo_depth_slide = 0x80032A28; // type:func
 seq_song_flags = 0x8009A13C; // absolute:True
+seq_cmd_repeat_break = 0x8003337C; // type:func
+seq_cmd_branch_if = 0x80033818; // type:func
+seq_cmd_tempo_slide = 0x80031AFC; // type:func
+seq_cmd_reverb_depth_slide = 0x80031BE4; // type:func

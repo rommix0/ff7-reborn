@@ -303,7 +303,22 @@ void seq_cmd_tempo(SeqChannel *ch, SeqSong *song, unsigned int voice)
     song->tempo_slide_ticks = 0;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80031AFC);
+/* E9 t lo hi: slide the tempo over t ticks (0 = 256). */
+void seq_cmd_tempo_slide(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int ticks = *ch->pos++;
+    int target;
+    int value;
+
+    song->tempo_slide_ticks = ticks;
+    if (!ticks)
+        song->tempo_slide_ticks = 256;
+    target = *ch->pos++ << 16;
+    target |= *ch->pos++ << 24;
+    value = song->tempo & 0xFFFF0000;
+    song->tempo_slide_step = (target - value) / song->tempo_slide_ticks;
+    song->tempo = value;
+}
 
 void seq_cmd_reverb_depth(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
@@ -315,7 +330,22 @@ void seq_cmd_reverb_depth(SeqChannel *ch, SeqSong *song, unsigned int voice)
     song->reverb_depth = depth;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80031BE4);
+/* EB t lo hi: slide the reverb depth over t ticks (0 = 256). */
+void seq_cmd_reverb_depth_slide(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int ticks = *ch->pos++;
+    int target;
+    int value;
+
+    song->reverb_slide_ticks = ticks;
+    if (!ticks)
+        song->reverb_slide_ticks = 256;
+    target = *ch->pos++ << 16;
+    target |= *ch->pos++ << 24;
+    value = song->reverb_depth & 0xFFFF0000;
+    song->reverb_slide_step = (target - value) / song->reverb_slide_ticks;
+    song->reverb_depth = value;
+}
 
 void seq_cmd_volume_scale(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
@@ -421,7 +451,33 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_instrument);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_instrument_from_loop);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_envelope_reset);
+/* B3: the instrument's envelope back, on the layer voice too. */
+void seq_cmd_envelope_reset(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    Instrument *inst = &instrument_table[ch->instrument];
+    SeqChannel *layer;
+
+    ch->attack_rate = inst->adsr[0];
+    ch->decay_rate = inst->adsr[1];
+    ch->sustain_level = inst->adsr[2];
+    ch->sustain_rate = inst->adsr[3];
+    ch->release_rate = inst->adsr[4];
+    ch->attack_mode = inst->adsr[5];
+    ch->sustain_mode = inst->adsr[6];
+    ch->release_mode = inst->adsr[7];
+    ch->voice_update |= UPDATE_ENVELOPE;
+    if (ch->flags & CHANNEL_LAYER) {
+        layer = &effect_channels[ch->layer_voice];
+        layer->attack_rate = ch->attack_rate;
+        layer->decay_rate = ch->decay_rate;
+        layer->sustain_level = ch->sustain_level;
+        layer->sustain_rate = ch->sustain_rate;
+        layer->release_rate = ch->release_rate;
+        layer->attack_mode = ch->attack_mode;
+        layer->sustain_mode = ch->sustain_mode;
+        layer->release_mode = ch->release_mode;
+    }
+}
 
 void seq_cmd_transpose(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
@@ -504,7 +560,30 @@ void seq_cmd_vibrato_off(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->voice_update |= UPDATE_PITCH;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_tremolo);
+/* B8 d r w: tremolo on, restarted on the spot. Effects take no delay: a non-zero first byte is the depth. */
+void seq_cmd_tremolo(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int rate;
+    int depth;
+
+    ch->flags |= CHANNEL_TREMOLO;
+    if (ch->is_effect) {
+        ch->tremolo_delay = 0;
+        depth = *ch->pos++;
+        if (depth)
+            ch->tremolo_depth = depth << 8;
+    } else {
+        ch->tremolo_delay = *ch->pos++;
+    }
+    rate = *ch->pos++;
+    ch->tremolo_rate = rate;
+    if (!rate)
+        ch->tremolo_rate = 256;
+    ch->tremolo_wave = *ch->pos++;
+    ch->tremolo_wave_pos = lfo_waveforms[ch->tremolo_wave];
+    ch->tremolo_delay_count = ch->tremolo_delay;
+    ch->tremolo_step_count = 1;
+}
 
 void seq_cmd_tremolo_depth(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
@@ -528,7 +607,20 @@ void seq_cmd_tremolo_off(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->voice_update |= UPDATE_VOLUME;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_pan_lfo);
+/* BC r w: pan LFO on, a waveform step every r ticks (0 = 256), restarted on the spot. */
+void seq_cmd_pan_lfo(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int rate;
+
+    ch->flags |= CHANNEL_PAN_LFO;
+    rate = *ch->pos++;
+    ch->pan_lfo_rate = rate;
+    if (!rate)
+        ch->pan_lfo_rate = 256;
+    ch->pan_lfo_wave = *ch->pos++;
+    ch->pan_lfo_wave_pos = lfo_waveforms[ch->pan_lfo_wave];
+    ch->pan_lfo_step_count = 1;
+}
 
 void seq_cmd_pan_lfo_depth(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
@@ -728,11 +820,53 @@ void seq_cmd_loop_point(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->loop_count[ch->loop_level] = 0;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_repeat);
+/* C9 n: back to the loop point until the pass count reaches n (0 = 256), then pop the loop level. */
+void seq_cmd_repeat(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int count = *ch->pos++;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_repeat_branch);
+    if (!count)
+        count = 256;
+    if (++ch->loop_count[ch->loop_level] != count)
+        ch->pos = ch->loop_start[ch->loop_level];
+    else
+        ch->loop_level = (ch->loop_level + (unsigned short)-1) & 3;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8003337C);
+/* F0 n lo hi: on pass n of the current repeat (0 = 256), jump by a signed offset from after the arguments. */
+void seq_cmd_repeat_branch(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int count = *ch->pos++;
+    int offset;
+
+    if (!count)
+        count = 256;
+    if (ch->loop_count[ch->loop_level] + 1 != count) {
+        ch->pos += 2;
+        return;
+    }
+    offset = *ch->pos++;
+    offset |= *ch->pos++ << 8;
+    ch->pos += (short)offset;
+}
+
+/* F1 n lo hi: F0 that also leaves the loop. */
+void seq_cmd_repeat_break(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int count = *ch->pos++;
+    int offset;
+
+    if (!count)
+        count = 256;
+    if (ch->loop_count[ch->loop_level] + 1 != count) {
+        ch->pos += 2;
+        return;
+    }
+    offset = *ch->pos++;
+    offset |= *ch->pos++ << 8;
+    ch->pos += (short)offset;
+    ch->loop_level = (ch->loop_level + (unsigned short)-1) & 3;
+}
 
 void seq_cmd_loop_forever(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
@@ -877,7 +1011,21 @@ void seq_cmd_jump(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->pos += (short)offset;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80033818);
+/* EF n lo hi: jump when the game's branch level is set and at least n. */
+void seq_cmd_branch_if(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int n = *ch->pos++;
+    int offset;
+
+    if (song->branch_level && song->branch_level >= n) {
+        offset = *ch->pos++;
+        offset |= *ch->pos++ << 8;
+        ch->pos += (short)offset;
+        song->branch_taken = n;
+    } else {
+        ch->pos += 2;
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_end);
 
