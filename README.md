@@ -1,6 +1,6 @@
 # FF7 Reborn (WIP)
 
-Code recovery for **Final Fantasy VII (PS1, NTSC-U, SCUS-94163/4/5)**. The original source is lost; this repo rebuilds it from the retail discs, plus scripts so owners of a legit copy can extract the game data themselves.
+Code recovery for **Final Fantasy VII (PS1, NTSC-U, SCUS-94163/4/5)**. The original source code is lost; this repo rebuilds it from the retail discs, plus scripts so owners of a legit copy can extract the game data themselves.
 
 It is made in part with the assistance of Claude. If any of you have a problem with that, you're free to leave and to never contribute here. Projects like these are why tools like Claude should exist.
 
