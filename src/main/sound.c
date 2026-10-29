@@ -539,10 +539,10 @@ void snd_resume_song(int slot)
     snd_apply_noise_voices();
     snd_apply_reverb_voices();
     snd_apply_fm_voices();
-    if (!D_80062F44 && !snd_channel_fades[0].ticks) {
-        D_80062F44 = 60;
-        D_80062F2C = (D_80062F5C - 0xA0000) / 60;
-        D_80062F5C = 0xA0000;
+    if (!snd_master_volume_ticks && !snd_channel_fades[0].ticks) {
+        snd_master_volume_ticks = 60;
+        snd_master_volume_step = (snd_master_volume - 0xA0000) / 60;
+        snd_master_volume = 0xA0000;
     }
     saved_songs[s].song_id = 0;
     if (D_80062FF8 & 1) {
@@ -837,8 +837,8 @@ void snd_cmd_2B(SoundCommand *cmd)
 /* C0 v / C1 t v / C2 t a b: set or slide a value at 0x80062F5C (v & 0x7F) << 16, then call snd_refresh_song_volumes. */
 void snd_cmd_C0(SoundCommand *cmd)
 {
-    D_80062F5C = (cmd->arg[0] & 0x7F) << 16;
-    D_80062F44 = 0;
+    snd_master_volume = (cmd->arg[0] & 0x7F) << 16;
+    snd_master_volume_ticks = 0;
     snd_refresh_song_volumes();
 }
 
@@ -848,8 +848,8 @@ void snd_cmd_C1(SoundCommand *cmd)
 
     if (cmd->arg[0])
         ticks = cmd->arg[0];
-    D_80062F2C = (((cmd->arg[1] & 0x7F) << 16) - D_80062F5C) / ticks;
-    D_80062F44 = ticks;
+    snd_master_volume_step = (((cmd->arg[1] & 0x7F) << 16) - snd_master_volume) / ticks;
+    snd_master_volume_ticks = ticks;
     snd_refresh_song_volumes();
 }
 
@@ -863,9 +863,9 @@ void snd_cmd_C2(SoundCommand *cmd)
         ticks = cmd->arg[0];
     to = (cmd->arg[2] & 0x7F) << 16;
     from = (cmd->arg[1] & 0x7F) << 16;
-    D_80062F2C = (to - from) / ticks;
-    D_80062F44 = ticks;
-    D_80062F5C = from;
+    snd_master_volume_step = (to - from) / ticks;
+    snd_master_volume_ticks = ticks;
+    snd_master_volume = from;
     snd_refresh_song_volumes();
 }
 
@@ -1180,8 +1180,8 @@ void snd_cmd_D2(SoundCommand *cmd)
 
 void snd_cmd_D4(SoundCommand *cmd)
 {
-    D_80062FE4 = (signed char)cmd->arg[0] << 16;
-    D_80062F40 = 0;
+    snd_pitch_scale = (signed char)cmd->arg[0] << 16;
+    snd_pitch_scale_ticks = 0;
 }
 
 void snd_cmd_D5(SoundCommand *cmd)
@@ -1190,8 +1190,8 @@ void snd_cmd_D5(SoundCommand *cmd)
 
     if (cmd->arg[0])
         ticks = cmd->arg[0];
-    D_80062F28 = (((signed char)cmd->arg[1] << 16) - D_80062FE4) / ticks;
-    D_80062F40 = ticks;
+    snd_pitch_scale_step = (((signed char)cmd->arg[1] << 16) - snd_pitch_scale) / ticks;
+    snd_pitch_scale_ticks = ticks;
 }
 
 void snd_cmd_D6(SoundCommand *cmd)
@@ -1199,11 +1199,11 @@ void snd_cmd_D6(SoundCommand *cmd)
     int ticks = 1;
     int from = (signed char)cmd->arg[0] << 16;
 
-    D_80062FE4 = from;
+    snd_pitch_scale = from;
     if (cmd->arg[1])
         ticks = cmd->arg[1];
-    D_80062F28 = (((signed char)cmd->arg[2] << 16) - from) / ticks;
-    D_80062F40 = ticks;
+    snd_pitch_scale_step = (((signed char)cmd->arg[2] << 16) - from) / ticks;
+    snd_pitch_scale_ticks = ticks;
 }
 
 void snd_cmd_F0(SoundCommand *cmd)
@@ -1890,11 +1890,294 @@ void snd_apply_cd_volume(void)
     func_80039034(attr);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_channel_slides);
+/* A music channel's per-tick slides: volume, balance (a layered channel's volume follows it), pan, the vibrato and
+ * tremolo delays, the timed noise and FM flips, the three LFO depth slides (their output waits for the delays), and
+ * the slide on +0x34. Changes mark the voice settings to rewrite. The noise flip goes through a pointer: only then
+ * does GCC keep the flags write after it, as the game does. */
+void seq_channel_slides(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int value;
+    unsigned int *noise;
+    unsigned short depth;
+    unsigned int amount;
+    short *wave;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002E954);
+    if (ch->volume_slide_ticks) {
+        ch->volume_slide_ticks--;
+        value = ch->volume + ch->volume_slide_step;
+        if ((value & 0xFFE00000) != (ch->volume & 0xFFE00000))
+            ch->voice.update |= UPDATE_VOLUME;
+        ch->volume = value;
+    }
+    if (ch->balance_slide_ticks) {
+        ch->balance_slide_ticks--;
+        value = ch->balance + ch->balance_slide_step;
+        if ((ch->flags & CHANNEL_LAYER) && (value & 0xFF00) != (ch->balance & 0xFF00))
+            ch->voice.update |= UPDATE_VOLUME;
+        ch->balance = value;
+    }
+    if (ch->pan_slide_ticks) {
+        ch->pan_slide_ticks--;
+        value = ch->pan + ch->pan_slide_step;
+        if ((value & 0xFF00) != (ch->pan & 0xFF00))
+            ch->voice.update |= UPDATE_VOLUME;
+        ch->pan = value;
+    }
+    if (ch->vibrato_delay_count)
+        ch->vibrato_delay_count--;
+    if (ch->tremolo_delay_count)
+        ch->tremolo_delay_count--;
+    if (ch->noise_ticks) {
+        if (!--ch->noise_ticks) {
+            noise = &song->noise_voices;
+            *noise ^= voice;
+            seq_song_flags |= SONG_UPDATE_NOISE;
+            snd_apply_noise_voices();
+        }
+    }
+    if (ch->fm_ticks) {
+        if (!--ch->fm_ticks) {
+            song->fm_voices ^= voice;
+            snd_apply_fm_voices();
+        }
+    }
+    if (ch->vibrato_slide_ticks) {
+        ch->vibrato_slide_ticks--;
+        depth = ch->vibrato_depth += ch->vibrato_slide_step;
+        amount = (depth & 0x7F00) >> 8;
+        ch->vibrato_amount = (amount * (depth & 0x8000 ? ch->note_pitch : ((unsigned int)ch->note_pitch * 15) >> 8)) >> 7;
+        if (!ch->vibrato_delay_count && ch->vibrato_step_count != 1) {
+            wave = ch->vibrato_wave_pos;
+            if (!wave[0] && !wave[1])
+                wave += wave[2];
+            value = ((unsigned short)ch->vibrato_amount * *wave) >> 16;
+            if (value != ch->vibrato_offset) {
+                ch->vibrato_offset = value;
+                ch->voice.update |= UPDATE_PITCH;
+                if (value >= 0)
+                    ch->vibrato_offset = value * 2;
+            }
+        }
+    }
+    if (ch->tremolo_slide_ticks) {
+        ch->tremolo_slide_ticks--;
+        ch->tremolo_depth += ch->tremolo_slide_step;
+        if (!ch->tremolo_delay_count && ch->tremolo_step_count != 1) {
+            wave = ch->tremolo_wave_pos;
+            if (!wave[0] && !wave[1])
+                wave += wave[2];
+            value = (int)((((short)(ch->volume >> 16) * ch->volume_scale) >> 7) * (ch->tremolo_depth >> 8) << 9) >> 16;
+            value = (value * *wave) >> 15;
+            if (value != ch->tremolo_offset) {
+                ch->tremolo_offset = value;
+                ch->voice.update |= UPDATE_VOLUME;
+            }
+        }
+    }
+    if (ch->pan_lfo_slide_ticks) {
+        ch->pan_lfo_slide_ticks--;
+        ch->pan_lfo_depth += ch->pan_lfo_slide_step;
+        if (ch->pan_lfo_step_count != 1) {
+            wave = ch->pan_lfo_wave_pos;
+            if (!wave[0] && !wave[1])
+                wave += wave[2];
+            value = ((ch->pan_lfo_depth >> 8) * *wave) >> 15;
+            if (value != ch->pan_lfo_offset) {
+                ch->pan_lfo_offset = value;
+                ch->voice.update |= UPDATE_VOLUME;
+            }
+        }
+    }
+    if (ch->unk_64) {
+        ch->unk_64--;
+        value = ch->unk_34 + ch->unk_4C;
+        if ((value & 0xFFFF0000) != (ch->unk_34 & 0xFFFF0000))
+            ch->voice.update |= UPDATE_PITCH;
+        ch->unk_34 = value;
+    }
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_channel_lfo);
+/* An effect channel's per-tick slides: volume, the timed noise and FM flips (on the effects' own masks), the three
+ * LFO depth slides with their output recomputed, and the slide on +0x34. Changes mark the voice settings to rewrite. */
+void seq_effect_slides(SeqChannel *ch, unsigned int voice)
+{
+    int value;
+    unsigned short depth;
+    unsigned int amount;
+    short *wave;
+
+    if (ch->volume_slide_ticks) {
+        ch->volume_slide_ticks--;
+        value = ch->volume + ch->volume_slide_step;
+        if ((value & 0xFFE00000) != (ch->volume & 0xFFE00000))
+            ch->voice.update |= UPDATE_VOLUME;
+        ch->volume = value;
+    }
+    if (ch->noise_ticks) {
+        if (!--ch->noise_ticks) {
+            effect_noise_voices ^= voice;
+            seq_song_flags |= SONG_UPDATE_NOISE;
+            snd_apply_noise_voices();
+        }
+    }
+    if (ch->fm_ticks) {
+        if (!--ch->fm_ticks) {
+            effect_fm_voices ^= voice;
+            snd_apply_fm_voices();
+        }
+    }
+    if (ch->vibrato_slide_ticks) {
+        ch->vibrato_slide_ticks--;
+        depth = ch->vibrato_depth += ch->vibrato_slide_step;
+        amount = (depth & 0x7F00) >> 8;
+        ch->vibrato_amount = (amount * (depth & 0x8000 ? ch->note_pitch : ((unsigned int)ch->note_pitch * 15) >> 8)) >> 7;
+        if (ch->vibrato_step_count != 1) {
+            wave = ch->vibrato_wave_pos;
+            if (!wave[0] && !wave[1])
+                wave += wave[2];
+            value = ((unsigned short)ch->vibrato_amount * *wave) >> 16;
+            if (value != ch->vibrato_offset) {
+                ch->vibrato_offset = value;
+                ch->voice.update |= UPDATE_PITCH;
+                if (value >= 0)
+                    ch->vibrato_offset = value * 2;
+            }
+        }
+    }
+    if (ch->tremolo_slide_ticks) {
+        ch->tremolo_slide_ticks--;
+        ch->tremolo_depth += ch->tremolo_slide_step;
+        if (ch->tremolo_step_count != 1) {
+            wave = ch->tremolo_wave_pos;
+            if (!wave[0] && !wave[1])
+                wave += wave[2];
+            value = (int)((((short)(ch->volume >> 16) * ch->volume_scale) >> 7) * (ch->tremolo_depth >> 8) << 9) >> 16;
+            value = (value * *wave) >> 15;
+            if (value != ch->tremolo_offset) {
+                ch->tremolo_offset = value;
+                ch->voice.update |= UPDATE_VOLUME;
+            }
+        }
+    }
+    if (ch->pan_lfo_slide_ticks) {
+        ch->pan_lfo_slide_ticks--;
+        ch->pan_lfo_depth += ch->pan_lfo_slide_step;
+        if (ch->pan_lfo_step_count != 1) {
+            wave = ch->pan_lfo_wave_pos;
+            if (!wave[0] && !wave[1])
+                wave += wave[2];
+            value = ((ch->pan_lfo_depth >> 8) * *wave) >> 15;
+            if (value != ch->pan_lfo_offset) {
+                ch->pan_lfo_offset = value;
+                ch->voice.update |= UPDATE_VOLUME;
+            }
+        }
+    }
+    if (ch->unk_64) {
+        ch->unk_64--;
+        value = ch->unk_34 + ch->unk_4C;
+        if ((value & 0xFFFF0000) != (ch->unk_34 & 0xFFFF0000))
+            ch->voice.update |= UPDATE_PITCH;
+        ch->unk_34 = value;
+    }
+}
+
+/* A music channel's per-tick voice update. Each LFO that's on (and past its delay) steps through its waveform. Then,
+ * if the volume is to be rewritten: volume x A3 scale (or the previous channel's pitch, D6), plus tremolo, x the
+ * master volume, x the cross-fade, split by pan (+ pan LFO) through the pan tables by output mode: 1 stereo, 4 the
+ * same with one side of each voice inverted, else mono. The pitch register is the note's (or the previous
+ * channel's, D4) plus vibrato and the +0x34 offset, scaled by D4-D6's global pitch scale. */
+void seq_channel_lfo(SeqChannel *ch, unsigned int voice, unsigned short index)
+{
+    int volume = ((ch->volume >> 16) * ch->volume_scale) >> 7;
+    int value;
+    int pitch;
+
+    if (ch->flags & CHANNEL_VIBRATO && !ch->vibrato_delay_count && !--ch->vibrato_step_count) {
+        ch->vibrato_step_count = ch->vibrato_rate;
+        if (!ch->vibrato_wave_pos[0] && !ch->vibrato_wave_pos[1])
+            ch->vibrato_wave_pos += ch->vibrato_wave_pos[2];
+        pitch = *ch->vibrato_wave_pos++;
+        value = ((unsigned short)ch->vibrato_amount * pitch) >> 16;
+        if (value != ch->vibrato_offset) {
+            ch->vibrato_offset = value;
+            ch->voice.update |= UPDATE_PITCH;
+            if (value >= 0)
+                ch->vibrato_offset = value * 2;
+        }
+    }
+    if (ch->flags & CHANNEL_TREMOLO && !ch->tremolo_delay_count && !--ch->tremolo_step_count) {
+        ch->tremolo_step_count = ch->tremolo_rate;
+        if (!ch->tremolo_wave_pos[0] && !ch->tremolo_wave_pos[1])
+            ch->tremolo_wave_pos += ch->tremolo_wave_pos[2];
+        value = (int)(volume * (ch->tremolo_depth >> 8) << 9) >> 16;
+        value = (value * *ch->tremolo_wave_pos++) >> 15;
+        if (value != ch->tremolo_offset) {
+            ch->tremolo_offset = value;
+            ch->voice.update |= UPDATE_VOLUME;
+        }
+    }
+    if (ch->flags & CHANNEL_PAN_LFO && !--ch->pan_lfo_step_count) {
+        ch->pan_lfo_step_count = ch->pan_lfo_rate;
+        if (!ch->pan_lfo_wave_pos[0] && !ch->pan_lfo_wave_pos[1])
+            ch->pan_lfo_wave_pos += ch->pan_lfo_wave_pos[2];
+        value = ((ch->pan_lfo_depth >> 8) * *ch->pan_lfo_wave_pos++) >> 15;
+        if (value != ch->pan_lfo_offset) {
+            ch->pan_lfo_offset = value;
+            ch->voice.update |= UPDATE_VOLUME;
+        }
+    }
+    if (ch->flags & CHANNEL_VOLUME_FOLLOW) {
+        volume = ((short)(ch[-1].voice.pitch * 2) * ch->volume_scale) >> 7;
+        ch->voice.update |= UPDATE_VOLUME;
+    }
+    if (ch->voice.update & UPDATE_VOLUME) {
+        volume += ch->tremolo_offset;
+        volume = (volume * (snd_master_volume_top & 0x7F)) >> 7;
+        if (snd_channel_fades[0].ticks)
+            volume = (volume * (short)(snd_channel_fades[index].volume >> 16)) >> 7;
+        value = ((ch->pan >> 8) + ch->pan_lfo_offset) & 0xFF;
+        switch (seq_song.unk_00) {
+        case 1:
+            ch->voice.volume[0] = (volume * snd_pan_left[value]) >> 15;
+            ch->voice.volume[1] = (volume * snd_pan_right[value]) >> 15;
+            break;
+        case 4:
+            ch->voice.volume[0] = (volume * snd_pan_left[value]) >> 15;
+            ch->voice.volume[1] = (volume * snd_pan_right[value]) >> 15;
+            if (voice & 0xAAAAAA)
+                ch->voice.volume[1] = ~ch->voice.volume[1];
+            else
+                ch->voice.volume[0] = ~ch->voice.volume[0];
+            break;
+        default:
+            ch->voice.volume[0] = ch->voice.volume[1] = (unsigned int)(volume * snd_pan_left[64]) >> 15;
+            break;
+        }
+    }
+    if (ch->flags & CHANNEL_PITCH_FOLLOW) {
+        value = (unsigned char)(snd_pitch_scale >> 16);
+        pitch = ch[-1].voice.pitch + ch->vibrato_offset + (ch->unk_34 >> 16);
+        if (value) {
+            if (value < 0x80)
+                pitch += (pitch * value) >> 7;
+            else
+                pitch = (pitch * value) >> 8;
+        }
+        ch->voice.pitch = pitch & 0x3FFF;
+        ch->voice.update |= UPDATE_PITCH;
+    } else if (ch->voice.update & UPDATE_PITCH) {
+        value = (unsigned char)(snd_pitch_scale >> 16);
+        pitch = ch->vibrato_offset + ch->note_pitch + (ch->unk_34 >> 16);
+        if (value) {
+            if (value < 0x80)
+                pitch += (pitch * value) >> 7;
+            else
+                pitch = (pitch * value) >> 8;
+        }
+        ch->voice.pitch = pitch & 0x3FFF;
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002F24C);
 

@@ -371,13 +371,13 @@ which is how its meaning was confirmed. No channel runs past 4,000 bars.
 - **Channel reset.** `channel_reset` (`0x80029BAC`) starts every channel on instrument 5 (via
   `load_channel_instrument`), octave 2, volume 100 (`+0x44` = `0x32000000`) and an `A3` multiplier of 120
   (`+0x2C` = `0x78`).
-- **Voice volume.** Computed in `0x8002ED34`:
+- **Voice volume.** Computed in `seq_channel_lfo` (`0x8002ED34`):
   - **Base:** (`A8` volume `<< 7`) × `A3` ÷ 128, plus a tremolo offset (`+0xD8`).
   - **Master volume:** scaled by the global master volume `0x80062F5E` ÷ 128. It's `0x7F` at boot (`0x800294A4`
-    stores `0x7F0000` to `0x80062F5C`).
+    stores `0x7F0000` to `snd_master_volume`).
   - **Output mode:** the word at `0x8009A104` (named `seq_song` in our symbols) picks how the volume is split. The
     sound-setting functions at `0x8002C7E8`, `0x8002C81C` and `0x8002C850` set it to 1, 4 and 2, and boot sets 1.
-    - **1, stereo:** left = volume × `0x80049C44`[i] >> 15, right = volume × `0x80049E44`[i] >> 15.
+    - **1, stereo:** left = volume × `snd_pan_left`[i] >> 15, right = volume × `snd_pan_right`[i] >> 15.
     - **4:** the same, but odd-numbered voices get their right side inverted (`~right`).
     - **Anything else (mono):** both sides = volume × `0x80049CC4` (entry 64 of the left table, 16,256) >> 15.
   - **Pan tables:** i = (`AA` pan + pan-LFO offset `+0xDA`) & 0xFF. Entries 0–127 are linear: left
@@ -523,7 +523,7 @@ Read from `seq_step_channel`'s note and tie paths:
     - The game sets both scales with sound commands (`func_8002BCCC` sets a pair's volume, `func_8002C2CC` the
       pitch scale), not from the effect data. At boot they're `0x7F00` and 0 (`0x800294A4`'s loop over the effect
       channels), which is what the player plays: 127/128 and no change.
-  - **Their own per-tick update** (`func_8002E954`, where songs run `seq_channel_slides`):
+  - **Their own per-tick update** (`seq_effect_slides`, where songs run `seq_channel_slides`):
     - It keeps the volume slide, the noise and FM countdowns (`+0xA4`/`+0xA6`), bends and LFO depth slides.
     - It has no pan slide (`+0x60`/`+0x62`), so `AB` does nothing on an effect (effects 112, 113, 117; the
       export now leaves their pan alone).
@@ -555,7 +555,7 @@ Read from `seq_step_channel`'s note and tie paths:
 
 Ghidra decompiled every driver function the player depends on from `build/main.elf` (our matching build, so the
 same code at the same addresses with our names): `seq_tick`, `seq_step_channel`, the look-ahead `func_800318BC`,
-the per-tick updates (`func_8002E478` songs, `func_8002E954` effects), the voice updates (`func_8002ED34`,
+the per-tick updates (`func_8002E478` songs, `seq_effect_slides` effects), the voice updates (`func_8002ED34`,
 `func_8002F24C`), `func_8002F848` and all 85 sequence command handlers. Each was compared with `tools/akao.py`
 and `tools/akao_synth.py`.
 - **Notes:** the note, tie and rest paths, the key-off gate (table lengths, `A2`/`DC`, slur and full-length), the
@@ -961,7 +961,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 203 of the file's 232 functions are C** (200 written here; `seq_cmd_slur_off`,
+- **Recovered: 206 of the file's 232 functions are C** (203 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -996,7 +996,7 @@ Lessons from getting it to match:
   - A slide's length 0 means 1 tick. `snd_effect_pitch_shift_slide` is parked: its tick count is copied to another
     register before the final stores, and no form tried reproduces that.
 - **Other sound commands in C:** `B8`–`BD` apply those six controls to all four effect pairs (from slot 54 back,
-  two channels a step). `D0`/`D1` and `D4`/`D5` set or slide a value at `0x80062FE8` / `0x80062FE4` (a signed byte
+  two channels a step). `D0`/`D1` and `D4`/`D5` set or slide a value at `0x80062FE8` / `snd_pitch_scale` (a signed byte
   << 16; meaning not known yet), `C8` sets `0x80062FD4` and calls `func_8002E428`, `80`/`81`/`82` store 1/2/4 in
   `seq_song`'s first word and call `func_8002A748` and `func_8002A798`, `90` stores its argument and sets every
   music channel's volume-update bits, `92` sets the song's branch level (what `EF` tests), `E0` sets `0x80062F70`
@@ -1005,7 +1005,7 @@ Lessons from getting it to match:
   - Names follow the command byte (`snd_cmd_D0`) until what they control is known.
   - `F8`/`F9` reach `effect_voices` through a pointer: only then does GCC keep its address in a register as the
     game does.
-  - `C9`/`CA` slide `C8`'s value (to, or from–to), `C0`/`C1`/`C2` set or slide `0x80062F5C`, `D2`/`D6` are `D0`'s and
+  - `C9`/`CA` slide `C8`'s value (to, or from–to), `C0`/`C1`/`C2` set or slide `snd_master_volume`, `D2`/`D6` are `D0`'s and
     `D4`'s from–to slides, and `E4` sets a byte and flag `0x10` at `0x80062FF8` with it.
 - **Playing effects (sound commands `20`–`34`):** look the id up with `func_8002A6C4` (its two streams), then start it
   with `func_8002A094(pan, pair, first, second)` after `snd_stop_effect_pairs` on the pair. `20`/`28` play on pair `0x34`,
@@ -1101,13 +1101,30 @@ Lessons from getting it to match:
     starts over (tempo `0xFFFF`, `tempo_phase` 1).
   - **`snd_resume_song`** copies a save slot back field by field (the bar's beat 2 ticks back), then the channels.
     Channels the song doesn't hold step into the end stub, and its voices rewrite everything.
-    - **Fade-in:** unless a slide or the cross-fade is running, `0x80062F5C` (set by `C0`–`C2`) restarts at 10 and
+    - **Fade-in:** unless a slide or the cross-fade is running, `snd_master_volume` (set by `C0`–`C2`) restarts at 10 and
       slides back over 60 ticks.
     - **Matching:** the copies must target `seq_song`'s fields, not the plain aliases. GCC 2.x treats a struct
       field reached through an index as unable to alias a plain scalar, so with the aliases it reorders the copies.
   - **`snd_stream_start`** (called by `F8`/`F9`) reads the stream header: total size, flags (bit 0 stereo, bit 1
     loops; the top half is `snd_stream_pitch`), loop offset and a spare word. It primes 8 KB and stops the `0x30`
     effect pair.
+- **Per-tick channel work (this round):**
+  - **`seq_channel_slides` / `seq_effect_slides`** step a music / effect channel's slides once a tick: volume,
+    balance and pan (music only), the vibrato and tremolo delays (music only), the timed noise and FM flips (on the
+    song's masks or the effects' own), the three LFO depth slides with their output recomputed, and a slide on
+    `+0x34`.
+    - **`+0x34`** (step `+0x4C`, ticks `+0x64`) is a pitch offset: its top half adds to the pitch register.
+  - **`seq_channel_lfo`** is the voice update.
+    - **LFOs:** each one that's on and past its delay steps through its waveform.
+    - **Volume:** A8 × A3 (or the previous channel's pitch, `D6`), plus tremolo, × `snd_master_volume` (`C0`), × the
+      cross-fade, split by pan (plus pan LFO) through `snd_pan_left` / `snd_pan_right`.
+    - **Pitch:** the note's (or the previous channel's, `D4` mode) plus vibrato and `+0x34`.
+    - **`D4`–`D6`'s value is a global pitch scale (`snd_pitch_scale`):** its top byte, read unsigned, makes
+      pitch × (128 + n) / 128 below 128 and pitch × n / 256 from 128 up, so negative values lower the pitch.
+  - **Matching:**
+    - The noise flip in `seq_channel_slides` goes through a pointer. GCC 2.x assumes a struct field reached through
+      a pointer can't alias a plain scalar, so without the pointer it moves the flags load above the store.
+    - `seq_channel_lfo` reads the master volume's top half through its own `unsigned short` symbol.
 - **A second file at the start of the range:** `0x800293D0`–`0x80029A4C` (11 functions, including `snd_init` and
   the instrument-bank loaders) reach small globals through `$gp`, so that part was compiled with `-G8`; from
   `0x80029A50` on, small globals like `0x80062F00` are reached with `lui`, which is `-G0`.

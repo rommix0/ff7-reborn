@@ -62,13 +62,13 @@ typedef struct SeqChannel {
     unsigned int overlap_voice;         /* 0x28 F8: the second voice notes take turns on; an effect's own voice */
     unsigned int volume_scale;          /* 0x2C A3 */
     int note_pitch;                     /* 0x30 the sounding note's pitch register (vibrato scales with it) */
-    unsigned int unk_34;                /* 0x34 channel_reset zeroes it */
+    int unk_34;                         /* 0x34 a pitch offset: its top half adds to the pitch register */
     unsigned int flags;                 /* 0x38 CHANNEL_* */
     int pitch_shift;                    /* 0x3C set by the game on a playing effect: a signed byte << 8 */
     int pitch_shift_step;               /* 0x40 */
     int volume;                         /* 0x44 A8 value << 23 */
     int volume_slide_step;              /* 0x48 */
-    unsigned char pad_4C[0x04];
+    int unk_4C;                         /* 0x4C the step of a slide on +0x34 (ticks at +0x64) */
     int unk_50;                         /* 0x50 an effect start sets it to -1 */
     unsigned short is_effect;           /* 0x54 a sound effect's channel */
     unsigned short gate;                /* 0x56 key-off countdown << 8 | ticks to the next event */
@@ -267,18 +267,19 @@ void snd_effect_pitch_shift_slide(SoundCommand *cmd, SeqChannel *pair);
 extern int D_80062FE8;
 extern int D_80062F30;
 extern unsigned short D_80062F48;
-extern int D_80062FE4;
-extern int D_80062F28;
-extern unsigned short D_80062F40;
+extern int snd_pitch_scale; /* D4: a signed byte << 16; its top byte, unsigned, scales every pitch (n/128 up, or n/256) */
+extern int snd_pitch_scale_step;
+extern unsigned short snd_pitch_scale_ticks;
 extern int D_80062FD8;
 extern unsigned short D_80062F70;
 extern unsigned short snd_cd_volume_slide_ticks;
 extern int snd_cd_volume; /* C8, << 16 */
 extern unsigned char D_80049C40[]; /* where snd_stop_song points every channel */
 extern int snd_cd_volume_slide_step;
-extern int D_80062F5C;
-extern int D_80062F2C;
-extern short D_80062F44;
+extern int snd_master_volume; /* C0: 0-127 << 16 */
+extern unsigned short snd_master_volume_top; /* its top half, as the voice update reads it */
+extern int snd_master_volume_step;
+extern short snd_master_volume_ticks;
 extern unsigned short D_80062FB8;
 extern unsigned int D_80062FF8;
 extern unsigned short snd_fade_ticks;
@@ -403,6 +404,12 @@ void SpuSetVoiceSL(unsigned int voice, unsigned short level);
 extern unsigned int snd_stream_flags; /* the header's flags; snd_stream_pitch is its top half */
 void func_80038FB8(int mode);
 void snd_stream_play_mono(void);
+void snd_stream_voice_mono(void);
+void snd_stream_voices_stereo(void);
 void snd_stream_play_stereo(void);
+
+/* The pan tables (by pan 0-255): each side's share, out of 32768. */
+extern short snd_pan_left[256];
+extern short snd_pan_right[256];
 
 #endif
