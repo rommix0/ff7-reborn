@@ -1004,8 +1004,11 @@ Lessons from getting it to match:
   (`*(volatile int *)&x`), which puts the address in a register as the game does; the same variable can be plain in
   one function and cast in the next. The state block is a struct: as separate
   globals, GCC moves a table load above the stores, which it doesn't do between two struct accesses.
-- **Parked:** `func_80011BB4` (resets the state block): 4 lines off. A volatile struct puts the first field's
-  address in a register, and a plain store there is scheduled two slots late; the game has neither.
+- **Parked:** `func_80011BB4` (resets the state block). It matches with the block as separate `volatile` globals
+  (`D_8009D274` an `int`, then `D_8009D278`... ) and `D_8009D588` written as `*(volatile unsigned char
+  *)&D_8009D2A0[0x2E8]`, but `func_800119E4` stops matching that way (GCC moves a table load above the stores), and
+  with the struct the reset's first store goes through a register whatever the field's type. With the struct it's 4
+  lines off.
 - **`main`:** sets up memory, the display and the boot files, then loops forever: load the sound files and the first
   module, then run modules by `game_mode` (a 16-case switch, most cases read a file to `0x80180000`, unpack it to
   `0x800A0000` and call into it) until `D_8009ABF5` asks for 5, `0x0A` or `0x1A`, then shut the sound down and start
