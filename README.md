@@ -2,7 +2,9 @@
 
 Code recovery for **Final Fantasy VII (PS1, NTSC-U, SCUS-94163/4/5)**. The original source code is lost; this repo rebuilds it from the retail discs, plus scripts so owners of a legit copy can extract the game data themselves.
 
-It is made in part with the assistance of Claude. If any of you have a problem with that, you're free to leave and to never contribute here. Projects like these are why tools like Claude should exist.
+This project was made possible with the assistance of Claude.
+
+I have nothing against people using agentic coders, so hand-made and agent assisted contributions are welcome. Just make sure the code works before you do a pull request.
 
 No game data is in this repo. `assets/` and any disc images are git-ignored. Bring your own discs.
 
@@ -112,5 +114,3 @@ name to `config/symbols.main.txt`. Then `make split && make`.
 ## License
 
 MIT (see `LICENSE`) for the code and docs in this repo. Final Fantasy VII and all its data belong to Square Enix and are not covered.
-
-Contributions are welcome (that's including Claude users granted you've actually tested the code).
