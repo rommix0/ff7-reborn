@@ -958,7 +958,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 162 of the file's 232 functions are C** (159 written here; `seq_cmd_slur_off`,
+- **Recovered: 169 of the file's 232 functions are C** (166 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -1024,6 +1024,21 @@ Lessons from getting it to match:
   slot 48, so **effect slots 48–55 are SPU voices 16–23**. Its twin walks the song's `active_voices` from slot 0.
 - **Helpers in C:** `snd_load_song` (copies the song into `song_data`, `0x80083580`), `snd_save_song` (copies 24
   channels and the `SeqSong` into a save slot), `snd_queue_next` (the next free `SoundCommand` in `snd_queue`).
+- **More helpers in C:**
+  - `snd_effect_streams`: an effect's two streams, `effect_data` + the 16-bit offsets 2·id and 2·id + 1 in
+    `effect_offsets` (`0xFFFF` = none).
+  - `snd_set_reverb_mode`: on a change it stores the mode in `seq_song`'s `+0x3C`, turns reverb off, sets the
+    mode with its work area cleared (`0x100`) through libspu's `SpuReverbAttr`, and turns it back on.
+  - `channel_reset`: the channel defaults (instrument 5, octave 2, volume 100, multiplier 120) and some twenty
+    fields zeroed.
+  - `snd_flush_queue`: runs each queued command through `snd_command_handlers`, unless `0x80062F8C` holds it.
+  - `snd_stop_song`: every voice the song holds (layers and overlaps too) gets a 2-tick key-off and steps into an
+    end stub at `0x80049C40`; the song's voice masks are cleared.
+  - `func_80029A50` / `func_8002D410`: silence and start a special voice set at `0x80062F00` (voices 16/17, which
+    `F8`/`F9` move): transfer callback, SPU IRQ at `0x78000`, and `0x80038C6C(on, voices)`.
+  - `seq_song`'s voice masks (`+0x04`, `+0x24`, `+0x28`) are also reached as plain globals here, like its flags.
+  - **Parked:** `func_80031A70` (skips commands to a length-0 one, returns `CA` or `A0`): the game loads `0xCA`
+    into a register before the loop.
 - **A second file at the start of the range:** `0x800293D0`–`0x80029A4C` (11 functions, including `snd_init` and
   the instrument-bank loaders) reach small globals through `$gp`, so that part was compiled with `-G8`; from
   `0x80029A50` on, small globals like `0x80062F00` are reached with `lui`, which is `-G0`.

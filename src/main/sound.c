@@ -23,9 +23,44 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029998);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_800299C8);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029A50);
+/* Silences the special voices at 0x80062F00 (sound command FA): no transfer callback or IRQ, the voices off, and
+ * channels 16 and 17 rewrite everything when they next play. */
+void func_80029A50(void)
+{
+    unsigned int voices;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_set_reverb_mode);
+    func_80038FEC(0);
+    func_80038A84(0);
+    SpuSetIRQCallback(0);
+    func_80038C6C(0, D_80062F00);
+    voices = D_80062F00;
+    if (voices & 0x10000)
+        seq_channels[16].voice_update = UPDATE_ALL;
+    if (voices & 0x20000)
+        seq_channels[17].voice_update = UPDATE_ALL;
+    D_80062F00 = 0;
+    func_80030038();
+    func_80030148();
+    func_8002FF4C();
+}
+
+/* A song's reverb mode. A change turns reverb off, sets the mode with its work area cleared (0x100), and turns it
+ * back on. */
+void snd_set_reverb_mode(unsigned int mode)
+{
+    SpuReverbAttr *attr = &snd_reverb_attr;
+
+    func_80029A50();
+    SpuGetReverbModeParam(attr);
+    if (snd_reverb_attr.mode == mode)
+        return;
+    seq_song.reverb_mode = mode;
+    SpuSetReverb(0);
+    snd_reverb_attr.mode = mode | 0x100;
+    attr->mask = 1;
+    SpuSetReverbModeParam(attr);
+    SpuSetReverb(1);
+}
 
 void snd_load_song(unsigned int *data, unsigned int size)
 {
@@ -39,11 +74,68 @@ void snd_load_song(unsigned int *data, unsigned int size)
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", channel_reset);
+/* A channel's defaults at the start of a song or effect. */
+void channel_reset(SeqChannel *ch, unsigned char *start)
+{
+    ch->pos = start;
+    ch->volume_scale = 120;
+    load_channel_instrument(ch, 5);
+    ch->octave = 2;
+    ch->detune = 0;
+    ch->transpose = 0;
+    ch->glide_ticks = 0;
+    ch->unk_34 = 0;
+    ch->bend_semitones = 0;
+    ch->fixed_length = 0;
+    ch->last_length = 0;
+    ch->unk_64 = 0;
+    ch->volume = 100 << 23;
+    ch->volume_slide_ticks = 0;
+    ch->flags = 0;
+    ch->loop_level = 0;
+    ch->note_mode = 0;
+    ch->pan_lfo_offset = 0;
+    ch->pan_lfo_depth = 0;
+    ch->tremolo_depth = 0;
+    ch->vibrato_depth = 0;
+    ch->pan_lfo_slide_ticks = 0;
+    ch->tremolo_slide_ticks = 0;
+    ch->vibrato_slide_ticks = 0;
+    ch->fm_ticks = 0;
+    ch->noise_ticks = 0;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029C48);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029E98);
+/* Ends the song: every voice it holds (layers and overlaps too) keys off in 2 ticks and steps into a stub that ends
+ * the channel. */
+void snd_stop_song(void)
+{
+    unsigned int voices = seq_song_active_voices;
+    SeqChannel *ch;
+    unsigned int bit;
+
+    if (!voices)
+        return;
+    ch = seq_channels;
+    bit = 1;
+    voices |= seq_song_layer_voices | seq_song_overlap_voices;
+    seq_song_overlap_voices = 0;
+    seq_song_layer_voices = 0;
+    seq_song_update_voices = 0;
+    seq_song_voices_08 = 0;
+    seq_song_active_voices = voices;
+    seq_song_voices_10 |= voices;
+    do {
+        if (voices & bit) {
+            voices ^= bit;
+            ch->gate = 0x204;
+            ch->pos = D_80049C40;
+        }
+        bit <<= 1;
+        ch++;
+    } while (voices);
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029F44);
 
@@ -55,7 +147,15 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A43C);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A510);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A6C4);
+/* An effect's two streams (0 when it has none): EFFECT.ALL's offsets 2 * id and 2 * id + 1. */
+void snd_effect_streams(unsigned char **first, unsigned char **second, int effect)
+{
+    unsigned short i = (effect & 0x3FF) * 2;
+
+    *first = effect_offsets[i] != 0xFFFF ? effect_data + effect_offsets[i] : 0;
+    i++;
+    *second = effect_offsets[i] != 0xFFFF ? effect_data + effect_offsets[i] : 0;
+}
 
 /* Every voice the song's channels hold rewrites its volume. */
 void snd_refresh_song_volumes(void)
@@ -134,7 +234,7 @@ void snd_cmd_10(SoundCommand *cmd)
         func_8002A7E8();
         snd_save_song(seq_channels, saved_song_channels[1], &seq_song, &saved_songs[1]);
     }
-    func_80029E98();
+    snd_stop_song();
     if (saved_songs[0].song_id && saved_songs[0].song_id == (unsigned short)cmd->arg[2])
         snd_resume_song(0);
     else if (saved_songs[1].song_id && saved_songs[1].song_id == (unsigned short)cmd->arg[2])
@@ -181,9 +281,9 @@ void snd_cmd_21(SoundCommand *cmd)
     unsigned char *second;
 
     func_8002A510(4, 2);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[2]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[2]);
     func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
 }
 
@@ -195,11 +295,11 @@ void snd_cmd_22(SoundCommand *cmd)
 
     func_8002A510(4, 3);
     func_80029A50();
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[2]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[2]);
     func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[3]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[3]);
     func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
 }
 
@@ -210,13 +310,13 @@ void snd_cmd_23(SoundCommand *cmd)
 
     func_8002A510(6, 4);
     func_80029A50();
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[2]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[2]);
     func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[3]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[3]);
     func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[4]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[4]);
     func_8002A094((unsigned short)cmd->arg[0], 0x36, first, second);
 }
 
@@ -227,7 +327,7 @@ void snd_cmd_30(SoundCommand *cmd)
     unsigned char *second;
 
     func_8002A510(6, 1);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[0]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[0]);
     func_8002A28C(first, second);
 }
 
@@ -238,7 +338,7 @@ void snd_cmd_20(SoundCommand *cmd)
     unsigned char *second;
 
     func_8002A510(4, 1);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
 }
 
@@ -248,7 +348,7 @@ void snd_cmd_29(SoundCommand *cmd)
     unsigned char *second;
 
     func_8002A510(2, 1);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
 }
 
@@ -260,7 +360,7 @@ void snd_cmd_2A(SoundCommand *cmd)
 
     func_8002A510(0, 1);
     func_80029A50();
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
 }
 
@@ -270,7 +370,7 @@ void snd_cmd_2B(SoundCommand *cmd)
     unsigned char *second;
 
     func_8002A510(6, 1);
-    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    snd_effect_streams(&first, &second, (unsigned short)cmd->arg[1]);
     func_8002A094((unsigned short)cmd->arg[0], 0x36, first, second);
 }
 
@@ -774,7 +874,19 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002D1E4);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002D2D4);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002D410);
+/* The other side: an SPU IRQ at 0x78000 with its callback when 0x80063004 is set, then the voices on. */
+void func_8002D410(void)
+{
+    func_80038FEC(0);
+    if (D_80063004) {
+        func_80038A84(0);
+        SpuSetIRQAddr(0x78000);
+        SpuSetIRQCallback(func_8002D530);
+        func_80038A84(1);
+    }
+    func_80038C6C(1, D_80062F00);
+    D_80099FD8 &= ~D_80062F00;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002D4A0);
 
@@ -798,7 +910,20 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002DA7C);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", snd_run_command);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_flush_queue);
+/* Runs every queued sound command, unless the queue is held. */
+void snd_flush_queue(void)
+{
+    SoundCommand *cmd;
+
+    if (D_80062F8C)
+        return;
+    cmd = snd_queue;
+    while (snd_queue_count) {
+        snd_command_handlers[(unsigned char)cmd->id](cmd);
+        snd_queue_count--;
+        cmd++;
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", snd_update_voice);
 

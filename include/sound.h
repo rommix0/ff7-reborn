@@ -29,6 +29,7 @@
 #define UPDATE_SUSTAIN_LEVEL 0x8000
 #define UPDATE_ENVELOPE      0xFF00 /* all of the above from the attack mode on */
 #define UPDATE_LOOP          0x10000 /* the sample's loop address */
+#define UPDATE_ALL           (UPDATE_VOLUME | UPDATE_PITCH | UPDATE_SAMPLE | UPDATE_ENVELOPE | UPDATE_LOOP)
 
 /* One sequence channel of the AKAO driver, 0x108 bytes (docs/knowledge_base.md §4). Fields get names as the
  * functions that use them are recovered; the pads are still unread. */
@@ -43,7 +44,7 @@ typedef struct SeqChannel {
     unsigned int overlap_voice;         /* 0x28 F8: the second voice notes take turns on; an effect's own voice */
     unsigned int volume_scale;          /* 0x2C A3 */
     int note_pitch;                     /* 0x30 the sounding note's pitch register (vibrato scales with it) */
-    unsigned char pad_34[0x04];
+    unsigned int unk_34;                /* 0x34 channel_reset zeroes it */
     unsigned int flags;                 /* 0x38 CHANNEL_* */
     int pitch_shift;                    /* 0x3C set by the game on a playing effect: a signed byte << 8 */
     int pitch_shift_step;               /* 0x40 */
@@ -58,7 +59,7 @@ typedef struct SeqChannel {
     unsigned short balance_slide_ticks; /* 0x5E */
     unsigned short pan;                 /* 0x60 AA value << 8 */
     unsigned short pan_slide_ticks;     /* 0x62 */
-    unsigned char pad_64[0x02];
+    unsigned short unk_64;              /* 0x64 channel_reset zeroes it */
     unsigned short octave;              /* 0x66 */
     unsigned short bend_ticks;          /* 0x68 A4 */
     unsigned short last_key;            /* 0x6A the last note's key, 0 = none */
@@ -141,7 +142,7 @@ typedef struct SeqSong {
     unsigned int reverb_voices;         /* 0x30 C2/C3 */
     unsigned int fm_voices;             /* 0x34 C6/C7 */
     unsigned int flags;                 /* 0x38 SONG_* */
-    unsigned char pad_3C[0x04];
+    unsigned int reverb_mode;           /* 0x3C snd_set_reverb_mode */
     int reverb_depth;                   /* 0x40 EA value << 16 */
     int reverb_slide_step;              /* 0x44 EB */
     unsigned short tempo_slide_ticks;   /* 0x48 */
@@ -179,6 +180,20 @@ typedef struct SpuCommonAttr {
     int ext_mix;
 } SpuCommonAttr;
 
+/* libspu's SpuReverbAttr (layout from Sony's Libref). */
+typedef struct SpuReverbAttr {
+    unsigned int mask;
+    unsigned int mode;
+    short depth[2];
+    int delay;
+    int feedback;
+} SpuReverbAttr;
+
+extern SpuReverbAttr snd_reverb_attr;
+void SpuGetReverbModeParam(SpuReverbAttr *attr);
+void SpuSetReverbModeParam(SpuReverbAttr *attr);
+int SpuSetReverb(int on);
+
 /* INSTR.DAT, copied whole by load_instrument_bank. */
 typedef struct Instrument {
     unsigned int sample;                /* SPU address */
@@ -194,9 +209,12 @@ extern SeqSong seq_song;
 /* Each LFO waveform: its steps, which the LFOs walk through. */
 extern short *lfo_waveforms[];
 /* seq_song fields the driver reads and writes as plain variables (as struct members GCC would share the address). */
+extern unsigned int seq_song_active_voices;
 extern unsigned int seq_song_voices_08;
 extern unsigned int seq_song_update_voices;
 extern unsigned int seq_song_voices_10;
+extern unsigned int seq_song_layer_voices;
+extern unsigned int seq_song_overlap_voices;
 extern unsigned int seq_song_flags;
 extern unsigned short seq_song_branch_level;
 extern unsigned short seq_song_id;
@@ -242,7 +260,10 @@ extern int D_80062FD8;
 extern unsigned short D_80062F70;
 extern unsigned short snd_cd_volume_slide_ticks;
 extern int snd_cd_volume; /* C8, << 16 */
-extern unsigned int D_80062F00;
+extern unsigned int D_80062F00; /* a special voice set (16/17): F8/F9 move it, func_80029A50 silences it */
+extern int D_80063004;
+extern unsigned int D_80099FD8;
+extern unsigned char D_80049C40[]; /* where snd_stop_song points every channel */
 extern int snd_cd_volume_slide_step;
 extern int D_80062F5C;
 extern int D_80062F2C;
@@ -261,17 +282,27 @@ void func_8002A510(int pair, int arg);
 void snd_refresh_song_volumes(void);
 void snd_refresh_effect_volumes(void);
 void func_80039034(SpuCommonAttr *attr); /* probably SpuSetCommonAttr */
+void func_80038FEC(void *callback); /* SpuSetTransferCallback (knowledge base §8) */
+void func_80038A84(int on);
+void func_80038C6C(int on, unsigned int voices);
+void SpuSetIRQCallback(void (*callback)(void));
+unsigned int SpuSetIRQAddr(unsigned int addr);
+void func_8002D530(void);
 extern SpuCommonAttr snd_common_attr;
 extern unsigned int song_data[];
 extern SoundCommand snd_queue[];
+extern void (*snd_command_handlers[256])(SoundCommand *cmd);
+extern int D_80062F8C; /* while set, snd_flush_queue leaves the queue alone */
 extern int snd_queue_count;
-void func_8002A6C4(unsigned char **first, unsigned char **second, int effect); /* an effect's two streams */
+void snd_effect_streams(unsigned char **first, unsigned char **second, int effect);
+extern unsigned short *effect_offsets; /* EFFECT.ALL's table: two stream offsets per effect, 0xFFFF = none */
+extern unsigned char *effect_data;     /* what the offsets count from */
 void func_8002A094(int pan, int pair, unsigned char *first, unsigned char *second); /* starts an effect */
 void func_8002A28C(unsigned char *first, unsigned char *second);
 void func_8002AFB8(void);
 void snd_load_song(unsigned int *data, unsigned int size); /* copies the song into song_data */
 void func_80029C48(void); /* starts the loaded song */
-void func_80029E98(void);
+void snd_stop_song(void);
 void func_8002A7E8(void);
 void snd_resume_song(int slot);
 void snd_save_song(SeqChannel *channels, SeqChannel *saved_channels, SeqSong *song, SeqSong *saved);
