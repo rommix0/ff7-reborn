@@ -1,28 +1,6 @@
 #include "common.h"
 #include "sound.h"
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800293D0);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800293F4);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029424);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029464);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800294A4);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800294BC);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", load_instrument_bank);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", load_instrument_bank2);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_init);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029998);
-
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_800299C8);
-
 /* Stops the stream (sound command FA, or the fill at its end): no transfer callback or IRQ, its voices off, and
  * channels 16 and 17 rewrite everything when they next play. */
 void snd_stream_stop(void)

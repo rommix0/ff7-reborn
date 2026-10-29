@@ -403,6 +403,24 @@ unsigned char seq_look_ahead(SeqChannel *ch);
 unsigned char seq_stream_end(SeqChannel *ch); /* skips to the stream's last command: CA (loops forever) or A0 (ends) */
 int SpuGetKeyStatus(unsigned int voice);
 int GetRCnt(unsigned int counter);
+int SetRCnt(unsigned int counter, unsigned short target, int mode);
+int StartRCnt(unsigned int counter);
+int StopRCnt(unsigned int counter);
+int OpenEvent(unsigned int desc, int spec, int mode, unsigned int (*handler)(void));
+int EnableEvent(int event);
+int DisableEvent(int event);
+int CloseEvent(int event);
+void UnDeliverEvent(unsigned int desc, int spec);
+void SpuInitMalloc(int count, unsigned char *table);
+int SpuMallocWithStartAddr(unsigned int addr, int size);
+void func_80037BE0(unsigned char *data, unsigned int size); /* SpuRead */
+void func_80039450(int voice, int left, int right, int left_mode, int right_mode); /* a voice's volume */
+unsigned int snd_timer_tick(void);
+void load_instrument_bank(unsigned int *header, unsigned int *instruments);
+void load_instrument_bank2(unsigned int *header, unsigned int *instruments);
+extern unsigned char snd_spu_malloc_table[]; /* SpuInitMalloc's */
+extern unsigned int effect_file[];           /* EFFECT.ALL: the offsets, then from 0x1000 the data */
+extern unsigned char snd_silent_blocks[32];  /* written to SPU 0x76FE0: the sample F2 and stopped streams point at */
 int VSync(int mode);
 void seq_tick(void);
 void seq_step_channel(SeqChannel *ch, SeqSong *song, unsigned int voice);

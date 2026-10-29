@@ -53,6 +53,12 @@ build/src/main/sound.o: ASPSX = 2.21
 build/src/main/sound.o: GCC = 2.6.3
 # Its divides carry ASPSX's divide-by-zero and overflow checks.
 build/src/main/sound.o: MASPSXFLAGS = --expand-div
+# The driver's first file (0x800293D0-0x80029A4C) reaches small globals through $gp: -G8. Its tentative definitions
+# of them stay common, so the linker resolves them to the data section's labels instead of adding storage.
+build/src/main/sound_init.o: ASPSX = 2.21
+build/src/main/sound_init.o: GCC = 2.6.3
+build/src/main/sound_init.o: CFLAGS = -O2 -G8
+build/src/main/sound_init.o: MASPSXFLAGS = --expand-div --use-comm-section -G8
 
 clean:
 	rm -rf build asm
