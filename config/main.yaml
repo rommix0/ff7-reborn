@@ -47,16 +47,18 @@ segments:
     start: 0x800
     vram: 0x80010000
     subsegments:
-      - [0x800, rodata, 800]
+      - [0x800, .rodata, main/main] # main.c's switch tables and strings
+      - [0x900, rodata, 900]
       - [0xB94, .rodata, main/sound] # seq_look_ahead's switch table
       - [0xC38, rodata, C38]
       # splat guessed 0x18AC, but 0x18AC-0x18B7 is the string " (%08x)\n".
       - [0x18B8, asm, 18B8]
+      - [0x197C, c, main/main] # the game's boot and main loop; before it, the hand-written entry code
       - [0x5200, c, main/bitops]
       - [0x5284, asm, 5284]
       # The AKAO sound driver, 0x800293D0-0x80033A90 (docs/knowledge_base.md §4).
       - [0x19BD0, c, main/sound_init] # compiled with -G8: small globals through $gp
       - [0x1A250, c, main/sound]
       - [0x24290, asm, 24290]
-      - [0x39518, data, 39518] # estimated
+      - [0x394FC, data, 394FC] # starts with the sound files' disc table
   - [0x61000]

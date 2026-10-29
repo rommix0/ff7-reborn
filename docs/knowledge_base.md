@@ -921,8 +921,8 @@ Rules for C that has to build both ways (and keep matching):
 with GCC 2.7.2. GCC 2.6.3 matches only one of the three, so that part of the exe was built with 2.7.2.
 
 **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml`, and `make` relinks it. The result is
-SHA1-identical to retail, with `bitops.c` and `sound.c` compiled from C (the latter mostly `INCLUDE_ASM` so far)
-and the rest still assembly.
+SHA1-identical to retail, with `bitops.c`, the sound driver (`sound_init.c`, `sound.c`: all but one function) and
+part of `main.c` compiled from C, and the rest still assembly.
 
 Main exe layout (found by splat, then corrected by hand):
 
@@ -930,8 +930,8 @@ Main exe layout (found by splat, then corrected by hand):
 |---|---|---|
 | `0x0000` | n/a | PS-X EXE header (t_addr `0x80010000`, t_size `0x60800`, pc0 `0x800110C0`) |
 | `0x0800`–`0x18B8` | `0x80010000` | read-only data (jump tables, strings such as `"battle.x"`) |
-| `0x18B8`–~`0x39518` | `0x800110B8` | code. splat guessed `0x18AC`, but the 12 bytes there are the string `" (%08x)\n"` |
-| ~`0x39518`–`0x61000` | ~`0x80048D18` | data *(boundary estimated by splat)* |
+| `0x18B8`–`0x394FC` | `0x800110B8` | code. splat guessed `0x18AC`, but the 12 bytes there are the string `" (%08x)\n"` |
+| `0x394FC`–`0x61000` | `0x80048CFC` | data. splat estimated `0x80048D18`, inside the sound files' disc table that opens it |
 
 - **No padding between sections.** The retail link packs them back to back, so splat needs
   `ld_align_section_vram_end: False` and `ld_align_segment_vram_end: False`. Otherwise every address after the
@@ -948,6 +948,33 @@ Lessons from getting it to match:
 - **Preprocessor:** the period `cpp` is a 32-bit binary and fails with "Value too large for defined data type" on any
   `#include` from a Windows drive under WSL (it can't `stat` the large inode numbers). The build preprocesses with the
   host `cpp -P -undef -nostdinc` instead, which doesn't change the generated code.
+
+**The boot file** (`src/main/main.c`, `0x8001117C`–`0x80014A00`, 47 functions, 20 in C so far): what runs the game.
+It loads the sound driver's files and boots it, loads and starts the modules (`run_overlay`) and has the main loop
+(`func_80011C1C`, 3 KB, still asm). Before it sit an empty function and the hand-written entry code at `0x800110C0`
+(clears BSS, sets `$sp`/`$gp`, calls the main loop), left as the asm segment `18B8`.
+- **Toolchain: ASPSX 2.34.** `li` comes out as `ori` (2.34 or older) but an indexed load folds into `%lo` (`lui at;
+  addu at, at, a0; lw v0, %lo(sym)(at)`), which 2.21 doesn't do. GCC 2.7.2 and 2.6.3 match everything so far.
+  `func_800148A0`/`func_800148B4` reach two small globals through `$gp`, so at least the end of the file is `-G8`
+  (still asm: `-G8` puts `INCLUDE_ASM` out of order, see `sound_init.c`). `func_800135C0` divides with ASPSX's checks.
+- **Its rodata** (`0x80010000`–`0x80010100`: switch tables and the string `"battle.x"`) is the subsegment
+  `.rodata main/main`, so splat moves each table into its function's `.s` file. Left in the `rodata` piece, the
+  tables point at labels that are local to `main.c`'s functions and the link fails.
+- **Disc files:** `{lba, size}` pairs. The data section opens with the sound files (`instr_all_file`,
+  `effect_all_file`, `instr_dat_file`, `instr2_all_file`, `instr2_dat_file`); `disc_files` (`0x80048D84`) is a
+  table by number, its first 10 entries reloaded from sector `0x266` by `load_disc_table`. `read_disc_file(i, dest,
+  callback)` starts a read through `func_80033E34(lba, size, dest, callback)`, and `wait_disc_read(idle)` polls
+  `func_80034B44` and calls `idle` while it waits. `load_sound_files` puts INSTR.ALL at `0x800F0000`, EFFECT.ALL at
+  `0x801B0000` and INSTR.DAT at `0x801BC800`, then calls `snd_init` and `snd_load_effects`; `snd_load_bank2` loads the
+  second bank into `0x800A0000`/`0x800E0000`.
+- **Modules:** `run_overlay(file, entry)` reads the file to `0x801B0000`, unpacks it to `0x800A0000`
+  (`func_80015CA0`) and calls `entry`. `func_800146A4` loops on `game_mode`: 4 starts file 3, 2 file 5.
+- **`volatile` globals:** `game_mode` and a fade level and step (`0x8009AC42`/`0x8009AC44`) only match as `volatile`:
+  the game loads such a `short` with `lhu` and sign-extends it with shifts, and reloads it after storing it. They are
+  probably shared with the VSync callback. One store, in `func_80013564`, goes through a pointer cast to `volatile`
+  (the address lands in a register); the same flag is a plain store in `func_800134F4`.
+- **Parked:** `func_800135C0` (`from + (to - from) * t / n` on shorts: only the quotient's register differs) and
+  `func_80011BB4` (a block of stores whose first goes through a register-held address and whose order is off).
 
 **The sound driver as C** (`src/main/sound.c`, `0x800293D0`–`0x80033A90`):
 - **Split:** its own `c` subsegment in `config/main.yaml`, plus a `.rodata` piece for its one jump table
