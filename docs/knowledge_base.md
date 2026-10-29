@@ -321,6 +321,10 @@ starts:
   - **`C8`:** pushes a loop point (4 levels).
   - **`C9 n`:** jumps back until pass `n` (0 = 256), then pops. We used to read `C9 00` as endless: effects 294
     and 369 now end after their 256 passes, and effect 396 goes on to the notes after its repeat.
+    - **The note look-ahead** (`func_800318BC`) compares the raw count instead, so at a `C9 00` it always
+      assumes another pass. `look_ahead` does the same on purpose. It also compares `F0`/`F1` counts raw and
+      follows `EF` and `F1`, where ours reads `F0 00` as 256 and stops at `EF`/`F1`. No song or effect uses
+      `F0 00`, `EF` or `F1`, so that difference is never heard.
   - **`CA`:** jumps back forever.
   - **`F0 n lo hi`:** jumps by a signed 16-bit offset on pass `n` of the current repeat, for a different ending on the
     last pass.
@@ -528,8 +532,9 @@ Read from `seq_step_channel`'s note and tie paths:
     - `func_8002F24C` steps the effect LFOs itself (songs do it in `seq_channel_lfo`), on every interrupt while
       the voice is keyed on.
   - **Effect 302's tremolo** (`B8 1F 02 00` on the cymbal, ±24% at 61 Hz) sounds wrong to the ear: without it the
-    effect sounds right. The driver's math and timing for it match ours as far as we've read, so it stays until
-    a recording from the game settles it.
+    effect sounds right. The driver's math and timing for it match ours as far as we've read, so it stays. Marked
+    settled, along with effects 270, 297 and 643, when the listening audit closed: none has a known driver-side
+    cause, and only a recording from the game could reopen them.
   - **Effect 270** was checked step by step against all of the above and against FM in psx-spx and Mednafen. Its
     commands come out as the driver plays them: a 58-semitone swoop and a +16 bend on the modulator, a 1-tick blip
     then a long note with a square vibrato on the FM voice, and their envelopes.
