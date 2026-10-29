@@ -949,14 +949,18 @@ Lessons from getting it to match:
   `#include` from a Windows drive under WSL (it can't `stat` the large inode numbers). The build preprocesses with the
   host `cpp -P -undef -nostdinc` instead, which doesn't change the generated code.
 
-**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 28 in C so far), two files told apart by their assembler:
-- **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 15 of 30 in C): boots the sound driver, sets up the display and
+**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 36 in C so far), two files told apart by their assembler:
+- **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 19 of 30 in C): boots the sound driver, sets up the display and
   has the main loop (`func_80011C1C`, 3 KB, still asm). **ASPSX 2.21**: an indexed load goes through `addiu $at`
   (`lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`). Its divides carry ASPSX's checks.
-- **`src/main/loader.c`** (`0x800144D8`–`0x80014A00`, 13 of 17 in C): disc reads and module starts. **ASPSX 2.34**:
+- **`src/main/loader.c`** (`0x800144D8`–`0x80014A00`, all 17 in C): disc reads and module starts. **ASPSX 2.34**:
   `li` is still `ori`, but an indexed load folds into `%lo` (`lui at; addu at, at, a0; lw v0, %lo(sym)(at)`).
-  `func_800148A0`/`func_800148B4` reach two small globals through `$gp`, so it is `-G8`. It builds as `-G0` until
-  they are C, since `-G8` puts `INCLUDE_ASM` out of order (see `sound_init.c`).
+  **`-G8`**: `func_800148A0` and `load_boot_files` reach `D_80062F88` and `D_80063014` (the scratchpad pointer)
+  through `$gp`, so the file gives them tentative definitions, as `sound_init.c` does. `load_boot_files` reads
+  files 1 and 2 with read callbacks that walk their numbered entries (`func_80015B44`/`B50`/`B88`/`BC0`): file 1's
+  entry 0 is an image for VRAM, file 2's entries go to the addresses in `D_80048DD4`. In `func_80014750` the entry
+  size is an `int` taking the `unsigned short` result (found by decomp-permuter; `tools/permuter.sh` now takes
+  `DIR`, `GCC`, `ASPSX` and `MASPSXFLAGS` for files other than `sound.c`).
 - **Toolchain:** GCC 2.7.2 and 2.6.3 match everything so far in both files. Before them sit an empty function and the
   hand-written entry code at `0x800110C0` (clears BSS, sets `$sp`/`$gp`, calls the main loop), left as the asm
   segment `18B8`. `include/main.h` holds what both files share.
@@ -974,16 +978,23 @@ Lessons from getting it to match:
   (`func_80015CA0`) and calls `entry`. `func_800146A4` loops on `game_mode`: 4 starts file 3, 2 file 5.
 - **Display:** two `DISPENV`s (`disp_env`, y 232 and 0) and two `DRAWENV`s (`draw_env`, y 8 and 240, `dtd` on);
   `init_display` sets them up, `flip_frame` toggles `frame` and puts the next pair and its ordering table, and
-  `copy_frame` copies the shown buffer to the other one.
+  `copy_frame` copies the shown buffer to the other one. `vsync_callback` runs what `D_80095DD4` picks (1
+  `flip_frame`), then advances the play-time clock: `D_8009D26C` gains `0x444` a frame, so its top half is one second
+  at 60 Hz, counted in `D_8009D264`; `D_8009D270` drives the countdown `D_8009D268` the same way.
+- **Screen fade:** `func_80013624` moves a colour from `D_8009AC4C`–`50` to `D_8009AC52`–`56` over `D_8009AC44`
+  steps through `func_800135C0` (`from + (to - from) * t / n`) and draws it with `func_800131B8`.
 - **`volatile`:** `game_mode`, `frame`, a fade level and step (`0x8009AC42`/`0x8009AC44`) and the state block at
   `0x8009D274` (`func_800119E4` saves it, `func_80011AEC` restores it) only match as `volatile`: the game loads such a
   `short` with `lhu` and sign-extends it with shifts, reloads it after storing it, and keeps the reads in order (one
-  field is read twice). They are probably shared with the VSync callback. A few stores go through a pointer cast to
-  `volatile`, which puts the address in a register as the game does. The state block is a struct: as separate
+  field is read twice). They are probably shared with the VSync callback. `x++` on a volatile reloads `x` after the
+  store and discards it, as the game does. Some accesses go through a pointer cast to `volatile` instead
+  (`*(volatile int *)&x`), which puts the address in a register as the game does; the same variable can be plain in
+  one function and cast in the next. The state block is a struct: as separate
   globals, GCC moves a table load above the stores, which it doesn't do between two struct accesses.
-- **Parked:** `func_800135C0` (`from + (to - from) * t / n` on shorts: only the quotient's register differs) and
+- **Parked:** `func_800135C0` (`from + (to - from) * t / n` on shorts: only the quotient's register differs),
   `func_80011BB4` (resets the state block: its first field's store is plain here, but a volatile struct gives it a
-  register-held address).
+  register-held address) and `func_800128B8` (sets up the fade's two 160x224 tiles per buffer: the game steps a
+  pointer for the calls and indexes for the field stores; neither form reproduces it).
 
 **The sound driver as C** (`src/main/sound.c`, `0x800293D0`–`0x80033A90`):
 - **Split:** its own `c` subsegment in `config/main.yaml`, plus a `.rodata` piece for its one jump table

@@ -58,6 +58,8 @@ build/src/main/sound.o: MASPSXFLAGS = --expand-div
 build/src/main/main.o: ASPSX = 2.21
 build/src/main/main.o: MASPSXFLAGS = --expand-div
 build/src/main/loader.o: ASPSX = 2.34
+build/src/main/loader.o: CFLAGS = -O2 -G8
+build/src/main/loader.o: MASPSXFLAGS = --use-comm-section -G8
 # The driver's first file (0x800293D0-0x80029A4C) reaches small globals through $gp: -G8. Its tentative definitions
 # of them stay common, so the linker resolves them to the data section's labels instead of adding storage.
 build/src/main/sound_init.o: ASPSX = 2.21

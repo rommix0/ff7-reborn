@@ -376,3 +376,5 @@ copy_frame = 0x800129D0; // type:func
 disp_env = 0x8007EB68; // size:0x28
 draw_env = 0x8007EAAC; // size:0xB8
 frame = 0x80075DEC;
+load_boot_files = 0x800148B4; // type:func
+vsync_callback = 0x8001155C; // type:func

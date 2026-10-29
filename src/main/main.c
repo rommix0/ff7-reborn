@@ -58,7 +58,7 @@ extern DiscFile instr2_all_file;
 extern DiscFile instr2_dat_file;
 extern DiscFile D_80048D24;
 extern unsigned short D_800965E8;
-extern unsigned short D_80071A5C;
+extern short D_80071A5C;
 extern DISPENV disp_env[2];
 extern DRAWENV draw_env[2];
 extern volatile short frame; /* which of the two buffers is being drawn */
@@ -80,16 +80,41 @@ extern short D_8009AC18;
 extern unsigned char D_8009A068[];
 extern int D_8019DAA0;
 extern unsigned int *D_8019D5E8;
+extern DiscFile D_80048D2C;
+extern int D_800730CC;
+extern unsigned char D_80095DDC[];
+extern short D_8009ABF6;
+extern unsigned char D_80062D98;
+extern unsigned char D_80062D99;
+/* Play time: D_8009D26C gains 0x444 a frame, so its top half is a second at 60 Hz, counted in D_8009D264. D_8009D270
+ * does the same for the countdown D_8009D268, which counts up instead while D_8009D2E7 bit 1 is set. */
+extern volatile unsigned int D_8009D264;
+extern volatile unsigned int D_8009D268;
+extern volatile unsigned int D_8009D26C;
+extern volatile unsigned int D_8009D270;
+extern unsigned char D_8009D2E7;
+extern short D_8007E768;
 
-/* Shared with the VSync callback, hence volatile: the game reloads them and reads shorts through lhu. */
+/* A screen fade, shared with the VSync callback, hence volatile: the game reloads them and reads shorts through lhu.
+ * func_80013624 moves the colour from D_8009AC4C-50 to D_8009AC52-56 over D_8009AC44 steps, D_8009AC42 counting. */
 extern volatile short D_8009AC40;
 extern volatile short D_8009AC42; /* a fade level, 0-255 */
 extern volatile short D_8009AC44; /* and its step */
+extern volatile short D_8009AC46, D_8009AC48, D_8009AC4A; /* the colour now */
+extern volatile short D_8009AC4C, D_8009AC4E, D_8009AC50; /* from */
+extern volatile short D_8009AC52, D_8009AC54, D_8009AC56; /* to */
 extern volatile short D_80114488;
 extern unsigned char D_8009AC2C;
-extern short D_80095DD4;
+extern volatile short D_80095DD4; /* what the VSync callback runs */
 
-void func_8001155C(void);
+void vsync_callback(void);
+void func_800140A4(void);
+short func_800135C0(short from, short to, short t, short n);
+void func_800131B8(short r, short g, short b);
+void func_80012A8C(int n);
+short func_800A460C(int *a, int *b, void *c, void *d);
+void func_800D8D78(void);
+void func_80022B5C(void);
 void func_80013800(void);
 void func_80013C9C(void);
 void func_800CF60C(void);
@@ -134,7 +159,36 @@ void snd_load_bank2(void)
     load_instrument_bank2((unsigned int *)0x800A0000, (unsigned int *)0x800E0000);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800112E8);
+void func_800112E8(void)
+{
+    if (D_800965EC == 2) {
+        while (func_80034B44())
+            ;
+        func_80015CA0((void *)0x801C0000, (void *)0x800A0000);
+    } else {
+        while (func_80034B44())
+            ;
+        func_80033E34(D_80048D2C.lba, D_80048D2C.size, (void *)0x80180000, 0);
+        while (func_80034B44())
+            ;
+        func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+    }
+    if (D_80071E28 != 2) {
+        if (D_800965EC == 2)
+            D_80071E28 = 1;
+        else
+            D_80071E28 = 0;
+        D_800730CC = D_8009A05C;
+    }
+    if (D_8009A05C != D_80071A5C || !D_8009A05C) {
+        frame = func_800A460C(&D_80071E28, &D_800730CC, D_80095DDC, 0);
+    } else {
+        frame = func_800A460C(&D_80071E28, &D_800730CC, D_80095DDC, (void *)0x801B0000);
+        D_80071A5C = 0;
+        D_800965E8 = 0;
+    }
+    D_8009A05C = D_8009ABF6;
+}
 
 void flip_frame(void)
 {
@@ -148,7 +202,44 @@ void flip_frame(void)
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_8001155C);
+void vsync_callback(void)
+{
+    switch (D_80095DD4) {
+    case 0:
+        break;
+    case 1:
+        flip_frame();
+        break;
+    case 2:
+        func_800D8D78();
+        break;
+    case 3:
+        func_800140A4();
+        break;
+    case 4:
+        func_80022B5C();
+        break;
+    }
+    if (!D_80062D98 && !D_80062D99) {
+        /* The casts put the counter's address in a register, as the game does. */
+        *(volatile unsigned int *)&D_8009D26C += 0x444;
+        if (*(volatile unsigned int *)&D_8009D26C >> 16) {
+            D_8009D264++;
+            *(volatile unsigned int *)&D_8009D26C &= 0xFFFF;
+        }
+        D_8009D270 += 0x444;
+        if (D_8009D270 >> 16) {
+            if (!(D_8009D2E7 & 2)) {
+                if (D_8009D268)
+                    D_8009D268--;
+            } else {
+                D_8009D268++;
+            }
+            *(volatile unsigned int *)&D_8009D270 &= 0xFFFF;
+        }
+    }
+    D_8007E768 = 1;
+}
 
 void func_8001171C(void)
 {
@@ -157,7 +248,7 @@ void func_8001171C(void)
     func_80043938(0);
     func_80036298();
     D_80095DD4 = 0;
-    VSyncCallback(func_8001155C);
+    VSyncCallback(vsync_callback);
     func_80043BA8(0);
     SetDispMask(0);
     InitGeom();
@@ -302,9 +393,45 @@ void func_80013564(void)
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_800135C0);
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80013624);
+void func_80013624(void)
+{
+    *(volatile unsigned char *)&D_8009AC2C = 0;
+    D_8009AC42++;
+    if (D_8009AC42 >= D_8009AC44) {
+        D_8009AC4C = D_8009AC52;
+        D_8009AC4E = D_8009AC54;
+        D_8009AC50 = D_8009AC56;
+        D_8009AC42 = D_8009AC44;
+    }
+    D_8009AC46 = func_800135C0(D_8009AC4C, D_8009AC52, D_8009AC42, D_8009AC44);
+    D_8009AC48 = func_800135C0(D_8009AC4E, D_8009AC54, D_8009AC42, D_8009AC44);
+    D_8009AC4A = func_800135C0(D_8009AC50, D_8009AC56, D_8009AC42, D_8009AC44);
+    func_800131B8(D_8009AC46, D_8009AC48, D_8009AC4A);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80013800);
+void func_80013800(void)
+{
+    /* Through a pointer here, unlike func_80013624: the game puts the address in a register. */
+    if (D_80071A58 == 3) {
+        (*(volatile short *)&D_8009AC42)++;
+        if (*(volatile short *)&D_8009AC42 == 0x22) {
+            D_8009AC40 = 0;
+            D_80095DD4 = 0;
+            D_80071A58 = 0;
+        }
+        func_80012840(2);
+        func_80012A8C(0x10);
+    } else {
+        (*(volatile short *)&D_8009AC42)++;
+        if (*(volatile short *)&D_8009AC42 == 0x12) {
+            D_8009AC40 = 0;
+            D_80095DD4 = 0;
+            D_80071A58 = 0;
+        }
+        func_80012840(2);
+        func_80012A8C(0x20);
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_800138EC);
 
