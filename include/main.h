@@ -8,6 +8,27 @@ typedef struct DiscFile {
 } DiscFile;
 
 extern DiscFile disc_files[]; /* by number */
+
+/* libgpu's display and drawing environments (layouts from Sony's Libref). */
+typedef struct RECT {
+    short x, y, w, h;
+} RECT;
+
+typedef struct DISPENV {
+    RECT disp;
+    RECT screen;
+    unsigned char isinter, isrgb24, pad0, pad1;
+} DISPENV;
+
+typedef struct DRAWENV {
+    RECT clip;
+    short ofs[2];
+    RECT tw;
+    unsigned short tpage;
+    unsigned char dtd, dfe, isbg, r0, g0, b0;
+    unsigned int dr_env[16];
+} DRAWENV;
+
 /* Picks what runs next (func_800146A4). Shared with the VSync callback, hence volatile: the game reloads it and reads
  * it through lhu. */
 extern volatile short game_mode;

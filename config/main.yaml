@@ -54,6 +54,7 @@ segments:
       # splat guessed 0x18AC, but 0x18AC-0x18B7 is the string " (%08x)\n".
       - [0x18B8, asm, 18B8]
       - [0x197C, c, main/main] # the game's boot and main loop; before it, the hand-written entry code
+      - [0x449C, c, main/transition] # a screen transition: GCC 2.7.2 and ASPSX 2.34 like the loader, but -G0
       - [0x4CD8, c, main/loader] # disc reads and module starts: ASPSX 2.34, unlike main.c
       - [0x5200, c, main/bitops]
       - [0x5284, asm, 5284]

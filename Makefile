@@ -59,6 +59,7 @@ build/src/main/main.o: ASPSX = 2.21
 build/src/main/main.o: MASPSXFLAGS = --expand-div
 # ...and compiled by GCC 2.6.3: 2.7.2 picks another register for func_800135C0's quotient.
 build/src/main/main.o: GCC = 2.6.3
+build/src/main/transition.o: ASPSX = 2.34
 build/src/main/loader.o: ASPSX = 2.34
 build/src/main/loader.o: CFLAGS = -O2 -G8
 build/src/main/loader.o: MASPSXFLAGS = --use-comm-section -G8

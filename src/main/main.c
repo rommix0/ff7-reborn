@@ -2,28 +2,8 @@
 #include "sound.h"
 #include "main.h"
 
-/* The game's boot file (0x8001117C-0x800144D8): it boots the sound driver, sets up the display and runs the main loop.
+/* The game's boot file (0x8001117C-0x80013C9C): it boots the sound driver, sets up the display and runs the main loop.
  * Built like the sound driver: GCC 2.6.3, ASPSX 2.21 (indexed loads go through `addiu $at`). */
-
-/* libgpu's display and drawing environments (layouts from Sony's Libref). */
-typedef struct RECT {
-    short x, y, w, h;
-} RECT;
-
-typedef struct DISPENV {
-    RECT disp;
-    RECT screen;
-    unsigned char isinter, isrgb24, pad0, pad1;
-} DISPENV;
-
-typedef struct DRAWENV {
-    RECT clip;
-    short ofs[2];
-    RECT tw;
-    unsigned short tpage;
-    unsigned char dtd, dfe, isbg, r0, g0, b0;
-    unsigned int dr_env[16];
-} DRAWENV;
 
 /* libgpu primitives: each starts with an ordering-table link, the next primitive's address in 24 bits. */
 typedef struct OTag {
@@ -1051,15 +1031,3 @@ void func_800138EC(void)
         break;
     }
 }
-
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80013C9C);
-
-void func_800140A4(void)
-{
-    if (!(++D_8019DAA0 & 1)) {
-        func_8004433C(D_8019D5E8);
-        func_80013C9C();
-    }
-}
-
-INCLUDE_ASM("asm/nonmatchings/main/main", func_800140F4);

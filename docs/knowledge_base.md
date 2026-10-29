@@ -949,10 +949,22 @@ Lessons from getting it to match:
   `#include` from a Windows drive under WSL (it can't `stat` the large inode numbers). The build preprocesses with the
   host `cpp -P -undef -nostdinc` instead, which doesn't change the generated code.
 
-**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 44 in C so far), two files told apart by their assembler:
-- **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 27 of 30 in C): boots the sound driver, sets up the display and
-  has the game's `main` (`0x80011C1C`, 3 KB, still asm). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed load goes through `addiu $at`
-  (`lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`). Its divides carry ASPSX's checks.
+**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 45 in C so far), three files by toolchain:
+- **`src/main/main.c`** (`0x8001117C`–`0x80013C9C`, 26 of 27 in C): boots the sound driver, sets up the display and
+  has the game's `main` (`0x80011C1C`, 3 KB, drafted). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed
+  load goes through `addiu $at` (`lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`). Its divides carry
+  ASPSX's checks.
+- **`src/main/transition.c`** (`0x80013C9C`–`0x800144D8`, 2 of 3 in C): a screen transition. **GCC 2.7.2 and ASPSX
+  2.34** like the loader, but `-G0`. Under `main.c`'s toolchain its drafts sat at 129 and 198 differing lines with a
+  loop counter reset GCC 2.6.3 wouldn't duplicate; under this one the setup `func_800140F4` matches. `func_800140F4`
+  gives it its own display, copies the screen in four strips with every pixel's semi-transparency bit set, and sets up
+  a 10x7 grid of textured quads over an 11x8 vertex grid. `func_80013C9C` draws a frame: it alternates two quad grids,
+  fades or re-pages them, rotates and scales the vertex grid with the GTE and links the projected quads. It's in C
+  behind `NON_MATCHING`, 8 words off: in its last loop the game adds the grid's address to the index the other way
+  round (`addu at, v0, at`, what an integer-constant base gives), but with a constant base GCC strength-reduces that
+  loop, which the game doesn't. Pointers into the overlay area at `0x8019xxxx` are integer constants (`lui`/`ori`);
+  scalars there are reached by symbol. The quads' colour, texture coordinates and corners are written through
+  libgpu-style macros, as in the fade code.
 - **`src/main/loader.c`** (`0x800144D8`–`0x80014A00`, all 17 in C): disc reads and module starts. **ASPSX 2.34**:
   `li` is still `ori`, but an indexed load folds into `%lo` (`lui at; addu at, at, a0; lw v0, %lo(sym)(at)`).
   **`-G8`**: `func_800148A0` and `load_boot_files` reach `D_80062F88` and `D_80063014` (the scratchpad pointer)
@@ -1024,16 +1036,6 @@ Lessons from getting it to match:
   to `lui`/`%lo`: within a function, the first one touched is the one in a register. In a loop those registers are
   hoisted out, which is why `main`'s draft needs its casts exactly where the game has them. Many of `main.c`'s older
   `*(volatile T *)&x` casts are probably this rule in disguise.
-- **In progress:** `func_800140F4` (a screen transition: its own display, the screen copied in four strips with every
-  pixel's semi-transparency bit set, and a 10x7 grid of textured quads with an 11x8 vertex grid) and
-  `func_80013C9C` (draws it each frame: alternates two quad grids, fades or re-pages them, rotates and scales the
-  vertex grid with the GTE and links the projected quads) are drafted, 129 and 198 differing lines under GCC
-  2.6.3. Their addresses at `0x8019xxxx` are passed as integer constants (pointers load with `lui`/`ori`), while
-  scalars there are reached by symbol, which keeps GCC from holding the address in a register. The quads go through a
-  local pointer, which the game spills to the stack. In `func_800140F4` the strip's row is a strength-reduced
-  `i * 74 + 240` (that puts the loop's constants in the game's order). Left: the game keeps a loop counter's `= 0`
-  both in a branch's delay slot and after the branch, where ours only has the delay slot copy, and its quad loop adds
-  the row base to the column offset the other way round.
 
 **The sound driver as C** (`src/main/sound.c`, `0x800293D0`–`0x80033A90`):
 - **Split:** its own `c` subsegment in `config/main.yaml`, plus a `.rodata` piece for its one jump table
