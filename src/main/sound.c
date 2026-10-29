@@ -84,11 +84,11 @@ void channel_reset(SeqChannel *ch, unsigned char *start)
     ch->detune = 0;
     ch->transpose = 0;
     ch->glide_ticks = 0;
-    ch->unk_34 = 0;
+    ch->bend_offset = 0;
     ch->bend_semitones = 0;
     ch->fixed_length = 0;
     ch->last_length = 0;
-    ch->unk_64 = 0;
+    ch->bend_count = 0;
     ch->volume = 100 << 23;
     ch->volume_slide_ticks = 0;
     ch->flags = 0;
@@ -138,9 +138,9 @@ void snd_start_song(void)
             ch->drum_map = (unsigned char *)song_data;
             ch->detune = 0;
             ch->transpose = 0;
-            ch->unk_34 = 0;
+            ch->bend_offset = 0;
             ch->bend_semitones = 0;
-            ch->unk_64 = 0;
+            ch->bend_count = 0;
             ch->glide_ticks = 0;
             ch->fixed_length = 0;
             ch->last_length = 0;
@@ -443,7 +443,7 @@ void snd_keep_looping_effects(void)
     effect_key_on_voices = effect_update_voices;
     do {
         if (voices & bit) {
-            if (func_80031A70(ch) == 0xCA) {
+            if (seq_stream_end(ch) == 0xCA) {
                 if (SpuGetKeyStatus(bit) == 1) {
                     effect_key_on_voices |= bit;
                 } else {
@@ -1760,7 +1760,133 @@ void snd_queue_next(SoundCommand **cmd)
     snd_queue_count++;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002DA7C);
+/* The game's way in: it fills snd_request and calls this, which queues the matching driver commands with the queue
+ * locked. Returns 0, 1 when the song asked for is already playing, or -1 when its data has no AKAO header. */
+int snd_submit_request(void)
+{
+    SoundCommand *q;
+    int result = 0;
+    unsigned char *p;
+    unsigned short song_id;
+    unsigned int size;
+    unsigned int mode;
+
+    snd_queue_locked = 1;
+    switch (snd_request.id) {
+    case 0x10: /* song starts: the data must begin with an AKAO header (id, size, reverb mode) */
+    case 0x14:
+    case 0x15:
+    case 0x18:
+    case 0x19:
+        p = (unsigned char *)snd_request.arg[0];
+        if (p[0] == 'A' && p[1] == 'K' && p[2] == 'A' && p[3] == 'O') {
+            p += 4;
+            song_id = *(unsigned short *)p;
+            p += 2;
+            size = *(unsigned short *)p;
+            p += 2;
+            mode = *(unsigned short *)p;
+            p += 8;
+            if (seq_song_id != song_id) {
+                snd_set_reverb_mode(mode);
+                snd_queue_next(&q);
+                q->arg[0] = (int)p;
+                q->arg[1] = size;
+                q->arg[2] = song_id;
+                q->arg[3] = snd_request.arg[1];
+                q->id = snd_request.id;
+            } else {
+                result = 1;
+            }
+        } else {
+            result = -1;
+        }
+        break;
+    case 0x24: /* effects on 1-4 channel pairs, with consecutive ids */
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->arg[1] = snd_request.arg[1];
+        q->id = 0x20;
+        break;
+    case 0x25:
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->arg[1] = snd_request.arg[1];
+        q->arg[2] = snd_request.arg[1] + 1;
+        q->id = 0x21;
+        break;
+    case 0x26:
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->arg[1] = snd_request.arg[1];
+        q->arg[2] = snd_request.arg[1] + 1;
+        q->arg[3] = snd_request.arg[1] + 2;
+        q->id = 0x22;
+        break;
+    case 0x27:
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->arg[1] = snd_request.arg[1];
+        q->arg[2] = snd_request.arg[1] + 1;
+        q->arg[3] = snd_request.arg[1] + 2;
+        q->arg[4] = snd_request.arg[1] + 3;
+        q->id = 0x23;
+        break;
+    case 0xD8: /* tempo and pitch scale together */
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->id = 0xD0;
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->id = 0xD4;
+        break;
+    case 0xD9:
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->arg[1] = snd_request.arg[1];
+        q->id = 0xD1;
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->arg[1] = snd_request.arg[1];
+        q->id = 0xD5;
+        break;
+    case 0xDA:
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->arg[1] = snd_request.arg[1];
+        q->arg[2] = snd_request.arg[2];
+        q->id = 0xD2;
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->arg[1] = snd_request.arg[1];
+        q->arg[2] = snd_request.arg[2];
+        q->id = 0xD6;
+        break;
+    case 0x99: /* pause music and effects */
+        snd_queue_next(&q);
+        q->id = 0x9B;
+        snd_queue_next(&q);
+        q->id = 0x9D;
+        break;
+    case 0x98: /* resume both */
+        snd_queue_next(&q);
+        q->id = 0x9A;
+        snd_queue_next(&q);
+        q->id = 0x9C;
+        break;
+    default:
+        snd_queue_next(&q);
+        q->arg[0] = snd_request.arg[0];
+        q->arg[1] = snd_request.arg[1];
+        q->arg[2] = snd_request.arg[2];
+        q->arg[3] = snd_request.arg[3];
+        q->arg[4] = snd_request.arg[4];
+        q->id = snd_request.id;
+        break;
+    }
+    snd_queue_locked = 0;
+    return result;
+}
 
 /* Runs one sound command now. Some ids are shorthands: 24-27 play 1-4 effects with consecutive ids (as 20-23), 98/99
  * resume or pause music and effects together (9A + 9C, 9B + 9D), and D8-DA run D0-D2 and D4-D6 together. The song
@@ -1823,7 +1949,7 @@ void snd_flush_queue(void)
 {
     SoundCommand *cmd;
 
-    if (D_80062F8C)
+    if (snd_queue_locked)
         return;
     cmd = snd_queue;
     while (snd_queue_count) {
@@ -1988,12 +2114,12 @@ void seq_channel_slides(SeqChannel *ch, SeqSong *song, unsigned int voice)
             }
         }
     }
-    if (ch->unk_64) {
-        ch->unk_64--;
-        value = ch->unk_34 + ch->unk_4C;
-        if ((value & 0xFFFF0000) != (ch->unk_34 & 0xFFFF0000))
+    if (ch->bend_count) {
+        ch->bend_count--;
+        value = ch->bend_offset + ch->bend_step;
+        if ((value & 0xFFFF0000) != (ch->bend_offset & 0xFFFF0000))
             ch->voice.update |= UPDATE_PITCH;
-        ch->unk_34 = value;
+        ch->bend_offset = value;
     }
 }
 
@@ -2073,12 +2199,12 @@ void seq_effect_slides(SeqChannel *ch, unsigned int voice)
             }
         }
     }
-    if (ch->unk_64) {
-        ch->unk_64--;
-        value = ch->unk_34 + ch->unk_4C;
-        if ((value & 0xFFFF0000) != (ch->unk_34 & 0xFFFF0000))
+    if (ch->bend_count) {
+        ch->bend_count--;
+        value = ch->bend_offset + ch->bend_step;
+        if ((value & 0xFFFF0000) != (ch->bend_offset & 0xFFFF0000))
             ch->voice.update |= UPDATE_PITCH;
-        ch->unk_34 = value;
+        ch->bend_offset = value;
     }
 }
 
@@ -2157,7 +2283,7 @@ void seq_channel_lfo(SeqChannel *ch, unsigned int voice, unsigned short index)
     }
     if (ch->flags & CHANNEL_PITCH_FOLLOW) {
         value = (unsigned char)(snd_pitch_scale >> 16);
-        pitch = ch[-1].voice.pitch + ch->vibrato_offset + (ch->unk_34 >> 16);
+        pitch = ch[-1].voice.pitch + ch->vibrato_offset + (ch->bend_offset >> 16);
         if (value) {
             if (value < 0x80)
                 pitch += (pitch * value) >> 7;
@@ -2168,7 +2294,7 @@ void seq_channel_lfo(SeqChannel *ch, unsigned int voice, unsigned short index)
         ch->voice.update |= UPDATE_PITCH;
     } else if (ch->voice.update & UPDATE_PITCH) {
         value = (unsigned char)(snd_pitch_scale >> 16);
-        pitch = ch->vibrato_offset + ch->note_pitch + (ch->unk_34 >> 16);
+        pitch = ch->vibrato_offset + ch->note_pitch + (ch->bend_offset >> 16);
         if (value) {
             if (value < 0x80)
                 pitch += (pitch * value) >> 7;
@@ -2253,7 +2379,7 @@ void seq_effect_lfo(SeqChannel *ch, unsigned int voice)
         }
     }
     if (ch->flags & CHANNEL_PITCH_FOLLOW) {
-        pitch = ch[-1].voice.pitch + ch->vibrato_offset + (ch->unk_34 >> 16);
+        pitch = ch[-1].voice.pitch + ch->vibrato_offset + (ch->bend_offset >> 16);
         if (ch->is_effect != 2 && (value = (unsigned char)(ch->pitch_shift >> 8))) {
             if (value < 0x80)
                 pitch += (pitch * value) >> 7;
@@ -2263,7 +2389,7 @@ void seq_effect_lfo(SeqChannel *ch, unsigned int voice)
         ch->voice.pitch = pitch & 0x3FFF;
         ch->voice.update |= UPDATE_PITCH;
     } else if (ch->voice.update & UPDATE_PITCH) {
-        pitch = ch->vibrato_offset + ch->note_pitch + (ch->unk_34 >> 16);
+        pitch = ch->vibrato_offset + ch->note_pitch + (ch->bend_offset >> 16);
         if (ch->is_effect != 2 && (value = (unsigned char)(ch->pitch_shift >> 8))) {
             if (value < 0x80)
                 pitch += (pitch * value) >> 7;
@@ -2852,7 +2978,7 @@ void seq_tick(void)
         }
     }
     if (seq_song_pause_pending) {
-        snd_cmd_9B(&D_8009A000);
+        snd_cmd_9B(&snd_request);
         seq_song_pause_pending = 0;
     }
     snd_flush_queue();
@@ -2860,7 +2986,187 @@ void seq_tick(void)
     snd_key_off_voices();
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_step_channel);
+/* Runs a channel's next event: the commands up to the next note, tie or rest (or A0), then the note itself. Its
+ * length goes in the gate, cut short by 2 ticks before a note or rest unless it slurs or plays full length (a tie
+ * keeps it whole). A note sets the key, instrument (drums), pitch with detune, key-on and the LFO restarts. */
+void seq_step_channel(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    unsigned char note;
+    unsigned int cmd;
+    unsigned int pitch;
+    unsigned short length;
+    unsigned char *drum;
+    unsigned short octave;
+    short bend;
+    int layer;
+    unsigned short depth;
+    unsigned int amount;
+
+    do {
+        note = *ch->pos++;
+        cmd = note;
+        if (cmd >= 0xA0)
+            seq_cmd_handlers[cmd - 0xA0](ch, song, voice);
+    } while (cmd >= 0xA0 && cmd != 0xA0);
+    if (cmd == 0xA0)
+        return;
+    /* The next note, held in pitch's register as in the game. */
+    pitch = seq_look_ahead(ch);
+    if (ch->fixed_length)
+        ch->gate = (ch->fixed_length << 8) + ch->fixed_length;
+    if (ch->gate & 0xFF) {
+        if (pitch >= 0x8F || (pitch < 0x84 && !(ch->note_mode & 5)))
+            ch->gate -= 0x200;
+    } else {
+        length = seq_note_lengths[(unsigned char)(cmd % 11)];
+        if (!(pitch >= 0x84 && pitch < 0x8F) && !(ch->note_mode & 5))
+            length -= 0x200;
+        ch->gate = length;
+    }
+    ch->last_length = ch->gate & 0xFF;
+    if (note >= 0x8F) {
+        ch->glide_ticks = 0;
+        ch->vibrato_offset = 0;
+        ch->tremolo_offset = 0;
+        ch->note_mode &= ~2;
+        return;
+    }
+    if (note < 0x84) {
+        /* The byte is note * 11 + length: 12 notes of 11 lengths, then ties (0x84) and rests (0x8F). */
+        note = note / 11;
+        if (ch->flags & CHANNEL_DRUMS) {
+            if (!ch->is_effect)
+                song->key_on_voices |= voice;
+            else
+                effect_key_on_voices |= voice;
+            /* Drums: each note picks an instrument, key, volume and pan from the drum map. */
+            drum = ch->drum_map;
+            drum += (note % 12) * 5;
+            if (drum[0] != ch->instrument) {
+                ch->instrument = drum[0];
+                ch->voice.sample = instrument_table[drum[0]].sample;
+                ch->voice.loop = instrument_table[drum[0]].loop;
+                ch->voice.attack_rate = instrument_table[drum[0]].adsr[0];
+                ch->voice.decay_rate = instrument_table[drum[0]].adsr[1];
+                ch->voice.sustain_level = instrument_table[drum[0]].adsr[2];
+                ch->voice.sustain_rate = instrument_table[drum[0]].adsr[3];
+                ch->voice.attack_mode = instrument_table[drum[0]].adsr[5];
+                ch->voice.sustain_mode = instrument_table[drum[0]].adsr[6];
+                if (!(ch->flags & CHANNEL_OVERLAP)) {
+                    ch->voice.release_rate = instrument_table[drum[0]].adsr[4];
+                    ch->voice.release_mode = instrument_table[drum[0]].adsr[7];
+                    ch->voice.update |= UPDATE_SAMPLE | UPDATE_ENVELOPE | UPDATE_LOOP;
+                } else {
+                    ch->voice.update |= UPDATE_SAMPLE | UPDATE_LOOP | (UPDATE_ENVELOPE & ~(UPDATE_RELEASE_MODE | UPDATE_RELEASE_RATE));
+                }
+            }
+            octave = drum[1] / 12;
+            pitch = instrument_table[drum[0]].pitch[drum[1] % 12];
+            if (octave >= 7)
+                pitch <<= octave - 6;
+            else if (octave < 6)
+                pitch >>= 6 - octave;
+            ch->volume = (drum[2] + (drum[3] << 8)) << 16;
+            ch->pan = drum[4] << 8;
+        } else {
+            note += ch->octave * 12;
+            /* DA: the note starts from the last one and bends to its own key. */
+            if (ch->glide_ticks && ch->last_key) {
+                ch->bend_ticks = ch->glide_ticks;
+                ch->bend_semitones = note + ch->transpose - ch->last_key - ch->last_transpose;
+                ch->key = ch->last_key - (ch->transpose - ch->last_transpose);
+                note = (unsigned char)ch->last_key + (unsigned char)ch->last_transpose;
+            } else {
+                ch->key = note;
+                note += (unsigned char)ch->transpose;
+            }
+            octave = (unsigned char)(note / 12);
+            note = note % 12;
+            if (!(ch->note_mode & 2)) {
+                if (!ch->is_effect) {
+                    song->key_on_voices |= voice;
+                    if (ch->flags & CHANNEL_LAYER) {
+                        layer = (unsigned short)ch->layer_voice;
+                        if (ch->layer_voice >= 24)
+                            layer -= 24;
+                        song->key_on_voices |= 1 << layer;
+                    }
+                } else {
+                    effect_key_on_voices |= voice;
+                }
+                ch->bend_count = 0;
+            }
+            pitch = instrument_table[ch->instrument].pitch[note];
+            if (octave >= 7)
+                pitch <<= octave - 6;
+            else if (octave < 6)
+                pitch >>= 6 - octave;
+        }
+        if (!ch->is_effect)
+            song->update_voices |= voice;
+        else
+            effect_update_voices |= voice;
+        ch->voice.update |= UPDATE_VOLUME | UPDATE_PITCH;
+        if (ch->detune) {
+            if (ch->detune > 0)
+                pitch += (pitch * ch->detune) >> 7;
+            else
+                pitch += (pitch * ch->detune) >> 8;
+            pitch &= 0xFFFF;
+        }
+        ch->note_pitch = pitch;
+        if (ch->flags & CHANNEL_VIBRATO) {
+            depth = ch->vibrato_depth;
+            amount = (depth & 0x7F00) >> 8;
+            ch->vibrato_amount = (depth & 0x8000 ? amount * pitch : amount * ((pitch * 15) >> 8)) >> 7;
+            ch->vibrato_wave_pos = lfo_waveforms[ch->vibrato_wave];
+            ch->vibrato_delay_count = ch->vibrato_delay;
+            ch->vibrato_step_count = 1;
+        }
+        if (ch->flags & CHANNEL_TREMOLO) {
+            ch->tremolo_wave_pos = lfo_waveforms[ch->tremolo_wave];
+            ch->tremolo_delay_count = ch->tremolo_delay;
+            ch->tremolo_step_count = 1;
+        }
+        if (ch->flags & CHANNEL_PAN_LFO) {
+            ch->pan_lfo_wave_pos = lfo_waveforms[ch->pan_lfo_wave];
+            ch->pan_lfo_step_count = 1;
+        }
+        ch->vibrato_offset = 0;
+        ch->tremolo_offset = 0;
+        ch->bend_offset = 0;
+    }
+    ch->note_mode = (ch->note_mode & ~2) | ((ch->note_mode & 1) << 1);
+    /* An A4 bend (or a glide) slides bend_offset to the new key's pitch over bend_ticks. */
+    bend = ch->bend_semitones;
+    if (bend) {
+        ch->key += ch->bend_semitones;
+        note = (unsigned char)ch->key + (unsigned char)ch->transpose;
+        if (!ch->is_effect) {
+            pitch = instrument_table[ch->instrument].pitch[note % 12];
+            if (ch->detune) {
+                if (ch->detune > 0)
+                    pitch += (pitch * ch->detune) >> 7;
+                else
+                    pitch += (pitch * ch->detune) >> 8;
+                pitch &= 0xFFFF;
+            }
+            pitch <<= 16;
+        } else {
+            pitch = instrument_table[ch->instrument].pitch[note % 12] << 16;
+        }
+        note /= 12;
+        if (note >= 7)
+            pitch <<= note - 6;
+        else if (note < 6)
+            pitch >>= 6 - note;
+        ch->bend_count = ch->bend_ticks;
+        ch->bend_step = (int)(pitch - ((ch->note_pitch << 16) + ch->bend_offset)) / ch->bend_count;
+        ch->bend_semitones = 0;
+    }
+    ch->last_key = ch->key;
+    ch->last_transpose = ch->transpose;
+}
 
 /* A program change: the instrument's sample, loop and whole envelope. */
 void load_channel_instrument(SeqChannel *ch, unsigned short instrument)
@@ -2882,9 +3188,112 @@ void load_channel_instrument(SeqChannel *ch, unsigned short instrument)
     ch->voice.update |= UPDATE_SAMPLE | UPDATE_ENVELOPE | UPDATE_LOOP;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_look_ahead);
+/* Before each note: scans ahead from the channel's position to the next note, following the loops and jumps
+ * (C9, CA, EE, EF, F0, F1) on a copy of the loop level, and returns it. CB, CD, D1 and DB end the slur and full
+ * length on the way; a rest, A0 or an unused command ends them and the scan (returning A0 for the last two). */
+unsigned char seq_look_ahead(SeqChannel *ch)
+{
+    unsigned char *p = ch->pos;
+    unsigned short level = ch->loop_level;
+    unsigned int op;
+    unsigned char size;
+    unsigned int lo;
+    short offset;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80031A70);
+    for (;;) {
+        op = *p;
+        if (op < 0x9A) {
+            if (op >= 0x8F) {
+                ch->glide_ticks = 0;
+                ch->note_mode &= ~5;
+            }
+            return *p;
+        }
+        if (op < 0xA0)
+            return 0xA0;
+        size = seq_cmd_scan_sizes[op];
+        if (size) {
+            p += size;
+            continue;
+        }
+        switch (op) {
+        case 0xC9:
+            p++;
+            if (*p == ch->loop_count[level] + 1) {
+                p++;
+                level = (level - 1) & 3;
+                break;
+            }
+            p = ch->loop_start[level];
+            break;
+        case 0xCA:
+            p = ch->loop_start[level];
+            break;
+        case 0xF0:
+        case 0xF1:
+            p++;
+            if (*p == ch->loop_count[level] + 1) {
+                p++;
+                lo = *p++;
+                offset = lo + (*p++ << 8);
+                level = (level - 1) & 3;
+                p += offset;
+                break;
+            }
+            p += 3;
+            break;
+        case 0xCB:
+        case 0xCD:
+        case 0xD1:
+        case 0xDB:
+            ch->glide_ticks = 0;
+            ch->note_mode &= ~5;
+            p++;
+            break;
+        case 0xEE:
+            p++;
+            lo = *p++;
+            offset = lo + (*p++ << 8);
+            p += offset;
+            break;
+        case 0xEF:
+            p++;
+            lo = *p++;
+            if (lo <= seq_song.branch_level) {
+                lo = *p++;
+                offset = lo + (*p++ << 8);
+                p += offset;
+                break;
+            }
+            p += 2;
+            break;
+        default:
+            ch->glide_ticks = 0;
+            ch->note_mode &= ~5;
+            return 0xA0;
+        }
+    }
+}
+
+/* Walks a stream past every command to the one that ends it (size 0): CA, which loops forever, or anything else, taken
+ * as A0. */
+unsigned char seq_stream_end(SeqChannel *ch)
+{
+    unsigned char *p = ch->pos;
+    unsigned int op;
+    unsigned char size;
+
+    for (;;) {
+        op = *p;
+        size = seq_cmd_sizes[op];
+        p += size;
+        if (!size) {
+            if (op != 0xCA)
+                return 0xA0;
+            return 0xCA;
+        }
+    }
+}
 
 void seq_cmd_tempo(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
@@ -2966,7 +3375,50 @@ void seq_cmd_volume_slide(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->volume = value;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_layer_on);
+/* F4 a b: layers a second voice under the channel: the first free one (from 24 in the second song block), or the one
+ * it has. The channel takes instrument a and the layer voice instrument b. */
+void seq_cmd_layer_on(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    unsigned int used;
+    unsigned int bit = 1;
+    unsigned short n;
+    unsigned char first;
+    unsigned char second;
+    unsigned int shift;
+
+    if (!(ch->flags & CHANNEL_LAYER)) {
+        used = song->active_voices | song->layer_voices | song->overlap_voices;
+        n = D_80062F04 ? 24 : 0;
+        for (;;) {
+            /* In its own block: as the loop's condition, GCC would rotate the loop, which the game's code isn't. */
+            {
+                unsigned int free = used & bit;
+
+                if (!free)
+                    break;
+            }
+            bit <<= 1;
+            n++;
+            if (!(bit & 0xFFFFFF))
+                return;
+        }
+    } else {
+        n = ch->layer_voice;
+        shift = ch->layer_voice;
+        if (ch->layer_voice >= 24)
+            shift -= 24;
+        bit = 1 << shift;
+    }
+    if (!(bit & 0xFFFFFF))
+        return;
+    song->layer_voices |= bit;
+    ch->layer_voice = n;
+    ch->flags |= CHANNEL_LAYER;
+    first = *ch->pos++;
+    second = *ch->pos++;
+    load_channel_instrument(ch, first);
+    load_channel_instrument(&seq_channels[n], second);
+}
 
 void seq_cmd_layer_off(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
@@ -3180,7 +3632,38 @@ void seq_cmd_detune_add(SeqChannel *ch, SeqSong *song, unsigned int voice)
     ch->detune = (signed char)*ch->pos++ + ch->detune;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_vibrato);
+/* B4 d r w: vibrato on, d ticks after each note (an effect takes d as a new depth instead, with no delay), stepping its
+ * waveform w every r ticks (0 = 256). The depth becomes an amount scaled by the sounding note's pitch. */
+void seq_cmd_vibrato(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    int n;
+    int rate;
+    unsigned short depth;
+    int pitch;
+    unsigned short amount;
+
+    ch->flags |= CHANNEL_VIBRATO;
+    if (ch->is_effect) {
+        ch->vibrato_delay = 0;
+        n = *ch->pos++;
+        if (n)
+            ch->vibrato_depth = n << 8;
+    } else {
+        ch->vibrato_delay = *ch->pos++;
+    }
+    rate = *ch->pos++;
+    ch->vibrato_rate = rate;
+    if (!rate)
+        ch->vibrato_rate = 256;
+    pitch = (unsigned short)ch->note_pitch;
+    ch->vibrato_wave = *ch->pos++;
+    depth = ch->vibrato_depth;
+    amount = (depth & 0x7F00) >> 8;
+    ch->vibrato_amount = (amount * (depth & 0x8000 ? pitch : (pitch * 15) >> 8)) >> 7;
+    ch->vibrato_wave_pos = lfo_waveforms[ch->vibrato_wave];
+    ch->vibrato_delay_count = ch->vibrato_delay;
+    ch->vibrato_step_count = 1;
+}
 
 /* B5 d: vibrato depth. The amount scales with the note's pitch: in full (top bit set) or by 15/256. */
 void seq_cmd_vibrato_depth(SeqChannel *ch, SeqSong *song, unsigned int voice)
@@ -3454,7 +3937,30 @@ void seq_cmd_release_mode(SeqChannel *ch, SeqSong *song, unsigned int voice)
         seq_channels[ch->layer_voice].voice.release_mode = ch->voice.release_mode;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_overlap_on);
+/* F8 r: notes take turns between the channel's voice and a second free one, released at rate r. */
+void seq_cmd_overlap_on(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    unsigned int used;
+    unsigned int bit;
+    unsigned short n;
+
+    ch->voice.release_rate = *ch->pos++;
+    if (ch->flags & CHANNEL_OVERLAP)
+        return;
+    n = 0;
+    bit = 1;
+    used = song->active_voices | song->layer_voices | song->overlap_voices;
+    for (; bit & 0xFFFFFF; n++) {
+        if (!(used & bit))
+            break;
+        bit <<= 1;
+    }
+    if (!(bit & 0xFFFFFF))
+        return;
+    song->overlap_voices |= bit;
+    ch->overlap_voice = n;
+    ch->flags |= CHANNEL_OVERLAP;
+}
 
 /* F9: frees the second voice, and the release rate goes back to the instrument's. */
 void seq_cmd_overlap_off(SeqChannel *ch, SeqSong *song, unsigned int voice)

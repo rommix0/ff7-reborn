@@ -62,13 +62,13 @@ typedef struct SeqChannel {
     unsigned int overlap_voice;         /* 0x28 F8: the second voice notes take turns on; an effect's own voice */
     unsigned int volume_scale;          /* 0x2C A3 */
     int note_pitch;                     /* 0x30 the sounding note's pitch register (vibrato scales with it) */
-    int unk_34;                         /* 0x34 a pitch offset: its top half adds to the pitch register */
+    int bend_offset;                    /* 0x34 the A4 bend so far, << 16: its top half adds to the pitch register */
     unsigned int flags;                 /* 0x38 CHANNEL_* */
     int pitch_shift;                    /* 0x3C set by the game on a playing effect: a signed byte << 8 */
     int pitch_shift_step;               /* 0x40 */
     int volume;                         /* 0x44 A8 value << 23 */
     int volume_slide_step;              /* 0x48 */
-    int unk_4C;                         /* 0x4C the step of a slide on +0x34 (ticks at +0x64) */
+    int bend_step;                      /* 0x4C bend_offset's step per tick */
     int unk_50;                         /* 0x50 an effect start sets it to -1 */
     unsigned short is_effect;           /* 0x54 a sound effect's channel */
     unsigned short gate;                /* 0x56 key-off countdown << 8 | ticks to the next event */
@@ -78,7 +78,7 @@ typedef struct SeqChannel {
     unsigned short balance_slide_ticks; /* 0x5E */
     unsigned short pan;                 /* 0x60 AA value << 8 */
     unsigned short pan_slide_ticks;     /* 0x62 */
-    unsigned short unk_64;              /* 0x64 channel_reset zeroes it */
+    unsigned short bend_count;          /* 0x64 ticks of the bend still to go */
     unsigned short octave;              /* 0x66 */
     unsigned short bend_ticks;          /* 0x68 A4 */
     unsigned short last_key;            /* 0x6A the last note's key, 0 = none */
@@ -116,13 +116,13 @@ typedef struct SeqChannel {
     unsigned short loop_level;          /* 0xB8 0-3 */
     unsigned short loop_count[4];       /* 0xBA passes made at each level */
     unsigned short last_length;         /* 0xC2 the length DC counts from (A2 sets it) */
-    unsigned short fixed_length;        /* 0xC4 DC, 0 = off */
+    short fixed_length;                 /* 0xC4 DC, 0 = off */
     short balance;                      /* 0xC6 F6 value << 8: the layer voice's share */
     short balance_slide_step;           /* 0xC8 */
     short pan_slide_step;               /* 0xCA */
     short transpose;                    /* 0xCC */
     short detune;                       /* 0xCE */
-    unsigned char pad_D0[0x02];
+    unsigned short key;                 /* 0xD0 the note's key (octave * 12 + note), moved by A4 bends */
     short bend_semitones;               /* 0xD2 A4, spent by the next note or tie */
     short last_transpose;               /* 0xD4 the transpose when the last note played (a glide starts from it) */
     short vibrato_offset;               /* 0xD6 */
@@ -257,7 +257,7 @@ extern unsigned int effect_key_off_voices;
 extern unsigned int effect_paused_voices; /* effect_voices while 9D has the effects paused */
 extern unsigned int effect_tempo; /* << 16, like a song's */
 extern unsigned int effect_tempo_phase;
-extern SoundCommand D_8009A000; /* what seq_tick hands 9B for F3's pause */
+extern SoundCommand snd_request; /* the game fills it and calls snd_submit_request (seq_tick also hands it to 9B for F3) */
 
 extern int D_80062F04; /* when set, layer voices are numbered from 24 */
 
@@ -324,7 +324,7 @@ extern SpuCommonAttr snd_common_attr;
 extern unsigned int song_data[];
 extern SoundCommand snd_queue[];
 extern void (*snd_command_handlers[256])(SoundCommand *cmd);
-extern int D_80062F8C; /* while set, snd_flush_queue leaves the queue alone */
+extern int snd_queue_locked; /* while set (during snd_submit_request), snd_flush_queue leaves the queue alone */
 extern int snd_queue_count;
 void snd_effect_streams(unsigned char **first, unsigned char **second, int effect);
 extern unsigned short *effect_offsets; /* EFFECT.ALL's table: two stream offsets per effect, 0xFFFF = none */
@@ -395,7 +395,12 @@ void snd_stream_fill_mono_b(void);
 void snd_stream_fill_stereo_b(void);
 
 void snd_keep_looping_effects(void);
-unsigned char func_80031A70(SeqChannel *ch); /* skips to the stream's last command: CA (loops forever) or A0 (ends) */
+extern unsigned char seq_cmd_sizes[256]; /* each command's size in bytes with its arguments; 0 for the ones that end a stream */
+extern unsigned char seq_cmd_scan_sizes[256]; /* the same, but 0 for the loop and jump commands seq_look_ahead follows */
+extern void (*seq_cmd_handlers[96])(SeqChannel *ch, SeqSong *song, unsigned int voice); /* commands A0-FF */
+extern unsigned short seq_note_lengths[11]; /* a note's gate for each of its 11 lengths: key-off << 8 | ticks */
+unsigned char seq_look_ahead(SeqChannel *ch);
+unsigned char seq_stream_end(SeqChannel *ch); /* skips to the stream's last command: CA (loops forever) or A0 (ends) */
 int SpuGetKeyStatus(unsigned int voice);
 int GetRCnt(unsigned int counter);
 int VSync(int mode);

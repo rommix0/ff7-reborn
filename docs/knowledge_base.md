@@ -204,7 +204,7 @@ starts:
   - **Player bug this caused:** the player used to start at tempo 0, so those two songs never got past tick 0.
 - **Reverb.** The PS1's notes mostly die at key-off: most instruments have release rate 5, linear, about 1.5 ms.
   The tail you hear in the game is SPU reverb.
-  - **Mode:** the song header's `u16` at `+8`. The song-start code (`func_8002DA7C`) passes it to
+  - **Mode:** the song header's `u16` at `+8`. The song-start code (`snd_submit_request`) passes it to
     `snd_set_reverb_mode` (`0x80029AF0`), which sets libspu's reverb type. 45 songs use 1 (Room), 40 use 3
     (Studio B, medium), and 13 use 4 (Studio C, large).
   - **Setting the mode:** only when it changes. It calls `SpuSetReverbModeParam` with mask 1 and mode
@@ -961,7 +961,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 210 of the file's 232 functions are C** (207 written here; `seq_cmd_slur_off`,
+- **Recovered: 217 of the file's 232 functions are C** (214 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -972,11 +972,9 @@ Lessons from getting it to match:
   volume follow, layer balance and layer off, overlap off, the envelope setters, `B0` and `B3`, `CB` (all off), and
   `F3` (`func_800335CC`, which sets the song's `+0x54`), the instrument changes `A1` and `F2`, and
   `load_channel_instrument`.
-  - **Handlers still asm:** `B4` (vibrato start), `F4` and `F8` (they take a spare voice), and `A0`.
-  - **Parked, close:** `B4` differs only in where one store is scheduled. `F4`/`F8` scan the voice masks for a free
-    voice; every loop form tried either gets rotated or has its exit threaded straight to the return, where the
-    game re-tests the bit. `A0` copies the voice bit into another register before its first branch, where the game
-    keeps it in `a2`; declaration order and `register` don't change that.
+  - **Handler still asm:** `A0`. `B4`, `F4` and `F8` are C now (see "The note handler and the last handlers").
+  - **Parked, close:** `A0`'s effect branch is right in shape, but GCC moves `~voice` and the update mask early and
+    then copies the voice bit out of `a2`, where the game keeps it.
   - **Statement order matters at the ends of functions:** in `A1` and `F2` the voice-update `|=` has to come after the
     last field copy for the stores to schedule as in the game.
   - **`F1`** is `F0` that also pops the loop level; **`EF`** jumps when the song's `+0x4E` (set by the game) is
@@ -1052,8 +1050,8 @@ Lessons from getting it to match:
     - **At the end:** it starts again from `snd_stream_loop` (`snd_stream_loop_size` bytes), or `snd_stream_stop`
       (also `FA`) keys the voices off.
   - `seq_song`'s voice masks (`+0x04`, `+0x24`, `+0x28`) are also reached as plain globals here, like its flags.
-  - **Parked:** `func_80031A70` (skips commands to a length-0 one, returns `CA` or `A0`): the game loads `0xCA`
-    into a register before the loop.
+  - **`seq_stream_end`** (was `func_80031A70`) walks a stream by `seq_cmd_sizes` (`0x800499A8`, 0 for the commands
+    that end one) and returns `CA` or `A0`. It matched once the test sat inside a `for (;;)` with the return there.
 - **Pause and resume (sound commands `9A`–`9D`):**
   - **`9B` pauses the music:** its voices (not the effects' or the stream's) get volume 0 and a held sustain
     through `snd_direct_voice`. Its `active_voices` move to `paused_voices` (`+0x14`) and `0x80062FF8` bit 0 is set.
@@ -1088,7 +1086,8 @@ Lessons from getting it to match:
   - **The clock:** `snd_timer_tick` runs the sequencer ticks due since the last call (scanlines ÷ 66, 1–8, doubled
     by `0x80062FF8` bit 2). It keeps how long the last four calls took in `snd_tick_time[4]` and their sum in
     `snd_tick_time_total`.
-  - **Parked:** `func_8002A094` (effect start) differs only in which saved registers two values get.
+  - **Parked:** `func_8002A094` (effect start): with the pan computed first and `voices` shifted in place, only
+    `s3`/`s4` (the pan and the second stream) are swapped.
     `func_8002A28C` (the kind 2 effect's start) shares field addresses differently whichever way it's written.
 - **Voice output, song start and resume, the stream start (this round):**
   - **`snd_update_voice(voice, settings)`** hands each group whose update bits are set to libspu: pitch, volume,
@@ -1172,6 +1171,39 @@ Lessons from getting it to match:
       a register or the bit's constant moves.
     - In `snd_slow_slides`, the slides decrement with `--`, the fade's step divides by `snd_fade_ticks` itself, and
       the pointer to song 2's masks is set at the top of each loop pass so the game's register holds it.
+- **The note handler and the last handlers (this round):**
+  - **`seq_step_channel`** (`0x80030E7C`) runs a channel's next event:
+    - **Commands:** it calls `seq_cmd_handlers[op - 0xA0]` until a note, tie or rest (or `A0`, which stops it).
+    - **Length:** a note byte is note × 11 + length (`seq_note_lengths`, a gate of key-off << 8 | ticks), then ties
+      `0x84`–`0x8E` and rests `0x8F`–`0x99`. With `DC` the gate is fixed length × `0x101`. The key-off comes 2 ticks
+      early before a note or rest, unless the next note is a tie or the channel slurs (`CC`) or plays full length
+      (`D0`); before a rest it always does when `DC` is on.
+    - **Drums** (`EC`): the note picks 5 bytes from the drum map: instrument (loaded only when it changes, with the
+      release kept under `F8`), key, volume (2 bytes, << 16) and pan.
+    - **Otherwise:** key = octave × 12 + note, kept in `+0xD0` (now `key`), plus the transpose. Under `DA` the note
+      starts from the last key and bends to its own over the glide's ticks.
+    - **Key-on:** unless the note slurs; a layered channel (`F4`) keys its layer voice too.
+    - **Pitch:** the instrument's octave-6 pitch for the semitone, shifted by octave − 6, then detune (n/128 up,
+      n/256 down). Vibrato's amount is set from the depth and this pitch; the three LFOs restart.
+    - **Bends:** `A4` (or a glide) sets `bend_step` (`+0x4C`) so `bend_offset` (`+0x34`) reaches the new key's pitch
+      in `bend_count` (`+0x64`) ticks.
+  - **`seq_look_ahead`** follows `C9`/`CA`/`EE`/`EF`/`F0`/`F1` on a copy of the loop level, by `seq_cmd_scan_sizes`
+    (`0x800498A8`). Its `switch` table is the one in `.rodata` at `0x80010394`, which the full build places right.
+  - **`snd_submit_request`** (was `func_8002DA7C`) is the game's way in: it reads `snd_request` (`0x8009A000`) and
+    queues driver commands with the queue locked (`snd_queue_locked`, `0x80062F8C`).
+    - **Song starts** (`10`, `14`, `15`, `18`, `19`): the data must start with `AKAO`, then id, size and reverb mode.
+      It returns 1 when that song is already playing and -1 without the header.
+    - **Requests that become other commands:** `24`–`27` queue `20`–`23` (effects with consecutive ids), `D8`–`DA`
+      queue the tempo and pitch scale commands together, `98`/`99` resume or pause music and effects. Anything else
+      passes through.
+  - **`B4`, `F4`, `F8`:** the vibrato start and the layer and overlap voice searches.
+  - **Matching:**
+    - `seq_step_channel` reads the look-ahead's result into the pitch variable, keeps octave as an `unsigned short`
+      filled from a byte, and uses a plain `do`/`while` for the command loop.
+    - The request's fields must be read as `snd_request.arg[n]`: the game reloads them after each queue store.
+    - Loops that start with their exit test get rotated by GCC unless the test is the `for` condition (`F8`) or
+      sits in its own block with a declaration (`F4`).
+    - Vibrato's `amount` is an `unsigned short` in `B4`; the same expression with other types schedules differently.
 - **A second file at the start of the range:** `0x800293D0`–`0x80029A4C` (11 functions, including `snd_init` and
   the instrument-bank loaders) reach small globals through `$gp`, so that part was compiled with `-G8`; from
   `0x80029A50` on, small globals like `0x80062F00` are reached with `lui`, which is `-G0`.
