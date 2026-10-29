@@ -375,6 +375,13 @@ class Synth:
             self.tick = loop["start"]
             self.next = next((i for i, e in enumerate(self.events) if e[0] >= self.tick), len(self.events))
         elif self.tick >= self.end:
+            if not self.ended:
+                # The driver's A0 keys nothing off: a note held to the end sounds on at its last volume until the
+                # music or the next effect takes the voice (effect 643). The player has neither, so it keys off.
+                for ch in self.channels:
+                    for v in (ch.voice, ch.tail, ch.layer_voice):
+                        if v and v.phase < RELEASE:
+                            v.released_from, v.phase = v.phase, RELEASE
             self.ended = True
             return
         for ch in self.channels:
@@ -638,18 +645,18 @@ class Synth:
                     gain = volume * ch.expression * MASTER_VOLUME / 0x4000
                     if ch.layer_inst is not None:  # F4: the balance splits the note between main and layer voice
                         gain *= (ch.balance if v is ch.layer_voice else 127 - ch.balance) / 256
-                    if v.tremolo:
-                        gain *= max(0.0, 1 + v.tremolo.depth / 128 * v.tremolo.value / 32768)
+                    if v.tremolo:  # past depth 0x80 it swings the volume below zero (see the wrap below)
+                        gain *= 1 + v.tremolo.depth / 128 * v.tremolo.value / 32768
                     # The driver's pan tables (stereo mode): linear, so each side is -6 dB at the centre. It indexes
                     # them with (pan + pan LFO) & 0xFF and other data follows entry 127, but no song gets past it.
                     pan = min(127, max(0, ch.pan + self.pan_offset(source)))
                     left, right = (32640 - 256 * pan) / 32768, (128 + 256 * pan) / 32768
-                    if ch.volume_follow and c - 1 in self.pitch_registers:
-                        # D6 can pass the SPU's 15-bit volume (0x4000 = full), which libspu writes unclamped: the
-                        # register wraps round to a small negative volume rather than getting louder.
-                        registers = [round(gain * side * 0x4000) for side in (left, right)]
-                        left, right = [(((r + 0x4000) & 0x7FFF) - 0x4000) / 0x4000 for r in registers]
-                        gain = 1.0
+                    # The SPU volume is 15-bit signed (0x4000 = full) and the driver writes it unclamped: past full
+                    # scale (D6) it wraps round to a small negative volume, and below zero (a deep tremolo) the
+                    # wave plays inverted rather than going silent.
+                    left, right = [((gain * side * 0x4000 + 0x4000) % 0x8000 - 0x4000) / 0x4000
+                                   for side in (left, right)]
+                    gain = 1.0
                     v.held_mix = gain, left, right
                 voiced = sample * env * gain
                 out[:, 0] += voiced * left

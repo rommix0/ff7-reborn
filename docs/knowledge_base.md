@@ -483,7 +483,12 @@ Read from `seq_step_channel`'s note and tie paths:
     - Most only pick the effect copy of a mask or setting: noise (`0x80099FEC`), reverb (`0x80099FF0`), FM
       (`0x80099FF4`) and the noise clock.
     - `B4`/`B8` take a depth instead of a delay (done).
-    - `A0` hands the voice back to the music.
+    - `A0` hands the voice back to the music. It keys nothing off: it clears the channel from the effect masks
+      (`0x80099FCC`, noise, reverb, FM) and sets the music channel's update flags. A note held to the end
+      sounds on at its last volume until the music or the next effect takes the voice. Effect 643's last note
+      fades to volume 1 that way: its slide's final step to 0 comes on the `A0` tick, after the voice has left
+      the update mask. The player keys everything off when a piece ends without a loop, since it has no music to
+      take the voice back.
     - `F3` sets the flag on the song and is never used.
   - **`A1`/`F2` on a sounding note:** the voice's pitch (`+0x30`) is rescaled by the new instrument's C pitch over
     the old one's (`instrument_table` + 0x10). The voice keeps its sample until the next key-on. Effects 86, 309,
@@ -606,6 +611,9 @@ Read from the command handlers, the note path at `0x80031518` and `seq_channel_l
     in to about +8/−4 cents.
   - **Largest:** `B5 9F` in song 66, +3.6/−2.2 semitones at 0.25 Hz.
 - **Tremolo:** volume offset `+0xD8` = voice volume × d/128 × step/32,768 (not doubled).
+  - **Deeper than `0x80`** it takes the volume below zero, and the driver writes it unclamped. The SPU's volume is
+    15-bit signed, so the wave plays inverted, not silent. Effect 643 slides its tremolo depth to `0xFF` on a square
+    wave. We used to clamp at zero, which gated the voice on and off at about 120 Hz.
   - **Most common:** `B8 00 03 05` + `B9 78` (song 71) cuts the volume by 94% every other 3 interrupts, a 40 Hz
     buzz.
 - **Pan LFO:** offset `+0xDA` = (d ÷ 2) × step/32,768 pan units.

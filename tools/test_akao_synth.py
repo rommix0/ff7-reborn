@@ -206,6 +206,21 @@ assert s.channels[0].voice.level > 0x7000
 s.render(frames_for(60))
 assert 0 < s.channels[0].voice.level < 0x6000
 
+# A note held to the end is keyed off there (the driver's A0 leaves it sounding, effect 643), so playback stops.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 72, "len": 96}]], ticks=96))
+s.render(frames_for(100))
+assert s.ended and s.channels[0].voice.phase >= 3
+s.render(frames_for(10))
+assert not s.playing
+
+# A tremolo deeper than 0x80 swings the volume below zero, which the SPU plays as an inverted wave, not silence:
+# depth 0xFF on a full-scale square (waveform 1) alternates about +2 and -1 times the volume, every interrupt.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "tremolo": [0, 1, 1, 0xFF], "note": 72, "len": 96}]]))
+out = s.render(frames_for(48))[:, 0]
+per = round(RATE / TIMER_HZ)
+levels = [np.abs(out[i:i + per]).max() for i in range(per * 4, len(out) - per, per)]
+assert min(levels) > 0.1 and max(levels) / min(levels) < 3
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)
