@@ -135,7 +135,7 @@ typedef struct SeqChannel {
 typedef struct SeqSong {
     unsigned int unk_00;                /* 0x00 sound commands 80/81/82 set 1/2/4 */
     unsigned int active_voices;         /* 0x04 the song's own channels */
-    unsigned int voices_08;             /* 0x08 a voice mask (A0 on an effect clears its bit) */
+    unsigned int key_on_voices;         /* 0x08 voices to key on at the next output pass */
     unsigned int update_voices;         /* 0x0C voices the driver keeps updating (key-off takes a voice out) */
     unsigned int key_off_voices;        /* 0x10 voices to key off next (snd_key_off_voices) */
     unsigned int paused_voices;         /* 0x14 the active voices while 9B has the song paused */
@@ -159,9 +159,9 @@ typedef struct SeqSong {
     unsigned short noise_clock;         /* 0x52 AC */
     unsigned short unk_54;              /* 0x54 F3 sets it to 1 */
     unsigned short beats_per_bar;       /* 0x56 FD */
-    unsigned short beat_tick;           /* 0x58 FD zeroes it (a counter) */
+    unsigned short bar_beat;            /* 0x58 the bar's current beat */
     unsigned short beat_ticks;          /* 0x5A FD ticks per beat */
-    unsigned short bar_beat;            /* 0x5C FD zeroes it (a counter) */
+    unsigned short beat_tick;           /* 0x5C ticks into the current beat */
     unsigned short bar_number;          /* 0x5E FE */
 } SeqSong;
 
@@ -219,7 +219,7 @@ extern unsigned int D_80062F68;
 extern short *lfo_waveforms[];
 /* seq_song fields the driver reads and writes as plain variables (as struct members GCC would share the address). */
 extern unsigned int seq_song_active_voices;
-extern unsigned int seq_song_voices_08;
+extern unsigned int seq_song_key_on_voices;
 extern unsigned int seq_song_update_voices;
 extern unsigned int seq_song_key_off_voices;
 extern unsigned int seq_song_layer_voices;
@@ -235,7 +235,7 @@ extern unsigned int effect_reverb_voices;
 extern unsigned int effect_fm_voices;
 extern unsigned short effect_noise_clock;
 extern unsigned int effect_voices; /* voices sound effects hold */
-extern unsigned int effect_voices_08;
+extern unsigned int effect_key_on_voices;
 extern unsigned int effect_update_voices;
 extern unsigned int effect_key_off_voices;
 extern unsigned int effect_paused_voices; /* effect_voices while 9D has the effects paused */
@@ -266,13 +266,13 @@ void snd_effect_pitch_shift_slide(SoundCommand *cmd, SeqChannel *pair);
 /* Driver globals the sound commands set, not yet understood (D0/D1, D4/D5, 90, E0, F2, F3). */
 extern int D_80062FE8;
 extern int D_80062F30;
-extern unsigned short D_80062F48;
+extern short D_80062F48;
 extern int snd_pitch_scale; /* D4: a signed byte << 16; its top byte, unsigned, scales every pitch (n/128 up, or n/256) */
 extern int snd_pitch_scale_step;
-extern unsigned short snd_pitch_scale_ticks;
-extern int D_80062FD8;
-extern unsigned short D_80062F70;
-extern unsigned short snd_cd_volume_slide_ticks;
+extern short snd_pitch_scale_ticks;
+extern int snd_muted_voices;
+extern unsigned short snd_reverb_balance;
+extern short snd_cd_volume_slide_ticks;
 extern int snd_cd_volume; /* C8, << 16 */
 extern unsigned char D_80049C40[]; /* where snd_stop_song points every channel */
 extern int snd_cd_volume_slide_step;
@@ -280,7 +280,7 @@ extern int snd_master_volume; /* C0: 0-127 << 16 */
 extern unsigned short snd_master_volume_top; /* its top half, as the voice update reads it */
 extern int snd_master_volume_step;
 extern short snd_master_volume_ticks;
-extern unsigned short D_80062FB8;
+extern unsigned short snd_reverb_scale;
 extern unsigned int D_80062FF8;
 extern unsigned short snd_fade_ticks;
 
@@ -411,5 +411,12 @@ void snd_stream_play_stereo(void);
 /* The pan tables (by pan 0-255): each side's share, out of 32768. */
 extern short snd_pan_left[256];
 extern short snd_pan_right[256];
+
+void seq_channel_lfo(SeqChannel *ch, unsigned int voice, unsigned short index);
+void seq_effect_lfo(SeqChannel *ch, unsigned int voice);
+void seq_layer_voice_update(SeqChannel *ch, unsigned int voices, unsigned int voice);
+
+void SpuSetReverbDepth(SpuReverbAttr *attr);
+void SpuSetNoiseClock(int clock);
 
 #endif

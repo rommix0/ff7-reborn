@@ -171,9 +171,9 @@ void snd_start_song(void)
     seq_song.reverb_slide_ticks = 0;
     seq_song.reverb_slide_step = 0;
     seq_song_flags = 0;
-    seq_song.bar_beat = 0;
-    seq_song.beat_ticks = 0;
     seq_song.beat_tick = 0;
+    seq_song.beat_ticks = 0;
+    seq_song.bar_beat = 0;
     seq_song.bar_number = 0;
     seq_song.noise_voices = 0;
     seq_song.reverb_voices = 0;
@@ -182,7 +182,7 @@ void snd_start_song(void)
     seq_song.branch_taken = 0;
     seq_song.unk_54 = 0;
     seq_song_update_voices = 0;
-    seq_song_voices_08 = 0;
+    seq_song_key_on_voices = 0;
     seq_song_overlap_voices = 0;
     seq_song_layer_voices = 0;
     if (D_80062FF8 & 1) {
@@ -210,7 +210,7 @@ void snd_stop_song(void)
     seq_song_overlap_voices = 0;
     seq_song_layer_voices = 0;
     seq_song_update_voices = 0;
-    seq_song_voices_08 = 0;
+    seq_song_key_on_voices = 0;
     seq_song_active_voices = voices;
     seq_song_key_off_voices |= voices;
     do {
@@ -239,7 +239,7 @@ void snd_stop_songs(void)
         seq_song_overlap_voices = 0;
         seq_song_layer_voices = 0;
         seq_song_update_voices = 0;
-        seq_song_voices_08 = 0;
+        seq_song_key_on_voices = 0;
         seq_song_active_voices = voices;
         seq_song_key_off_voices |= voices;
         do {
@@ -262,7 +262,7 @@ void snd_stop_songs(void)
     seq_song2.overlap_voices = 0;
     seq_song2.layer_voices = 0;
     seq_song2.update_voices = 0;
-    seq_song2.voices_08 = 0;
+    seq_song2.key_on_voices = 0;
     *active = voices;
     seq_song2.key_off_voices |= voices;
     do {
@@ -294,11 +294,11 @@ void snd_stop_effects(void)
         }
     }
     if (seq_channels[54].is_effect == 2) {
-        effect_voices_08 &= 0xC00000;
+        effect_key_on_voices &= 0xC00000;
         effect_update_voices &= 0xC00000;
         effect_key_off_voices &= ~0xC00000 & effect_voices;
     } else {
-        effect_voices_08 = 0;
+        effect_key_on_voices = 0;
         effect_update_voices = 0;
         effect_key_off_voices = effect_voices;
     }
@@ -315,22 +315,22 @@ void snd_stop_effect_pairs(unsigned short pair, int pairs)
     switch ((unsigned short)pairs) {
     case 1:
         mask = 3 << (pair + 16);
-        effect_voices_08 &= ~mask;
+        effect_key_on_voices &= ~mask;
         effect_update_voices &= ~mask;
         effect_key_off_voices |= mask;
         break;
     case 2:
-        effect_voices_08 &= ~0x3C0000;
+        effect_key_on_voices &= ~0x3C0000;
         effect_update_voices &= ~0x3C0000;
         effect_key_off_voices |= 0x3C0000;
         break;
     case 3:
-        effect_voices_08 &= ~0x3F0000;
+        effect_key_on_voices &= ~0x3F0000;
         effect_update_voices &= ~0x3F0000;
         effect_key_off_voices |= 0x3F0000;
         break;
     case 4:
-        effect_voices_08 &= ~0xFF0000;
+        effect_key_on_voices &= ~0xFF0000;
         effect_update_voices &= ~0xFF0000;
         effect_key_off_voices |= 0xFF0000;
         break;
@@ -403,20 +403,20 @@ void snd_keep_sounding_voices(void)
     if (!voices)
         return;
     bit = 1;
-    seq_song_voices_08 = seq_song_update_voices;
+    seq_song_key_on_voices = seq_song_update_voices;
     ch = seq_channels;
     do {
         if (voices & bit) {
             if (SpuGetKeyStatus(bit) == 1) {
                 if (ch->flags & CHANNEL_OVERLAP)
                     ch->flags |= 0x400;
-                seq_song_voices_08 |= bit;
+                seq_song_key_on_voices |= bit;
             } else if ((ch->flags & 0x600) == 0x600
                        && (~(effect_voices | snd_stream_voices) & (spare = 1 << ch->overlap_voice))
                        && SpuGetKeyStatus(spare) == 1) {
-                seq_song_voices_08 |= bit;
+                seq_song_key_on_voices |= bit;
             } else {
-                seq_song_voices_08 &= ~bit;
+                seq_song_key_on_voices &= ~bit;
                 seq_song_update_voices &= ~bit;
             }
             voices ^= bit;
@@ -440,20 +440,20 @@ void snd_keep_looping_effects(void)
         return;
     ch = &seq_channels[48];
     held = state;
-    effect_voices_08 = effect_update_voices;
+    effect_key_on_voices = effect_update_voices;
     do {
         if (voices & bit) {
             if (func_80031A70(ch) == 0xCA) {
                 if (SpuGetKeyStatus(bit) == 1) {
-                    effect_voices_08 |= bit;
+                    effect_key_on_voices |= bit;
                 } else {
-                    effect_voices_08 &= ~bit;
+                    effect_key_on_voices &= ~bit;
                     effect_update_voices &= ~bit;
                 }
                 ch->voice.update = UPDATE_ALL;
             } else if (ch->is_effect != 2) {
                 *held &= ~bit;
-                effect_voices_08 &= ~bit;
+                effect_key_on_voices &= ~bit;
                 effect_update_voices &= ~bit;
             }
             voices ^= bit;
@@ -463,7 +463,7 @@ void snd_keep_looping_effects(void)
     } while (voices);
 }
 
-/* Resumes the song in a save slot: its state (the bar's beat 2 ticks back) and channels come back, the channels it
+/* Resumes the song in a save slot: its state (the beat's tick count 2 back) and channels come back, the channels it
  * doesn't hold step into the end stub, and its voices rewrite everything. Unless a slide of 0x80062F5C or the fade is
  * running, that value restarts at 10 and slides back over 60 ticks. The slot is emptied. */
 void snd_resume_song(int slot)
@@ -477,7 +477,7 @@ void snd_resume_song(int slot)
     SeqChannel *ch;
 
     seq_song.active_voices = saved_songs[s].active_voices;
-    seq_song.voices_08 = saved_songs[s].voices_08;
+    seq_song.key_on_voices = saved_songs[s].key_on_voices;
     seq_song.update_voices = saved_songs[s].update_voices;
     seq_song.tempo = saved_songs[s].tempo;
     seq_song.tempo_slide_step = saved_songs[s].tempo_slide_step;
@@ -498,9 +498,9 @@ void snd_resume_song(int slot)
     seq_song.unk_54 = saved_songs[s].unk_54;
     seq_song.flags = saved_songs[s].flags;
     seq_song.beats_per_bar = saved_songs[s].beats_per_bar;
-    seq_song.beat_tick = saved_songs[s].beat_tick;
+    seq_song.bar_beat = saved_songs[s].bar_beat;
     seq_song.beat_ticks = saved_songs[s].beat_ticks;
-    seq_song.bar_beat = saved_songs[s].bar_beat - 2;
+    seq_song.beat_tick = saved_songs[s].beat_tick - 2;
     seq_song.bar_number = saved_songs[s].bar_number;
     seq_song.flags |= SONG_UPDATE_REVERB;
     src = (unsigned int *)saved_song_channels[1];
@@ -524,7 +524,7 @@ void snd_resume_song(int slot)
         }
     }
     voices |= seq_song_layer_voices;
-    seq_song_key_off_voices = ~seq_song_voices_08 & 0xFFFFFF;
+    seq_song_key_off_voices = ~seq_song_key_on_voices & 0xFFFFFF;
     ch = seq_channels;
     bit = 1;
     while (voices) {
@@ -633,7 +633,7 @@ void snd_save_song(SeqChannel *channels, SeqChannel *saved_channels, SeqSong *so
  * first when it's the one playing. */
 void snd_cmd_10(SoundCommand *cmd)
 {
-    snd_load_song(cmd->arg[0], cmd->arg[1]);
+    snd_load_song((unsigned int *)cmd->arg[0], cmd->arg[1]);
     if (seq_song_id == 14) {
         snd_keep_sounding_voices();
         snd_save_song(seq_channels, saved_song_channels[1], &seq_song, &saved_songs[1]);
@@ -652,7 +652,7 @@ void snd_cmd_14(SoundCommand *cmd)
 {
     SeqSong *song;
 
-    snd_load_song(cmd->arg[0], cmd->arg[1]);
+    snd_load_song((unsigned int *)cmd->arg[0], cmd->arg[1]);
     snd_keep_sounding_voices();
     song = &seq_song;
     if (seq_song_id) {
@@ -673,7 +673,7 @@ void snd_cmd_15(SoundCommand *cmd)
     SeqSong *song;
 
     D_80062FF8 &= ~0x100;
-    snd_load_song(cmd->arg[0], cmd->arg[1]);
+    snd_load_song((unsigned int *)cmd->arg[0], cmd->arg[1]);
     snd_keep_sounding_voices();
     if (saved_songs[0].song_id == (unsigned short)cmd->arg[2]) {
         snd_save_song(seq_channels, &seq_channels[24], &seq_song, &seq_song + 1);
@@ -1243,7 +1243,7 @@ void snd_cmd_90(SoundCommand *cmd)
     unsigned short i;
     SeqChannel *ch;
 
-    D_80062FD8 = cmd->arg[0];
+    snd_muted_voices = cmd->arg[0];
     for (i = 0, ch = seq_channels; i < 24; i++, ch++)
         ch->voice.update |= UPDATE_VOLUME;
 }
@@ -1374,7 +1374,7 @@ void snd_cmd_9C(SoundCommand *cmd)
 
 void snd_cmd_E0(SoundCommand *cmd)
 {
-    D_80062F70 = cmd->arg[0] & 0x7F;
+    snd_reverb_balance = cmd->arg[0] & 0x7F;
     seq_song_flags |= SONG_UPDATE_REVERB;
 }
 
@@ -1383,7 +1383,7 @@ void snd_cmd_E4(SoundCommand *cmd)
 {
     unsigned short n = (unsigned char)cmd->arg[0];
 
-    D_80062FB8 = n;
+    snd_reverb_scale = n;
     if (n)
         D_80062FF8 |= 0x10;
     else
@@ -2179,7 +2179,100 @@ void seq_channel_lfo(SeqChannel *ch, unsigned int voice, unsigned short index)
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002F24C);
+/* An effect channel's per-tick voice update, as seq_channel_lfo: no LFO delays, master volume or cross-fade, but the
+ * effect's balance scales its volume and its pitch shift scales its pitch, except for the kind 2 effect (centred). */
+void seq_effect_lfo(SeqChannel *ch, unsigned int voice)
+{
+    int volume = ((ch->volume >> 16) * ch->volume_scale) >> 7;
+    int value;
+    int pitch;
+
+    if (ch->flags & CHANNEL_VIBRATO && !--ch->vibrato_step_count) {
+        ch->vibrato_step_count = ch->vibrato_rate;
+        if (!ch->vibrato_wave_pos[0] && !ch->vibrato_wave_pos[1])
+            ch->vibrato_wave_pos += ch->vibrato_wave_pos[2];
+        pitch = *ch->vibrato_wave_pos++;
+        value = ((unsigned short)ch->vibrato_amount * pitch) >> 16;
+        if (value != ch->vibrato_offset) {
+            ch->vibrato_offset = value;
+            ch->voice.update |= UPDATE_PITCH;
+            if (value >= 0)
+                ch->vibrato_offset = value * 2;
+        }
+    }
+    if (ch->flags & CHANNEL_TREMOLO && !--ch->tremolo_step_count) {
+        ch->tremolo_step_count = ch->tremolo_rate;
+        if (!ch->tremolo_wave_pos[0] && !ch->tremolo_wave_pos[1])
+            ch->tremolo_wave_pos += ch->tremolo_wave_pos[2];
+        value = (int)(volume * (ch->tremolo_depth >> 8) << 9) >> 16;
+        pitch = *ch->tremolo_wave_pos++;
+        value = (value * pitch) >> 15;
+        if (value != ch->tremolo_offset) {
+            ch->tremolo_offset = value;
+            ch->voice.update |= UPDATE_VOLUME;
+        }
+    }
+    if (ch->flags & CHANNEL_PAN_LFO && !--ch->pan_lfo_step_count) {
+        ch->pan_lfo_step_count = ch->pan_lfo_rate;
+        if (!ch->pan_lfo_wave_pos[0] && !ch->pan_lfo_wave_pos[1])
+            ch->pan_lfo_wave_pos += ch->pan_lfo_wave_pos[2];
+        pitch = *ch->pan_lfo_wave_pos++;
+        value = ((ch->pan_lfo_depth >> 8) * pitch) >> 15;
+        if (value != ch->pan_lfo_offset) {
+            ch->pan_lfo_offset = value;
+            ch->voice.update |= UPDATE_VOLUME;
+        }
+    }
+    if (ch->flags & CHANNEL_VOLUME_FOLLOW) {
+        volume = ((short)(ch[-1].voice.pitch * 2) * ch->volume_scale) >> 7;
+        ch->voice.update |= UPDATE_VOLUME;
+    }
+    if (ch->voice.update & UPDATE_VOLUME) {
+        volume += ch->tremolo_offset;
+        value = 0x40;
+        if (ch->is_effect != 2) {
+            volume = (volume * (ch->balance >> 8)) >> 7;
+            value = ((ch->pan >> 8) + ch->pan_lfo_offset) & 0xFF;
+        }
+        switch (seq_song.unk_00) {
+        case 1:
+            ch->voice.volume[0] = (volume * snd_pan_left[value]) >> 15;
+            ch->voice.volume[1] = (volume * snd_pan_right[value]) >> 15;
+            break;
+        case 4:
+            ch->voice.volume[0] = (volume * snd_pan_left[value]) >> 15;
+            ch->voice.volume[1] = (volume * snd_pan_right[value]) >> 15;
+            if (voice & 0xAAAAAA)
+                ch->voice.volume[1] = ~ch->voice.volume[1];
+            else
+                ch->voice.volume[0] = ~ch->voice.volume[0];
+            break;
+        default:
+            ch->voice.volume[0] = ch->voice.volume[1] = (unsigned int)(volume * snd_pan_left[64]) >> 15;
+            break;
+        }
+    }
+    if (ch->flags & CHANNEL_PITCH_FOLLOW) {
+        pitch = ch[-1].voice.pitch + ch->vibrato_offset + (ch->unk_34 >> 16);
+        if (ch->is_effect != 2 && (value = (unsigned char)(ch->pitch_shift >> 8))) {
+            if (value < 0x80)
+                pitch += (pitch * value) >> 7;
+            else
+                pitch = (pitch * value) >> 8;
+        }
+        ch->voice.pitch = pitch & 0x3FFF;
+        ch->voice.update |= UPDATE_PITCH;
+    } else if (ch->voice.update & UPDATE_PITCH) {
+        pitch = ch->vibrato_offset + ch->note_pitch + (ch->unk_34 >> 16);
+        if (ch->is_effect != 2 && (value = (unsigned char)(ch->pitch_shift >> 8))) {
+            if (value < 0x80)
+                pitch += (pitch * value) >> 7;
+            else
+                pitch = (pitch * value) >> 8;
+        }
+        ch->voice.pitch = pitch & 0x3FFF;
+    }
+}
 
 /* A layered channel's voice update: the main voice keeps (127 - balance) / 256 of its volume and the layer voice
  * gets balance / 256, the layer plays the main voice's pitch, and both are written (the layer if it's in voices). */
@@ -2203,7 +2296,149 @@ void seq_layer_voice_update(SeqChannel *ch, unsigned int voices, unsigned int vo
         snd_update_voice(voice, &layer->voice);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002F848);
+/* The per-tick output pass. A changed reverb depth goes to the SPU (scaled by E4's value, split left/right by E0's)
+ * and so does a changed noise clock. Then for both songs and the effects, every voice due an update runs its LFO
+ * update and writes what changed: a layered channel through seq_layer_voice_update, an overlap channel on whichever
+ * voice its turn is on (flag 0x400 flips at each key-on). Muted voices (90) get no volume. Last, the voices due a
+ * key-on are keyed on together. */
+void seq_update_voices(void)
+{
+    unsigned int key_on = 0;
+    int depth;
+    unsigned int voices;
+    unsigned int bit;
+    unsigned int free;
+    unsigned int index;
+    SeqChannel *ch;
+
+    if (seq_song_flags & SONG_UPDATE_REVERB) {
+        depth = seq_song.reverb_depth >> 16;
+        snd_reverb_attr.mask = 6;
+        if (snd_reverb_scale < 0x80)
+            depth += (depth * snd_reverb_scale) >> 7;
+        else
+            depth = (depth * snd_reverb_scale) >> 8;
+        if (snd_reverb_balance < 0x40) {
+            snd_reverb_attr.depth[0] = depth;
+            snd_reverb_attr.depth[1] = depth - ((depth * (snd_reverb_balance ^ 0x3F)) >> 6);
+        } else {
+            snd_reverb_attr.depth[1] = depth;
+            snd_reverb_attr.depth[0] = depth - ((depth * (snd_reverb_balance & 0x3F)) >> 6);
+        }
+        SpuSetReverbDepth(&snd_reverb_attr);
+        seq_song_flags ^= SONG_UPDATE_REVERB;
+    }
+    if (seq_song_flags & SONG_UPDATE_NOISE) {
+        SpuSetNoiseClock(effect_voices ? effect_noise_clock : seq_song.noise_clock);
+        seq_song_flags ^= SONG_UPDATE_NOISE;
+    }
+    voices = seq_song2.active_voices;
+    if (voices) {
+        bit = 1;
+        index = 0;
+        ch = &seq_channels[24];
+        free = ~(effect_voices | snd_stream_voices) & D_80062F68;
+        voices &= free & seq_song2.update_voices;
+        key_on = free & seq_song2.key_on_voices;
+        do {
+            if (voices & bit) {
+                seq_channel_lfo(ch, bit, index);
+                if (ch->voice.update) {
+                    if (ch->flags & CHANNEL_LAYER) {
+                        seq_layer_voice_update(ch, free, ch->layer_voice - 24);
+                    } else if (ch->flags & CHANNEL_OVERLAP) {
+                        if (seq_song2.key_on_voices & bit) {
+                            ch->flags ^= 0x400;
+                            ch->voice.update |= UPDATE_ALL;
+                        }
+                        if (ch->flags & 0x400) {
+                            if (free & (1 << ch->overlap_voice)) {
+                                snd_update_voice(ch->overlap_voice, &ch->voice);
+                                if (key_on & bit) {
+                                    key_on |= 1 << ch->overlap_voice;
+                                    key_on &= ~bit;
+                                }
+                            }
+                        } else {
+                            snd_update_voice(ch->voice.voice, &ch->voice);
+                        }
+                    } else {
+                        snd_update_voice(ch->voice.voice, &ch->voice);
+                    }
+                }
+                voices ^= bit;
+            }
+            bit <<= 1;
+            ch++;
+            index++;
+        } while (voices);
+        seq_song2.key_on_voices = 0;
+    }
+    voices = seq_song_active_voices;
+    if (voices) {
+        bit = 1;
+        index = 0;
+        ch = seq_channels;
+        free = ~(D_80062F68 | effect_voices | snd_stream_voices);
+        voices &= free & seq_song_update_voices;
+        key_on |= free & seq_song_key_on_voices;
+        do {
+            if (voices & bit) {
+                seq_channel_lfo(ch, bit, index);
+                if (ch->voice.update) {
+                    if (snd_muted_voices & bit) {
+                        ch->voice.volume[1] = 0;
+                        ch->voice.volume[0] = 0;
+                    }
+                    if (ch->flags & CHANNEL_LAYER) {
+                        seq_layer_voice_update(ch, free, ch->layer_voice);
+                    } else if (ch->flags & CHANNEL_OVERLAP) {
+                        if (seq_song_key_on_voices & bit) {
+                            ch->flags ^= 0x400;
+                            ch->voice.update |= UPDATE_ALL;
+                        }
+                        if (ch->flags & 0x400 && free & (1 << ch->overlap_voice)) {
+                            snd_update_voice(ch->overlap_voice, &ch->voice);
+                            if (key_on & bit) {
+                                key_on |= 1 << ch->overlap_voice;
+                                key_on &= ~bit;
+                            }
+                        } else {
+                            snd_update_voice(ch->voice.voice, &ch->voice);
+                        }
+                    } else {
+                        snd_update_voice(ch->voice.voice, &ch->voice);
+                    }
+                }
+                voices ^= bit;
+            }
+            bit <<= 1;
+            ch++;
+            index++;
+        } while (voices);
+        seq_song_key_on_voices = 0;
+    }
+    voices = effect_voices;
+    if (voices) {
+        bit = 0x10000;
+        ch = &seq_channels[48];
+        key_on |= effect_key_on_voices;
+        voices &= effect_update_voices;
+        do {
+            if (voices & bit) {
+                seq_effect_lfo(ch, bit);
+                voices ^= bit;
+                if (ch->voice.update)
+                    snd_update_voice(ch->voice.voice, &ch->voice);
+            }
+            bit <<= 1;
+            ch++;
+        } while (voices);
+        effect_key_on_voices = 0;
+    }
+    if (key_on)
+        func_80038C6C(1, key_on);
+}
 
 /* Adds voices to *mask, and with them each one's spare voice (F4 layer or F8 overlap) when it's in spares. */
 void snd_add_spare_voices(SeqChannel *ch, unsigned int *mask, unsigned int voices, unsigned int spares)
@@ -3068,8 +3303,8 @@ void seq_cmd_time_signature(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
     song->beat_ticks = *ch->pos++;
     song->beats_per_bar = *ch->pos++;
-    song->bar_beat = 0;
     song->beat_tick = 0;
+    song->bar_beat = 0;
 }
 
 void seq_cmd_bar_number(SeqChannel *ch, SeqSong *song, unsigned int voice)

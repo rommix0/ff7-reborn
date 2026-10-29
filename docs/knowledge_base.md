@@ -215,7 +215,7 @@ starts:
     `0x1F801DC0`–`0x1F801DFE`. All three presets FF7 uses take `vLIN`/`vRIN` = `0x8000` (−1).
   - **Depth:** `EA lo hi` (`seq_cmd_reverb_depth`, `0x80031BA0`) sets it to `(hi << 8 | lo) << 16`. It's zeroed at
     song start and used in 93 songs, mostly `EA 00 28` (`0x2800`).
-  - **Depth to the SPU:** `func_8002F848` takes the top half (`0x8009A146`), scales it by the game's sound setting
+  - **Depth to the SPU:** `seq_update_voices` takes the top half (`0x8009A146`), scales it by the game's sound setting
     `0x80062FB8` (0 at boot: unchanged) and pans it by `0x80062F70` (`0x40` at boot: both sides equal). Then
     `SpuSetReverbDepth` writes it as the reverb output volume (`vLOUT`/`vROUT`), so `0x2800` = 0.31.
   - **In the player** (`Reverb` in `tools/akao_synth.py`): psx-spx's formula on a copy of the work area, at
@@ -276,8 +276,8 @@ starts:
   - **Effects:** 87 have such notes.
   - **XM export:** it still gives those notes their unwrapped pitch.
 - **Key-off freezes the voice.** A key-off also clears the voice's bit in the update mask (songs: `seq_song + 0xC`,
-  set at key-on in `seq_step_channel`, cleared in `seq_tick`; effects: `0x80099FD4`). `func_8002F848` only runs
-  the voice update (`seq_channel_lfo` / `func_8002F24C`) and `snd_update_voice` for voices in that mask.
+  set at key-on in `seq_step_channel`, cleared in `seq_tick`; effects: `0x80099FD4`). `seq_update_voices` only runs
+  the voice update (`seq_channel_lfo` / `seq_effect_lfo`) and `snd_update_voice` for voices in that mask.
   - **So:** through the release the SPU keeps the pitch, volume and pan it was last given. Bends, volume slides
     and LFOs stop where the key-off found them, and the LFOs stop stepping. FM still applies, since the chip does
     that itself.
@@ -516,7 +516,7 @@ Read from `seq_step_channel`'s note and tie paths:
     the old one's (`instrument_table` + 0x10). The voice keeps its sample until the next key-on. Effects 86, 309,
     412, 435 and 724 change instrument between a note and its tie, and so do songs 38 and 72. The player now
     rescales.
-  - **Their own voice update** (`func_8002F24C`, run on effect channels by `func_8002F848`):
+  - **Their own voice update** (`seq_effect_lfo`, run on effect channels by `seq_update_voices`):
     - Vibrato, tremolo and pan LFO match the songs' version.
     - Volume skips the master volume and uses the channel's own scale (`+0xC6` high byte ÷ 128).
     - Pitch gets the channel's own scale (`+0x3D`).
@@ -529,7 +529,7 @@ Read from `seq_step_channel`'s note and tie paths:
       export now leaves their pan alone).
     - It has no LFO delay countdown, which effects never need since `B4`/`B8` start them with no delay, and no
       layer balance slide.
-    - `func_8002F24C` steps the effect LFOs itself (songs do it in `seq_channel_lfo`), on every interrupt while
+    - `seq_effect_lfo` steps the effect LFOs itself (songs do it in `seq_channel_lfo`), on every interrupt while
       the voice is keyed on.
   - **Effect 302's tremolo** (`B8 1F 02 00` on the cymbal, ±24% at 61 Hz) sounds wrong to the ear: without it the
     effect sounds right. The driver's math and timing for it match ours as far as we've read, so it stays. Marked
@@ -556,7 +556,7 @@ Read from `seq_step_channel`'s note and tie paths:
 Ghidra decompiled every driver function the player depends on from `build/main.elf` (our matching build, so the
 same code at the same addresses with our names): `seq_tick`, `seq_step_channel`, the look-ahead `func_800318BC`,
 the per-tick updates (`func_8002E478` songs, `seq_effect_slides` effects), the voice updates (`func_8002ED34`,
-`func_8002F24C`), `func_8002F848` and all 85 sequence command handlers. Each was compared with `tools/akao.py`
+`seq_effect_lfo`), `seq_update_voices` and all 85 sequence command handlers. Each was compared with `tools/akao.py`
 and `tools/akao_synth.py`.
 - **Notes:** the note, tie and rest paths, the key-off gate (table lengths, `A2`/`DC`, slur and full-length), the
   look-ahead, glides and drum kits all match: no note goes missing.
@@ -639,7 +639,7 @@ Read from the command handlers, the note path at `0x80031518` and `seq_channel_l
     tremolo one, and 4 songs a pan LFO one. Only those under a held note sound different.
   - The delay counts sequence ticks (`seq_channel_slides`).
   - After the delay, the LFO reads its next waveform step every `rate` **timer interrupts** (≈ 243.86 Hz, whatever
-    the tempo; 0 = 256). `seq_tick` runs the voice update (`func_8002F848` → `seq_channel_lfo`) on every interrupt,
+    the tempo; 0 = 256). `seq_tick` runs the voice update (`seq_update_voices` → `seq_channel_lfo`) on every interrupt,
     before the tempo accumulator.
 - **Waveforms (`lfo_waveforms`):** 16 pointers to s16 tables that loop back on the marker `0, 0, −n`.
   - 0/1 square ±; 2/3 square 0/+; 4/5 square 0/−.
@@ -961,7 +961,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 206 of the file's 232 functions are C** (203 written here; `seq_cmd_slur_off`,
+- **Recovered: 208 of the file's 232 functions are C** (205 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -1062,7 +1062,7 @@ Lessons from getting it to match:
   - **`9D`/`9C`** do the same for the effects (bit 1), but a kind 2 effect on channels 54/55 (`+0x54` = 2) keeps
     playing.
   - **The effects' block:** `effect_voices` (`0x80099FCC`) and the words after it follow `SeqSong`'s first fields:
-    `effect_voices_08`, `effect_update_voices`, `effect_key_off_voices`, `effect_paused_voices`.
+    `effect_key_on_voices`, `effect_update_voices`, `effect_key_off_voices`, `effect_paused_voices`.
 - **`F1`, `F4`, `F5`:**
   - **`F1`** (`snd_stop_effects`) ends every effect but a kind 2 one.
   - **`F4`** sets the effects aside: their 8 channels into `seq_channels[24..31]` and 12 words of their block after
@@ -1099,7 +1099,7 @@ Lessons from getting it to match:
   - **`snd_start_song`** reads `song_data`: a word with the channel mask, then a 16-bit offset per channel (from
     after the offset). Every channel starts on instrument 20 at volume `0x3FFF0000`, centred, and the song state
     starts over (tempo `0xFFFF`, `tempo_phase` 1).
-  - **`snd_resume_song`** copies a save slot back field by field (the bar's beat 2 ticks back), then the channels.
+  - **`snd_resume_song`** copies a save slot back field by field (the beat's tick count 2 back), then the channels.
     Channels the song doesn't hold step into the end stub, and its voices rewrite everything.
     - **Fade-in:** unless a slide or the cross-fade is running, `snd_master_volume` (set by `C0`–`C2`) restarts at 10 and
       slides back over 60 ticks.
@@ -1125,6 +1125,45 @@ Lessons from getting it to match:
     - The noise flip in `seq_channel_slides` goes through a pointer. GCC 2.x assumes a struct field reached through
       a pointer can't alias a plain scalar, so without the pointer it moves the flags load above the store.
     - `seq_channel_lfo` reads the master volume's top half through its own `unsigned short` symbol.
+- **The output pass and the effects' voice update (this round):**
+  - **`seq_effect_lfo`** is `seq_channel_lfo` for effect channels.
+    - **Left out:** the LFO delays, the master volume and the cross-fade.
+    - **Added:** the effect's balance (`A0` commands) scales its volume and pan places it. Its pitch shift (byte
+      `+0x3D`) scales its pitch the way `snd_pitch_scale` does for music.
+    - **The kind 2 effect** skips both and plays centred.
+  - **`seq_update_voices`** is the per-tick output pass.
+    - **Global settings:** a changed reverb depth goes to the SPU, scaled by `E4`'s `snd_reverb_scale` and split
+      left/right by `E0`'s `snd_reverb_balance`. A changed noise clock goes too.
+    - **Voices:** for both song blocks and the effects, each voice due an update runs its LFO update and writes
+      what changed.
+      - **Layer channels** write through `seq_layer_voice_update`.
+      - **Overlap channels** write to whichever voice their turn is on: flag `0x400` flips on each key-on, and in
+        the music block a busy overlap voice falls back to the channel's own.
+    - **Key-on:** the voices due a key-on are keyed on together.
+  - **Names this pinned down:**
+    - `SeqSong`'s `+0x08` is the key-on mask (`key_on_voices`; `seq_song_key_on_voices`, `effect_key_on_voices`).
+    - Sound command `90`'s value is a mute mask (`snd_muted_voices`): those voices get volume 0.
+    - The meter counters were swapped. `+0x58` is the bar's current beat (`bar_beat`) and `+0x5C` counts ticks into
+      the beat (`beat_tick`).
+- **Parked, the tick (this round):**
+  - **`seq_tick`:**
+    - **What it does:** it adds each block's tempo, scaled by `D0`–`D2`'s value (a global tempo scale, byte
+      `0x80062FEA`), to the accumulator. On a carry, every channel's gate counts down: the key-off at the high
+      byte, the next event (`seq_step_channel`) at the low one.
+    - **Effects:** they run only while not paused, except kind 2, and each counts its ticks in `+0x50`.
+    - **Afterwards:** a pause queued by `F3` (`+0x54`) runs as `9B`, then the queue flushes, the global slides run
+      and voices key off.
+    - **Why it's parked:** the C is written, but the game reaches most of `seq_song`'s tempo, reverb and meter
+      fields as plain variables, so it needs more aliases.
+  - **`func_80030380`:**
+    - **What it does:** every 4th tick it runs the global slides: CD volume, the master volume (a fade-out to 0
+      stops the songs), the tempo and pitch scales (a pitch-scale step rewrites every music pitch), and each effect's
+      balance, pan and pitch-shift slides. A balance fade to 0 ends the effect.
+    - **The cross-fade:** it steps the per-channel fades. When channel n's fade ends, the old song's channel ends,
+      the new song's channel rewrites everything, and the fade restarts as a fade-in.
+    - **Why it's parked:** everything matches but the load order in the pan and pitch-shift slides.
+  - **The two song blocks were one array in the original.** `func_80030380` reaches `seq_song`'s fields as offsets
+    from `seq_song2`'s address, which GCC only does within one symbol. A `SeqSong songs[2]` would model that.
 - **A second file at the start of the range:** `0x800293D0`–`0x80029A4C` (11 functions, including `snd_init` and
   the instrument-bank loaders) reach small globals through `$gp`, so that part was compiled with `-G8`; from
   `0x80029A50` on, small globals like `0x80062F00` are reached with `lui`, which is `-G0`.
