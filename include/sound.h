@@ -169,7 +169,7 @@ typedef struct SeqSong {
 typedef struct SoundCommand {
     unsigned short id;
     unsigned char pad_02[0x02];
-    int arg[8];
+    long arg[8]; /* numbers or addresses: long is pointer-sized on the PC and still 32 bits on the PS1 */
 } SoundCommand;
 
 /* libspu's SpuCommonAttr (layout from Sony's Libref); only the CD fields are used here. */

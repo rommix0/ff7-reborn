@@ -893,6 +893,30 @@ C, the game's asm assembled as `target.o`, and a `compile.sh` with `sound.c`'s f
 `bin` on `PATH` (the script's header has the command). Treat what it finds as a hint: it found the variable sharing in
 `snd_effect_pitch_shift_slide` and the pointer reads in `A0`, then each was rewritten by hand in the file's style.
 
+**Native build (the driver on the PC):** `make native` compiles `sound.c` and `sound_init.c` with the host GCC
+(64-bit, `-DNATIVE -DNON_MATCHING`) and links them with `native/snd_native.c`: libspu and kernel stubs, a loader and a
+song runner that prints each sequencer tick's key-ons. `tools/native_check.py` plays songs on it and compares every
+channel's key-on ticks with `tools/akao.py`. Songs 2 and 3 (`FIELD/MD1STIN.DAT`) match on every channel over 4000
+ticks; a whole-disc run (every field file decompressed in Python first) is slow and hasn't been finished. An F4 layer
+or F8 overlap voice counts as its channel's, since `akao.py` reports notes per channel.
+Rules for C that has to build both ways (and keep matching):
+- **A value that can hold an address is `long`** (`SoundCommand.arg`): 32 bits on the PS1, so the game's code is
+  unchanged, and pointer-sized on the PC. `int` there truncates the song and effect pointers.
+- **The data stays in the user's exe.** The runner loads `SCUS_941.63` into `snd_ram` (2 MB standing for
+  `0x80000000`), and `tools/native_syms.py` writes a linker script that puts every data symbol the driver uses at its
+  game address in it. Code that treats neighbouring globals as one block (`seq_song` copied into `seq_song2`, the
+  twelve words of effect state from `effect_voices`) works unchanged, and no game table is copied into the repo.
+- **Objects that hold pointers are real C definitions** (in `snd_native.c`): the channels, the command queue and
+  request, the two handler tables, `lfo_waveforms`, and the stream and effect-file pointers. A PC pointer doesn't fit
+  the game's 4 bytes, so they can't live in `snd_ram`. The game's tables of addresses are translated at start-up:
+  `funcs.c` (also from `native_syms.py`) gives each driver function's game address.
+- **Structs with pointers grow on the PC** (`SeqChannel` isn't `0x108` bytes there). The driver copies them as
+  `sizeof(...) / 4` words, which still works; nothing depends on the PS1 size.
+- **A function still in assembly needs its C under `#ifdef NON_MATCHING`** (`func_8002A28C`); `NATIVE` turns
+  `INCLUDE_ASM` off.
+- **The `-G8` file's tentative definitions stay common** (`-fcommon`), so they resolve into `snd_ram` as they resolve
+  to the data section's labels on the PS1. The link is `-no-pie`, since those addresses are absolute.
+
 **Proven:** `src/main/bitops.c` (3 functions, `80014A00`–`80014A84`, 132 bytes) is **byte-identical** to the game
 with GCC 2.7.2. GCC 2.6.3 matches only one of the three, so that part of the exe was built with 2.7.2.
 

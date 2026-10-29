@@ -316,7 +316,49 @@ void func_8002A094(unsigned short pan, unsigned short pair, unsigned char *first
     snd_apply_fm_voices();
 }
 
+/* 30: starts the kind 2 effect on channels 54/55 (voices 22/23), centred. It stays through F1 and 9D. */
+#ifdef NON_MATCHING
+/* Same code, but the game keeps &seq_channels[54] in s1 where GCC rebuilds the constant. */
+void func_8002A28C(unsigned char *first, unsigned char *second)
+{
+    SeqChannel *ch = &seq_channels[54];
+    unsigned int voices = 0;
+
+    seq_channels[54].gate = 0x101;
+    seq_channels[55].gate = 0x101;
+    ch->pos = D_80049C40;
+    seq_channels[55].pos = D_80049C40;
+    seq_channels[54].is_effect = 2;
+    seq_channels[55].is_effect = 2;
+    seq_channels[54].unk_50 = -1;
+    seq_channels[55].unk_50 = -1;
+    if (first) {
+        voices = 1;
+        channel_reset(ch, first);
+        seq_channels[54].pan = 0x4000;
+        seq_channels[54].pan_slide_ticks = 0;
+    }
+    if (second) {
+        voices |= 2;
+        channel_reset(ch + 1, second);
+        seq_channels[55].pan = 0x4000;
+        seq_channels[55].pan_slide_ticks = 0;
+    }
+    effect_voices |= voices << 22;
+    effect_key_off_voices |= 0xC00000;
+    effect_key_on_voices &= ~0xC00000;
+    effect_update_voices &= ~0xC00000;
+    effect_noise_voices &= ~0xC00000;
+    effect_reverb_voices &= ~0xC00000;
+    effect_fm_voices &= ~0xC00000;
+    snd_apply_noise_voices();
+    snd_apply_reverb_voices();
+    snd_apply_fm_voices();
+    effect_paused_voices &= ~0xC00000;
+}
+#else
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A28C);
+#endif
 
 /* F1: every effect ends (it steps into snd_stop_song's end stub), all but a kind 2 effect on channels 54/55, whose
  * voices 22/23 stay. */
@@ -1841,7 +1883,7 @@ int snd_submit_request(void)
             if (seq_song_id != song_id) {
                 snd_set_reverb_mode(mode);
                 snd_queue_next(&q);
-                q->arg[0] = (int)p;
+                q->arg[0] = (long)p;
                 q->arg[1] = size;
                 q->arg[2] = song_id;
                 q->arg[3] = snd_request.arg[1];

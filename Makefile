@@ -60,7 +60,33 @@ build/src/main/sound_init.o: GCC = 2.6.3
 build/src/main/sound_init.o: CFLAGS = -O2 -G8
 build/src/main/sound_init.o: MASPSXFLAGS = --expand-div --use-comm-section -G8
 
+# The sound driver built for the PC (native/snd_native.c): `make native`, then tools/native_check.py.
+# The driver copies seq_song into seq_song2, and the effect state from effect_voices on, as one block each; in snd_ram
+# they stay adjacent as in the game, so GCC's out-of-bounds warnings about it are expected.
+NATIVE_CFLAGS := -std=gnu99 -O2 -g -Wall -Wno-array-bounds -Wno-stringop-overflow -Wno-stringop-overread \
+	-DNATIVE -DNON_MATCHING -Iinclude
+NATIVE_DRIVER := build/native/sound.o build/native/sound_init.o
+
+native: build/native/snd_native
+
+build/native/%.o: src/main/%.c include/sound.h
+	@mkdir -p $(dir $@)
+	gcc $(NATIVE_CFLAGS) -c $< -o $@
+# Its -G8 globals are tentative definitions; as common symbols they resolve to their place in snd_ram, as on the PS1.
+build/native/sound_init.o: NATIVE_CFLAGS += -fcommon
+
+build/native/snd_native.o: native/snd_native.c include/sound.h
+	@mkdir -p $(dir $@)
+	gcc $(NATIVE_CFLAGS) -c $< -o $@
+
+build/native/ram.ld: $(NATIVE_DRIVER) build/native/snd_native.o config/symbols.main.txt tools/native_syms.py
+	$(PYTHON) tools/native_syms.py build/native $(NATIVE_DRIVER) -- build/native/snd_native.o
+
+# ram.ld's addresses are absolute (snd_ram plus an offset), so the program can't be position-independent.
+build/native/snd_native: $(NATIVE_DRIVER) build/native/snd_native.o build/native/ram.ld
+	gcc -no-pie $(NATIVE_DRIVER) build/native/snd_native.o build/native/funcs.c build/native/ram.ld -o $@
+
 clean:
 	rm -rf build asm
 
-.PHONY: check split clean
+.PHONY: check split clean native
