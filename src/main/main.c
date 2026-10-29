@@ -114,7 +114,7 @@ extern int D_8019DAA0;
 extern unsigned int *D_8019D5E8;
 extern DiscFile D_80048D2C;
 extern int D_800730CC;
-extern unsigned char D_80095DDC[];
+extern int D_80095DDC;
 extern short D_8009ABF6;
 extern unsigned char D_80062D98;
 extern unsigned char D_80062D99;
@@ -234,9 +234,9 @@ void func_800112E8(void)
         D_800730CC = D_8009A05C;
     }
     if (D_8009A05C != D_80071A5C || !D_8009A05C) {
-        frame = func_800A460C(&D_80071E28, &D_800730CC, D_80095DDC, 0);
+        frame = func_800A460C(&D_80071E28, &D_800730CC, &D_80095DDC, 0);
     } else {
-        frame = func_800A460C(&D_80071E28, &D_800730CC, D_80095DDC, (void *)0x801B0000);
+        frame = func_800A460C(&D_80071E28, &D_800730CC, &D_80095DDC, (void *)0x801B0000);
         D_80071A5C = 0;
         D_800965E8 = 0;
     }
@@ -400,7 +400,421 @@ void func_80011AEC(void)
 
 INCLUDE_ASM("asm/nonmatchings/main/main", func_80011BB4);
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80011C1C);
+#ifdef NON_MATCHING
+/* The game's main: boots, then runs modules by game_mode until D_8009ABF5 asks for 5, 0x0A or 0x1A, and starts over.
+ * Same instructions as the game except that the game also keeps &D_8009ABF5 in a register across the loop, which
+ * shifts every saved register by one. */
+extern DiscFile D_80048D34, D_80048D3C, D_80048D44, D_80048D4C, D_80048D54;
+extern DiscFile D_80048D5C, D_80048D64, D_80048D6C, D_80048D74;
+extern unsigned char D_8009D2A0[];
+extern volatile unsigned char D_8009D5E5[3];
+extern volatile unsigned char D_8009D3EA[2];
+extern unsigned char D_80071E30, D_80071E34;
+extern unsigned char D_8007EBC8, D_8009C6D8;
+extern short D_8007173C;
+extern int D_800722C8, D_80071744, D_80095DD8;
+extern int D_800E48E0;
+void SetMem(int megabytes);
+void ClearImage(RECT *rect, int r, int g, int b);
+void func_80033B70(void);
+void func_80033BE0(void);
+void func_80033F40(unsigned int lba, unsigned int size, void *dest, void (*callback)(void));
+void func_800A0030(void);
+void load_boot_files(void);
+void func_800148A0(void);
+void load_sound_files(void);
+void func_8001C434(void);
+void func_800A04C4(int n);
+void func_80026258(void);
+void func_80011920(void);
+void func_80033A90(void);
+int func_80024E5C(void);
+void func_80014934(void);
+void func_80011BB4(void);
+void func_80026090(void);
+void func_800260DC(void);
+int func_800343F0(void);
+int func_800A0000(int n);
+void init_display(void);
+void func_80011AEC(void);
+void func_80011860(void);
+void func_800119E4(void);
+void func_800112E8(void);
+void func_800111E4(void);
+void snd_load_bank2(void);
+void func_80024D88(int n);
+void func_80024DD4(int n);
+void func_80024E18(int n);
+void func_80024A3C(int n);
+void func_80024E94(void);
+void func_80024FC4(int n);
+void func_80024F80(int n);
+void func_80024ECC(void);
+void func_80024F04(void);
+void func_80024F3C(int n);
+void func_800250B4(void);
+void func_800250EC(int n);
+void func_80025130(int n);
+void func_80025040(void);
+void func_800CF60C(void);
+void func_800A00D0(void);
+void func_800A02D0(void);
+void func_800A0390(void);
+void func_800A0448(void);
+void func_800B6B58(void);
+unsigned short func_800A0450(void);
+unsigned short func_800A00BC(int n);
+void func_800A0C58(void);
+void snd_quit(void);
+/* Globals main reaches from one base: GCC derives &D_8009ABF5 and &D_8009ABF6 from &D_8009AC32. */
+typedef struct MainGlobals {
+    unsigned char pad_00;
+    unsigned char abf5;
+    short abf6;
+    unsigned char pad_04[0x22];
+    short ac1a;
+    unsigned char pad_28[0x13];
+    unsigned char ac2f;
+    unsigned char pad_3c;
+    unsigned char ac31;
+    short ac32;
+    unsigned char pad_40[4];
+    int ac38;
+} MainGlobals;
+extern MainGlobals D_8009ABF4;
+/* In the same object as D_8009D2A0: GCC derives &D_8009D2A0 from &D_8009D588. */
+#define D_8009D588 (*(volatile unsigned char *)&D_8009D2A0[0x2E8])
+extern long D_8009A004;
+int main(void)
+{
+    char name[] = "battle.x";
+    RECT rect = {0, 0, 480, 472};
+    unsigned short flags;
+    unsigned short result;
+
+    SetMem(8);
+    func_8001171C();
+    func_80033B70();
+    func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
+    func_800A0030();
+    load_boot_files();
+    for (;;) {
+        *(short *)&D_8009ABF4.ac32 = 0;
+        D_8009ABF4.ac2f = 0;
+        func_800148A0();
+        load_sound_files();
+        func_8001C434();
+        func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
+        func_800A04C4(0);
+        snd_request.id = 0xC0;
+        D_8009A004 = 0x7F;
+        snd_submit_request();
+        ClearImage(&rect, 0, 0, 0);
+        func_80026258();
+        func_80011920();
+        func_80033A90();
+        if (func_80024E5C() == 1) {
+            func_80014934();
+            func_80026258();
+            func_80033A90();
+            func_80011BB4();
+        }
+        func_80026090();
+        do {
+            if (D_8009D588 != func_800343F0()) {
+                func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
+                if (func_800A0000(D_8009D588) == 1)
+                    goto fail;
+            }
+            init_display();
+            D_8007EBC8 = 0;
+            D_8009C6D8 = 0;
+            D_8007173C = 0;
+            func_80011AEC();
+            D_800965EC = 0;
+            do {
+                switch (game_mode) {
+                case 1:
+                    func_80011860();
+                    break;
+                case 2:
+                case 4:
+                    if (++*(volatile unsigned char *)&D_8009D2A0[0] == 0)
+                        D_8009D2A0[1]++;
+                    if (D_80071E34 == 1) {
+                        func_800260DC();
+                        func_80026090();
+                        D_80071E34 = 0;
+                    }
+                    if (D_800965EC == 1) {
+                        if (!D_80071E30) {
+                            if (D_8009ABF4.ac38) {
+                                snd_request.id = 0x14;
+                                D_8009A004 = D_8009ABF4.ac38;
+                                snd_submit_request();
+                            }
+                            D_800722C8 = 0x801C0000;
+                            D_80071744 = D_80048D24.lba;
+                            D_80095DD8 = D_80048D24.size;
+                            func_800111E4();
+                            if (D_800707BE & 8) {
+                                if (++*(volatile unsigned char *)&D_8009D2A0[2] == 0)
+                                    D_8009D2A0[3]++;
+                            }
+                        }
+                        if ((*(volatile short *)&D_800707BE & 1) && !D_8009ABF4.ac31) {
+                            D_8009ABF4.abf5 = 0x1A;
+                            *(volatile short *)&D_800707BE = 0;
+                        }
+                        D_800965EC = 2;
+                        game_mode = 1;
+                        break;
+                    }
+                    if (D_80095DDC < 0)
+                        D_800716D0 = 4;
+                    else
+                        D_800716D0 = 0;
+                    if (D_80095DDC & 0x20000000)
+                        D_800716D0 |= 2;
+                    D_800722C8 = 0x801C0000;
+                    *(short *)&D_8009ABF4.abf6 = *(unsigned short *)&D_80095DDC;
+                    D_80071744 = D_80048D2C.lba;
+                    D_80095DD8 = D_80048D2C.size;
+                    func_800111E4();
+                    flags = *(volatile short *)&D_800707BE;
+                    if (flags & 8) {
+                        if (++*(volatile unsigned char *)&D_8009D2A0[2] == 0)
+                            D_8009D2A0[3]++;
+                    } else if ((flags & 1) || (!*(volatile unsigned int *)&D_8009D268 && (D_80095DDC & 0x20000000))) {
+                        *(volatile short *)&D_800707BE = 0;
+                        D_8009ABF4.abf5 = 0x1A;
+                    } else if (D_80095DDC & 0x40000000) {
+                        while (D_80095DD4)
+                            ;
+                        D_800965EC = 1;
+                        game_mode = 1;
+                        break;
+                    }
+                    D_800965EC = 2;
+                    game_mode = 3;
+                    break;
+                case 3:
+                    func_800119E4();
+                    func_800112E8();
+                    switch (D_80071E28) {
+                    case 0:
+                        D_800965EC = 3;
+                        game_mode = 1;
+                        break;
+                    case 1:
+                        D_800965EC = 3;
+                        game_mode = 2;
+                        break;
+                    case 2:
+                        D_8009ABF4.abf5 = 0xA;
+                        break;
+                    }
+                    break;
+                case 16:
+                    snd_load_bank2();
+                    D_8009ABF4.ac1a = 2;
+                    D_800965EC = 0x10;
+                    game_mode = 1;
+                    break;
+                case 5:
+                    while (D_80095DD4)
+                        ;
+                    while (DrawSync(1))
+                        ;
+                    func_800119E4();
+                    if (D_80071E34 == 1) {
+                        func_800260DC();
+                        func_80026090();
+                        D_80071E34 = 0;
+                    }
+                    switch (D_8009ABF4.abf5) {
+                    case 6:
+                        func_80024D88(D_8009ABF4.abf6);
+                        break;
+                    case 7:
+                        func_80024DD4(D_8009ABF4.abf6);
+                        func_800260DC();
+                        func_80026090();
+                        break;
+                    case 8:
+                        func_80024E18(D_8009ABF4.abf6);
+                        break;
+                    case 9:
+                        if (*(short *)&D_8009ABF4.abf6 == 1) {
+                            func_80024A3C(D_800E48E0);
+                        } else {
+                            func_80024A3C(0);
+                            D_8009ABF4.abf5 = 0;
+                        }
+                        break;
+                    case 14:
+                        func_80024E94();
+                        break;
+                    case 18:
+                        func_80024FC4(D_8009ABF4.abf6);
+                        break;
+                    case 19:
+                        func_80024F80(D_8009ABF4.abf6);
+                        break;
+                    }
+                    func_800CF60C();
+                    D_8009ABF4.ac1a = 2;
+                    D_800965EC = 5;
+                    game_mode = 1;
+                    break;
+                case 13:
+                    func_800119E4();
+                    switch (D_8009ABF4.abf5) {
+                    case 15:
+                        func_80024ECC();
+                        break;
+                    case 16:
+                        func_80024F04();
+                        break;
+                    case 17:
+                        func_80024F3C(D_8009ABF4.abf6);
+                        break;
+                    case 21:
+                        func_800250B4();
+                        break;
+                    case 22:
+                        func_800250EC(D_8009ABF4.abf6);
+                        break;
+                    case 23:
+                        func_80025130(D_8009ABF4.abf6);
+                        break;
+                    case 24:
+                        func_80025040();
+                        break;
+                    }
+                    if (D_8009ABF4.abf5 != 0x19)
+                        func_800CF60C();
+                    D_8009ABF4.ac1a = 2;
+                    D_800965EC = 0xD;
+                    game_mode = 1;
+                    break;
+                case 12:
+                    if (D_8009D588 != func_800343F0()) {
+                        func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
+                        if (func_800A0000(D_8009D588) == 1) {
+                            D_8009ABF4.abf5 = 0xA;
+                            break;
+                        }
+                    }
+                    init_display();
+                    D_8009ABF4.ac1a = 2;
+                    D_800965EC = 0xC;
+                    game_mode = 1;
+                    break;
+                case 6:
+                    func_80033E34(D_80048D74.lba, D_80048D74.size, (void *)0x80180000, 0);
+                    while (func_80034B44())
+                        ;
+                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    func_800A00D0();
+                    D_800965EC = 6;
+                    game_mode = 1;
+                    D_8009ABF4.abf5 = 1;
+                    break;
+                case 7:
+                    func_80033E34(D_80048D5C.lba, D_80048D5C.size, (void *)0x80180000, 0);
+                    while (func_80034B44())
+                        ;
+                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    func_800A02D0();
+                    D_800965EC = 7;
+                    game_mode = 1;
+                    D_8009ABF4.abf5 = 1;
+                    break;
+                case 8:
+                    func_80033E34(D_80048D3C.lba, D_80048D3C.size, (void *)0x80180000, 0);
+                    while (func_80034B44())
+                        ;
+                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    func_800A0390();
+                    D_800965EC = 8;
+                    game_mode = 1;
+                    D_8009ABF4.abf5 = 1;
+                    break;
+                case 14:
+                    func_80033E34(D_80048D44.lba, D_80048D44.size, (void *)0x80180000, 0);
+                    while (func_80034B44())
+                        ;
+                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    func_800A0448();
+                    D_800965EC = 0xE;
+                    game_mode = 1;
+                    D_8009ABF4.abf5 = 1;
+                    break;
+                case 9:
+                    func_80033E34(D_80048D34.lba, D_80048D34.size, (void *)0x80180000, 0);
+                    while (func_80034B44())
+                        ;
+                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    func_800B6B58();
+                    D_800965EC = 9;
+                    game_mode = 1;
+                    D_8009ABF4.abf5 = 1;
+                    break;
+                case 11:
+                    func_80033E34(D_80048D64.lba, D_80048D64.size, (void *)0x80180000, 0);
+                    while (func_80034B44())
+                        ;
+                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    result = func_800A0450();
+                    D_8009D3EA[0] = result;
+                    D_8009D3EA[1] = result >> 8;
+                    D_800965EC = 0xB;
+                    game_mode = 1;
+                    D_8009ABF4.abf5 = 1;
+                    break;
+                case 10:
+                    func_80033E34(D_80048D6C.lba, D_80048D6C.size, (void *)0x80180000, 0);
+                    while (func_80034B44())
+                        ;
+                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    result = func_800A00BC(D_8009D5E5[0]);
+                    D_8009D5E5[1] = result;
+                    D_8009D5E5[2] = result >> 8;
+                    D_800965EC = 0xA;
+                    game_mode = 1;
+                    D_8009ABF4.abf5 = 1;
+                    break;
+                }
+            } while (D_8009ABF4.abf5 != 5 && D_8009ABF4.abf5 != 0x1A && D_8009ABF4.abf5 != 0xA);
+            if (D_8009ABF4.abf5 == 5) {
+                func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
+                func_800A04C4(1);
+                goto quit;
+            }
+        } while (D_8009ABF4.abf5 != 0x1A && D_8009ABF4.abf5 != 0xA);
+        if (D_8009ABF4.abf5 == 0x1A) {
+            D_8009ABF4.abf5 = 0;
+            snd_submit_request();
+            func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
+            func_800A0C58();
+            snd_request.id = 0xC0;
+            D_8009A004 = 0x7F;
+            snd_submit_request();
+        } else {
+            D_8009ABF4.abf5 = 0;
+        }
+        goto quit;
+    fail:
+        D_8009ABF4.abf5 = 0;
+    quit:
+        func_80033BE0();
+        snd_quit();
+    }
+}
+#else
+INCLUDE_ASM("asm/nonmatchings/main/main", main);
+#endif
 
 void func_80012840(int abr)
 {

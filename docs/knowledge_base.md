@@ -951,7 +951,7 @@ Lessons from getting it to match:
 
 **The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 43 in C so far), two files told apart by their assembler:
 - **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 26 of 30 in C): boots the sound driver, sets up the display and
-  has the main loop (`func_80011C1C`, 3 KB, still asm). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed load goes through `addiu $at`
+  has the game's `main` (`0x80011C1C`, 3 KB, still asm). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed load goes through `addiu $at`
   (`lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`). Its divides carry ASPSX's checks.
 - **`src/main/loader.c`** (`0x800144D8`–`0x80014A00`, all 17 in C): disc reads and module starts. **ASPSX 2.34**:
   `li` is still `ori`, but an indexed load folds into `%lo` (`lui at; addu at, at, a0; lw v0, %lo(sym)(at)`).
@@ -963,7 +963,7 @@ Lessons from getting it to match:
   `DIR`, `GCC`, `ASPSX` and `MASPSXFLAGS` for files other than `sound.c`).
 - **Toolchain:** `func_800135C0` only matches with GCC 2.6.3 (2.7.2 keeps the quotient in another register), and
   everything else in `main.c` matches with it too; in `loader.c` both compilers match everything so far, and it
-  builds with 2.7.2. Before them sit an empty function and the
+  builds with 2.7.2. Before them sit `__main` (empty: GCC calls it first thing in `main`) and the
   hand-written entry code at `0x800110C0` (clears BSS, sets `$sp`/`$gp`, calls the main loop), left as the asm
   segment `18B8`. `include/main.h` holds what both files share.
 - **Its rodata** (`0x80010000`–`0x80010100`: switch tables and the string `"battle.x"`) is the subsegment
@@ -1006,6 +1006,18 @@ Lessons from getting it to match:
   globals, GCC moves a table load above the stores, which it doesn't do between two struct accesses.
 - **Parked:** `func_80011BB4` (resets the state block): 4 lines off. A volatile struct puts the first field's
   address in a register, and a plain store there is scheduled two slots late; the game has neither.
+- **`main`:** sets up memory, the display and the boot files, then loops forever: load the sound files and the first
+  module, then run modules by `game_mode` (a 16-case switch, most cases read a file to `0x80180000`, unpack it to
+  `0x800A0000` and call into it) until `D_8009ABF5` asks for 5, `0x0A` or `0x1A`, then shut the sound down and start
+  over. It has an unused local `"battle.x"`. Its C is in `main.c` behind `NON_MATCHING`: same instructions as the game
+  except one register. The game also keeps `&D_8009ABF5` in a saved register across the loop (and so saves one more
+  register and has a bigger frame); ours rebuilds it where it's used. Getting this far took: one base symbol each for
+  `D_8009D2A0`..`D_8009D588` (GCC derives one address from the other) and for `D_8009ABF4`..`D_8009AC38`, an `int` pad
+  word `D_80095DDC`, `D_8009A004` as its own `long`, the failure path as a `goto` to a label after the mode-5 block,
+  and `*(volatile T *)&x` exactly where the game uses a register-held address.
+- **Register-held addresses:** with optimisation GCC 2.6.3 loads the address of a pointer-expression access
+  (`*(T *)&x`, a struct field) into a register, and a plain scalar global stays a `lui`/`%lo` access. In a loop those
+  registers are hoisted out, which is why `main`'s draft needs the casts exactly where the game has them.
 - **In progress:** `func_800140F4` (a screen transition: its own display, the screen copied in four strips with every
   pixel's semi-transparency bit set, and a 10x7 grid of textured quads with an 11x8 vertex grid) and
   `func_80013C9C` (draws it each frame: alternates two quad grids, fades or re-pages them, rotates and scales the
