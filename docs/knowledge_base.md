@@ -157,6 +157,12 @@ starts:
   - **Early key-off:** for an ordinary note, `seq_step_channel` subtracts `0x200`, so the voice keys off 2 ticks
     before the next event. Notes of 2 ticks or less never key off early.
   - **Held to the end:** a note keeps its full length when the next byte is a tie, or in slur or full-length mode.
+  - **A tie after a rest** keys nothing on: neither the tie path nor the rest path sets the key-on mask, so the note
+    released at the rest stays released and `n r t` is a note and a longer rest. A pending `A4` bend is still
+    spent on that tie, on the silent voice.
+    - **Player bug (fixed):** the parser added the tie to the last note across the rest, so the note sounded
+      through both. Song 12's organ chords (channels 0–2, `n0/8 r/7 t/7`) rang on through every gap, against the
+      game, where they stop at the rest.
 - **`CC` slur and `D0` full length** (`0x80032D44`, `0x80032D58`) set the note mode `+0x6E` to 1 and 4.
   - **Mode bits:** at each note or tie, bit 1 takes bit 0, and a note with bit 1 set skips key-on. It takes over
     the sounding voice with a new pitch and no new attack. So `CC n1 n2` slurs n1 into n2.

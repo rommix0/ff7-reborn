@@ -117,6 +117,10 @@ events, *_ = play_channel(one_channel(bytes([0x02, 0x02, 0xA0])), 0x16)
 assert at(events, "note") == [(0, 36, 46), (48, 36, 46)]
 events, *_ = play_channel(one_channel(bytes([0x02, 0x86, 0xA0])), 0x16)
 assert at(events, "note") == [(0, 36, 94)]  # the tie segment keys off early, the first one doesn't
+# A tie after a rest keys nothing on: the note was released at the rest, and the tie lengthens the silence (song 12's
+# organ: n r t). A pending bend is still spent on that tie.
+events, *_ = play_channel(one_channel(bytes([0x02, 0x91, 0xA4, 0x04, 0x01, 0x86, 0x02, 0xA0])), 0x16)
+assert at(events, "note") == [(0, 36, 46), (144, 36, 46)] and at(events, "bend") == []
 # CC slurs: n1 is held into n2, which takes over the sounding voice without restarting it. The driver ends the slur
 # by looking ahead from each note: a CD (or a rest) before the next note clears it, so n2 keys off early and n3
 # starts fresh. D0 holds notes to full length the same way, without slurring; D1 ends it.

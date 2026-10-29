@@ -328,9 +328,12 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 last_key, held_transpose = key, transpose
             elif semitone == 12 and last_note:
                 last_note[3] += cut + last_len - early  # tie: the last segment's early key-off didn't happen
-            if semitone <= 12 and last_note and bend:  # a pending bend starts on the next note or tie, then is spent
-                events.append([tick, "bend", bend[0], bend[1] + transpose - held_transpose])
+            if semitone <= 12 and bend:  # a pending bend starts on the next note or tie, then is spent
+                if last_note:
+                    events.append([tick, "bend", bend[0], bend[1] + transpose - held_transpose])
                 bend, held_transpose = None, transpose
+            if semitone > 12:
+                last_note = None  # the rest released it: a tie after the rest keys nothing on
             cut = early
             mode = mode & ~2 | (mode & 1) << 1 if semitone <= 12 else mode & ~2
             advance(last_len)
