@@ -84,7 +84,7 @@ How it was found:
 | Address | Our name | What it is (verified by reading the code) |
 |---|---|---|
 | `0x8002DA7C` | (unnamed) | The only driver function called from all over the game (10 outside callers); a public entry point |
-| `0x8002DF88` | `snd_run_command` | Runs one sound command immediately: remaps `0x9C`/`0x9D`/`0xD5`/`0xD6`, then `snd_command_handlers[cmd](entry)` |
+| `0x8002DF88` | `snd_run_command` | Runs one sound command immediately. Shorthands: `24`–`27` play 1–4 effects with consecutive ids (as `20`–`23`); `98`/`99` run `9A`+`9C` / `9B`+`9D`; `D8`–`DA` run `D0`–`D2` with `D4`–`D6`. The song commands do nothing here. Then `snd_command_handlers[cmd](entry)` |
 | `0x8002E1A8` | `snd_flush_queue` | Runs every queued command: entries of 0x24 bytes at `snd_queue` (`0x80081DC8`), count at `snd_queue_count` (`0x80063010`) |
 | `0x8002E23C` | (unnamed) | Calls a run of 8 libspu setters; probably the per-voice SPU update |
 | `0x80030E7C` | `seq_step_channel` | Sequence interpreter for one channel (below) |
@@ -961,7 +961,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 197 of the file's 232 functions are C** (194 written here; `seq_cmd_slur_off`,
+- **Recovered: 203 of the file's 232 functions are C** (200 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -1090,6 +1090,24 @@ Lessons from getting it to match:
     `snd_tick_time_total`.
   - **Parked:** `func_8002A094` (effect start) differs only in which saved registers two values get.
     `func_8002A28C` (the kind 2 effect's start) shares field addresses differently whichever way it's written.
+- **Voice output, song start and resume, the stream start (this round):**
+  - **`snd_update_voice(voice, settings)`** hands each group whose update bits are set to libspu: pitch, volume,
+    start, loop, then the envelope pairs (sustain, attack, release, decay with sustain level). It clears each group's
+    bits and returns once none are left. `VoiceSettings`' first word is the voice number.
+  - **`seq_layer_voice_update`** splits a layered channel's volume by its balance (main voice (127 − n) / 256,
+    layer n / 256), copies the pitch to the layer, and writes both voices.
+  - **`snd_start_song`** reads `song_data`: a word with the channel mask, then a 16-bit offset per channel (from
+    after the offset). Every channel starts on instrument 20 at volume `0x3FFF0000`, centred, and the song state
+    starts over (tempo `0xFFFF`, `tempo_phase` 1).
+  - **`snd_resume_song`** copies a save slot back field by field (the bar's beat 2 ticks back), then the channels.
+    Channels the song doesn't hold step into the end stub, and its voices rewrite everything.
+    - **Fade-in:** unless a slide or the cross-fade is running, `0x80062F5C` (set by `C0`–`C2`) restarts at 10 and
+      slides back over 60 ticks.
+    - **Matching:** the copies must target `seq_song`'s fields, not the plain aliases. GCC 2.x treats a struct
+      field reached through an index as unable to alias a plain scalar, so with the aliases it reorders the copies.
+  - **`snd_stream_start`** (called by `F8`/`F9`) reads the stream header: total size, flags (bit 0 stereo, bit 1
+    loops; the top half is `snd_stream_pitch`), loop offset and a spare word. It primes 8 KB and stops the `0x30`
+    effect pair.
 - **A second file at the start of the range:** `0x800293D0`–`0x80029A4C` (11 functions, including `snd_init` and
   the instrument-bank loaders) reach small globals through `$gp`, so that part was compiled with `-G8`; from
   `0x80029A50` on, small globals like `0x80062F00` are reached with `lui`, which is `-G0`.

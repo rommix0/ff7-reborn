@@ -33,7 +33,7 @@
 
 /* A voice's settings as snd_update_voice hands them to libspu: a channel keeps them at +0xDC. */
 typedef struct VoiceSettings {
-    unsigned char pad_00[0x04];
+    unsigned int voice;                 /* 0x00 the SPU voice */
     unsigned int update;                /* 0x04 UPDATE_*: which settings to write next */
     unsigned int sample;                /* 0x08 the instrument's SPU sample address */
     unsigned int loop;                  /* 0x0C and loop address */
@@ -141,7 +141,7 @@ typedef struct SeqSong {
     unsigned int paused_voices;         /* 0x14 the active voices while 9B has the song paused */
     unsigned int tempo;                 /* 0x18 E8 value << 16 */
     int tempo_slide_step;               /* 0x1C E9 */
-    unsigned char pad_20[0x04];
+    unsigned int tempo_phase;           /* 0x20 the tempo accumulator; a new song starts it at 1 */
     unsigned int layer_voices;          /* 0x24 voices held by F4 layers */
     unsigned int overlap_voices;        /* 0x28 voices held by F8 overlaps */
     unsigned int noise_voices;          /* 0x2C C4/C5 */
@@ -278,7 +278,7 @@ extern unsigned char D_80049C40[]; /* where snd_stop_song points every channel *
 extern int snd_cd_volume_slide_step;
 extern int D_80062F5C;
 extern int D_80062F2C;
-extern unsigned short D_80062F44;
+extern short D_80062F44;
 extern unsigned short D_80062FB8;
 extern unsigned int D_80062FF8;
 extern unsigned short snd_fade_ticks;
@@ -288,7 +288,7 @@ void snd_stop_songs(void);
 void snd_stop_effects(void);
 void snd_refresh_song_volumes(void);
 void snd_refresh_effect_volumes(void);
-void func_8002CFC0(SoundCommand *cmd);
+void snd_stream_start(SoundCommand *cmd);
 void snd_stop_effect_pairs(unsigned short pair, int pairs);
 void snd_refresh_song_volumes(void);
 void snd_refresh_effect_volumes(void);
@@ -350,7 +350,7 @@ extern unsigned short snd_direct_voice_sustain_rate;
 extern unsigned short snd_direct_voice_release_rate;
 extern short snd_direct_voice_volume_left;
 extern short snd_direct_voice_volume_right;
-void snd_update_voice(unsigned short voice, VoiceSettings *settings);
+void snd_update_voice(unsigned int voice, VoiceSettings *settings);
 void snd_stream_fill_stereo_a(void);
 void snd_add_spare_voices(SeqChannel *ch, unsigned int *mask, unsigned int voices, unsigned int spares);
 void func_80037964(int on, unsigned int voices); /* noise voices */
@@ -390,5 +390,19 @@ typedef struct ChannelFade {
     unsigned short ticks;
 } ChannelFade;
 extern ChannelFade snd_channel_fades[24];
+
+void func_800395C8(unsigned int voice, unsigned short pitch); /* libspu voice setters: pitch, volume, start address */
+void func_800393C8(unsigned int voice, short left, short right);
+void func_80039644(unsigned int voice, unsigned int addr);
+void SpuSetVoiceSRAttr(unsigned int voice, unsigned short rate, unsigned int mode);
+void SpuSetVoiceARAttr(unsigned int voice, unsigned short rate, unsigned int mode);
+void SpuSetVoiceRRAttr(unsigned int voice, unsigned short rate, unsigned int mode);
+void SpuSetVoiceDR(unsigned int voice, unsigned short rate);
+void SpuSetVoiceSL(unsigned int voice, unsigned short level);
+
+extern unsigned int snd_stream_flags; /* the header's flags; snd_stream_pitch is its top half */
+void func_80038FB8(int mode);
+void snd_stream_play_mono(void);
+void snd_stream_play_stereo(void);
 
 #endif

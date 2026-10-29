@@ -105,7 +105,94 @@ void channel_reset(SeqChannel *ch, unsigned char *start)
     ch->noise_ticks = 0;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_start_song);
+/* Starts the song in song_data: a word with its channel mask, then a 16-bit offset per channel (from after the
+ * offset) to its sequence. Every channel starts on instrument 20, near full volume, centred, and the song's tempo,
+ * reverb, meter and voice masks start over. While the music is paused (9B), the new voices go straight to the
+ * paused set. */
+void snd_start_song(void)
+{
+    unsigned char *data = (unsigned char *)song_data;
+    SeqChannel *ch;
+    unsigned int voices;
+    unsigned int bit;
+    unsigned short offset;
+
+    voices = *(unsigned int *)data & 0xFFFFFF;
+    data += 4;
+    ch = seq_channels;
+    seq_song_key_off_voices |= 0xFFFFFF;
+    seq_song_active_voices = voices;
+    bit = 1;
+    while (voices) {
+        if (voices & bit) {
+            offset = *(unsigned short *)data;
+            data += 2;
+            voices ^= bit;
+            ch->pos = data + offset;
+            ch->gate = 0x103;
+            ch->volume_scale = 0x7F;
+            load_channel_instrument(ch, 20);
+            ch->volume = 0x3FFF0000;
+            ch->balance = 0x4000;
+            ch->pan = 0x4000;
+            ch->drum_map = (unsigned char *)song_data;
+            ch->detune = 0;
+            ch->transpose = 0;
+            ch->unk_34 = 0;
+            ch->bend_semitones = 0;
+            ch->unk_64 = 0;
+            ch->glide_ticks = 0;
+            ch->fixed_length = 0;
+            ch->last_length = 0;
+            ch->balance_slide_ticks = 0;
+            ch->volume_slide_ticks = 0;
+            ch->pan_slide_ticks = 0;
+            ch->glide_ticks = 0;
+            ch->flags = 0;
+            ch->loop_level = 0;
+            ch->note_mode = 0;
+            ch->pan_lfo_offset = 0;
+            ch->pan_lfo_depth = 0;
+            ch->tremolo_depth = 0;
+            ch->vibrato_depth = 0;
+            ch->pan_lfo_slide_ticks = 0;
+            ch->tremolo_slide_ticks = 0;
+            ch->vibrato_slide_ticks = 0;
+            ch->fm_ticks = 0;
+            ch->noise_ticks = 0;
+        }
+        ch++;
+        bit <<= 1;
+    }
+    seq_song.tempo = 0xFFFF0000;
+    seq_song.tempo_phase = 1;
+    seq_song.tempo_slide_ticks = 0;
+    seq_song.reverb_depth = 0;
+    seq_song.reverb_slide_ticks = 0;
+    seq_song.reverb_slide_step = 0;
+    seq_song_flags = 0;
+    seq_song.bar_beat = 0;
+    seq_song.beat_ticks = 0;
+    seq_song.beat_tick = 0;
+    seq_song.bar_number = 0;
+    seq_song.noise_voices = 0;
+    seq_song.reverb_voices = 0;
+    seq_song.fm_voices = 0;
+    seq_song_branch_level = 0;
+    seq_song.branch_taken = 0;
+    seq_song.unk_54 = 0;
+    seq_song_update_voices = 0;
+    seq_song_voices_08 = 0;
+    seq_song_overlap_voices = 0;
+    seq_song_layer_voices = 0;
+    if (D_80062FF8 & 1) {
+        seq_song_paused_voices = seq_song_active_voices;
+        seq_song_active_voices = 0;
+    }
+    snd_apply_noise_voices();
+    snd_apply_reverb_voices();
+    snd_apply_fm_voices();
+}
 
 /* Ends the song: every voice it holds (layers and overlaps too) keys off in 2 ticks and steps into a stub that ends
  * the channel. */
@@ -376,7 +463,93 @@ void snd_keep_looping_effects(void)
     } while (voices);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_resume_song);
+/* Resumes the song in a save slot: its state (the bar's beat 2 ticks back) and channels come back, the channels it
+ * doesn't hold step into the end stub, and its voices rewrite everything. Unless a slide of 0x80062F5C or the fade is
+ * running, that value restarts at 10 and slides back over 60 ticks. The slot is emptied. */
+void snd_resume_song(int slot)
+{
+    unsigned short s = slot;
+    unsigned int *src;
+    unsigned int *dst;
+    unsigned short n;
+    unsigned int voices;
+    unsigned int bit;
+    SeqChannel *ch;
+
+    seq_song.active_voices = saved_songs[s].active_voices;
+    seq_song.voices_08 = saved_songs[s].voices_08;
+    seq_song.update_voices = saved_songs[s].update_voices;
+    seq_song.tempo = saved_songs[s].tempo;
+    seq_song.tempo_slide_step = saved_songs[s].tempo_slide_step;
+    seq_song.tempo_slide_ticks = saved_songs[s].tempo_slide_ticks;
+    seq_song.tempo_phase = saved_songs[s].tempo_phase;
+    seq_song.layer_voices = saved_songs[s].layer_voices;
+    seq_song.overlap_voices = saved_songs[s].overlap_voices;
+    seq_song.song_id = saved_songs[s].song_id;
+    seq_song.branch_taken = saved_songs[s].branch_taken;
+    seq_song.branch_level = saved_songs[s].branch_level;
+    seq_song.reverb_depth = saved_songs[s].reverb_depth;
+    seq_song.reverb_slide_step = saved_songs[s].reverb_slide_step;
+    seq_song.reverb_slide_ticks = saved_songs[s].reverb_slide_ticks;
+    seq_song.noise_clock = saved_songs[s].noise_clock;
+    seq_song.noise_voices = saved_songs[s].noise_voices;
+    seq_song.reverb_voices = saved_songs[s].reverb_voices;
+    seq_song.fm_voices = saved_songs[s].fm_voices;
+    seq_song.unk_54 = saved_songs[s].unk_54;
+    seq_song.flags = saved_songs[s].flags;
+    seq_song.beats_per_bar = saved_songs[s].beats_per_bar;
+    seq_song.beat_tick = saved_songs[s].beat_tick;
+    seq_song.beat_ticks = saved_songs[s].beat_ticks;
+    seq_song.bar_beat = saved_songs[s].bar_beat - 2;
+    seq_song.bar_number = saved_songs[s].bar_number;
+    seq_song.flags |= SONG_UPDATE_REVERB;
+    src = (unsigned int *)saved_song_channels[1];
+    if (!s)
+        src = (unsigned int *)saved_song_channels[0];
+    n = sizeof(SeqChannel) * 24 / 4;
+    dst = (unsigned int *)seq_channels;
+    do {
+        n--;
+        *dst++ = *src++;
+    } while (n);
+    voices = seq_song_active_voices;
+    if (voices) {
+        ch = seq_channels;
+        bit = 1;
+        for (n = 24; n; n--, ch++, bit <<= 1) {
+            if (!(voices & bit)) {
+                ch->gate = 0x204;
+                ch->pos = D_80049C40;
+            }
+        }
+    }
+    voices |= seq_song_layer_voices;
+    seq_song_key_off_voices = ~seq_song_voices_08 & 0xFFFFFF;
+    ch = seq_channels;
+    bit = 1;
+    while (voices) {
+        if (voices & bit) {
+            voices ^= bit;
+            ch->gate += 0x202;
+            ch->voice.update |= UPDATE_ALL;
+        }
+        ch++;
+        bit <<= 1;
+    }
+    snd_apply_noise_voices();
+    snd_apply_reverb_voices();
+    snd_apply_fm_voices();
+    if (!D_80062F44 && !snd_channel_fades[0].ticks) {
+        D_80062F44 = 60;
+        D_80062F2C = (D_80062F5C - 0xA0000) / 60;
+        D_80062F5C = 0xA0000;
+    }
+    saved_songs[s].song_id = 0;
+    if (D_80062FF8 & 1) {
+        seq_song_paused_voices = seq_song_active_voices;
+        seq_song_active_voices = 0;
+    }
+}
 
 /* 18/19, while a song plays: it moves to the second block (channels, state and its data 12 KB up, every pointer
  * moved with it) to fade out there, channel n over (24 - n) * snd_fade_ticks ticks, while the new song starts. */
@@ -1087,7 +1260,7 @@ void snd_cmd_9B(SoundCommand *cmd)
 {
     unsigned int voices;
     unsigned int bit;
-    unsigned int voice;
+    unsigned short voice;
 
     if (seq_song_active_voices) {
         voices = (seq_song_active_voices | seq_song_layer_voices | seq_song_overlap_voices) & ~(effect_voices | snd_stream_voices);
@@ -1147,7 +1320,7 @@ void snd_cmd_9D(SoundCommand *cmd)
     unsigned int all = *held;
     unsigned int voices = all;
     unsigned int bit;
-    unsigned int voice;
+    unsigned short voice;
 
     if (voices) {
         bit = 0x10000;
@@ -1298,13 +1471,13 @@ void snd_cmd_F5(SoundCommand *cmd)
     seq_song_flags |= SONG_UPDATE_NOISE;
 }
 
-/* F8/F9: after func_8002CFC0, the stream's voices leave the effects, and their reverb goes off (F8) or on (F9).
+/* F8/F9: after snd_stream_start, the stream's voices leave the effects, and their reverb goes off (F8) or on (F9).
  * The game reaches effect_voices through a pointer here. */
 void snd_cmd_F8(SoundCommand *cmd)
 {
     unsigned int *voices = &effect_voices;
 
-    func_8002CFC0(cmd);
+    snd_stream_start(cmd);
     *voices &= ~snd_stream_voices;
     effect_reverb_voices &= ~snd_stream_voices;
     snd_apply_reverb_voices();
@@ -1314,7 +1487,7 @@ void snd_cmd_F9(SoundCommand *cmd)
 {
     unsigned int *voices = &effect_voices;
 
-    func_8002CFC0(cmd);
+    snd_stream_start(cmd);
     *voices &= ~snd_stream_voices;
     effect_reverb_voices |= snd_stream_voices;
     snd_apply_reverb_voices();
@@ -1333,7 +1506,62 @@ void func_8002CFA0(void)
     func_80038FEC(0);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CFC0);
+/* Starts the sample stream at arg 0, at volume arg 2 and pan arg 1 (mono). The header: total size, flags (bit 0
+ * stereo, bit 1 loops; the top half is the pitch), the loop offset, and a spare word. The first 8 KB go to the SPU
+ * at once, and the stream's voices leave the effects' noise and FM and the 0x30 effect pair. */
+void snd_stream_start(SoundCommand *cmd)
+{
+    unsigned int flags;
+    unsigned int loop;
+
+    effect_key_off_voices |= snd_stream_voices;
+    func_80038FEC(0);
+    func_80038A84(0);
+    SpuSetIRQCallback(0);
+    snd_stream_pos = (unsigned char *)cmd->arg[0];
+    snd_stream_pan = cmd->arg[1];
+    snd_stream_volume = cmd->arg[2] << 7;
+    snd_stream_left = *(unsigned int *)snd_stream_pos;
+    if (snd_stream_left) {
+        snd_stream_pos += 4;
+        flags = *(unsigned int *)snd_stream_pos;
+        snd_stream_flags = flags;
+        snd_stream_pos += 4;
+        loop = *(unsigned int *)snd_stream_pos;
+        snd_stream_pos += 8;
+        if (flags & 2)
+            snd_stream_loop = snd_stream_pos + loop;
+        else
+            snd_stream_loop = 0;
+        if (flags & 2)
+            snd_stream_loop_size = snd_stream_left - loop;
+        else
+            snd_stream_loop_size = 0;
+        if (flags & 1) {
+            snd_stream_voices_stereo();
+            func_80038FEC(snd_stream_play_stereo);
+            snd_stream_voices = 0x30000;
+        } else {
+            snd_stream_voice_mono();
+            func_80038FEC(snd_stream_play_mono);
+            snd_stream_voices = 0x10000;
+        }
+        func_80038FB8(0);
+        func_80038F64(0x77000);
+        func_80038F04(snd_stream_pos, 0x2000);
+        if (snd_stream_left > 0x2000) {
+            snd_stream_left -= 0x2000;
+            snd_stream_pos += 0x2000;
+        } else {
+            snd_stream_left = 0;
+        }
+    }
+    effect_fm_voices &= ~snd_stream_voices;
+    effect_noise_voices &= ~snd_stream_voices;
+    snd_apply_fm_voices();
+    snd_apply_noise_voices();
+    snd_stop_effect_pairs(0, 1);
+}
 
 /* Sets up voice 16 for the mono stream: the buffer at 0x77000 looping on itself, at snd_stream_volume's volume split by
  * snd_stream_pan (0 left to 127 right). */
@@ -1534,7 +1762,61 @@ void snd_queue_next(SoundCommand **cmd)
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002DA7C);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_run_command);
+/* Runs one sound command now. Some ids are shorthands: 24-27 play 1-4 effects with consecutive ids (as 20-23), 98/99
+ * resume or pause music and effects together (9A + 9C, 9B + 9D), and D8-DA run D0-D2 and D4-D6 together. The song
+ * commands (10, 14, 15, 18, 19) do nothing here. */
+int snd_run_command(SoundCommand *cmd)
+{
+    switch (cmd->id) {
+    case 0x10:
+    case 0x14:
+    case 0x15:
+    case 0x18:
+    case 0x19:
+        cmd->id = 0;
+        break;
+    case 0x24:
+        cmd->id = 0x20;
+        break;
+    case 0x25:
+        cmd->id = 0x21;
+        cmd->arg[2] = cmd->arg[1] + 1;
+        break;
+    case 0x26:
+        cmd->id = 0x22;
+        cmd->arg[2] = cmd->arg[1] + 1;
+        cmd->arg[3] = cmd->arg[1] + 2;
+        break;
+    case 0x27:
+        cmd->id = 0x23;
+        cmd->arg[2] = cmd->arg[1] + 1;
+        cmd->arg[3] = cmd->arg[1] + 2;
+        cmd->arg[4] = cmd->arg[1] + 3;
+        break;
+    case 0xD8:
+        snd_command_handlers[0xD0](cmd);
+        cmd->id = 0xD4;
+        break;
+    case 0xD9:
+        snd_command_handlers[0xD1](cmd);
+        cmd->id = 0xD5;
+        break;
+    case 0xDA:
+        snd_command_handlers[0xD2](cmd);
+        cmd->id = 0xD6;
+        break;
+    case 0x99:
+        snd_command_handlers[0x9B](cmd);
+        cmd->id = 0x9D;
+        break;
+    case 0x98:
+        snd_command_handlers[0x9A](cmd);
+        cmd->id = 0x9C;
+        break;
+    }
+    snd_command_handlers[(unsigned char)cmd->id](cmd);
+    return 0;
+}
 
 /* Runs every queued sound command, unless the queue is held. */
 void snd_flush_queue(void)
@@ -1551,7 +1833,50 @@ void snd_flush_queue(void)
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_update_voice);
+/* Hands a voice's settings to libspu, each group whose update bits are set, clearing them as it goes. */
+void snd_update_voice(unsigned int voice, VoiceSettings *v)
+{
+    if (v->update & UPDATE_PITCH) {
+        func_800395C8(voice, v->pitch);
+        if (!(v->update &= ~UPDATE_PITCH))
+            return;
+    }
+    if (v->update & UPDATE_VOLUME) {
+        func_800393C8(voice, v->volume[0], v->volume[1]);
+        if (!(v->update &= ~UPDATE_VOLUME))
+            return;
+    }
+    if (v->update & UPDATE_SAMPLE) {
+        func_80039644(voice, v->sample);
+        if (!(v->update &= ~UPDATE_SAMPLE))
+            return;
+    }
+    if (v->update & UPDATE_LOOP) {
+        func_800396C0(voice, v->loop);
+        if (!(v->update &= ~UPDATE_LOOP))
+            return;
+    }
+    if (v->update & (UPDATE_SUSTAIN_MODE | UPDATE_SUSTAIN_RATE)) {
+        SpuSetVoiceSRAttr(voice, v->sustain_rate, v->sustain_mode);
+        if (!(v->update &= ~(UPDATE_SUSTAIN_MODE | UPDATE_SUSTAIN_RATE)))
+            return;
+    }
+    if (v->update & (UPDATE_ATTACK_MODE | UPDATE_ATTACK_RATE)) {
+        SpuSetVoiceARAttr(voice, v->attack_rate, v->attack_mode);
+        if (!(v->update &= ~(UPDATE_ATTACK_MODE | UPDATE_ATTACK_RATE)))
+            return;
+    }
+    if (v->update & (UPDATE_RELEASE_MODE | UPDATE_RELEASE_RATE)) {
+        SpuSetVoiceRRAttr(voice, v->release_rate, v->release_mode);
+        if (!(v->update &= ~(UPDATE_RELEASE_MODE | UPDATE_RELEASE_RATE)))
+            return;
+    }
+    if (v->update & (UPDATE_DECAY_RATE | UPDATE_SUSTAIN_LEVEL)) {
+        SpuSetVoiceDR(voice, v->decay_rate);
+        SpuSetVoiceSL(voice, v->sustain_level);
+        v->update &= ~(UPDATE_DECAY_RATE | UPDATE_SUSTAIN_LEVEL);
+    }
+}
 
 /* The CD audio's volume on both sides, with no reverb. */
 void snd_apply_cd_volume(void)
@@ -1573,7 +1898,27 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", seq_channel_lfo);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002F24C);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_layer_voice_update);
+/* A layered channel's voice update: the main voice keeps (127 - balance) / 256 of its volume and the layer voice
+ * gets balance / 256, the layer plays the main voice's pitch, and both are written (the layer if it's in voices). */
+void seq_layer_voice_update(SeqChannel *ch, unsigned int voices, unsigned int voice)
+{
+    SeqChannel *layer;
+    unsigned short share = 127 - (ch->balance >> 8);
+    short vol;
+
+    vol = ch->voice.volume[0];
+    ch->voice.volume[0] = (vol * share) >> 8;
+    layer = &seq_channels[ch->layer_voice];
+    layer->voice.volume[0] = (vol * ch->balance) >> 16;
+    vol = ch->voice.volume[1];
+    ch->voice.volume[1] = (vol * share) >> 8;
+    layer->voice.volume[1] = (vol * ch->balance) >> 16;
+    layer->voice.pitch = ch->voice.pitch;
+    layer->voice.update |= ch->voice.update;
+    snd_update_voice(ch->voice.voice, &ch->voice);
+    if (voices & (1 << voice))
+        snd_update_voice(voice, &layer->voice);
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002F848);
 
