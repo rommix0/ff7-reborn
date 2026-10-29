@@ -958,7 +958,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 136 of the file's 232 functions are C** (133 written here; `seq_cmd_slur_off`,
+- **Recovered: 156 of the file's 232 functions are C** (153 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -1002,6 +1002,21 @@ Lessons from getting it to match:
   - Names follow the command byte (`snd_cmd_D0`) until what they control is known.
   - `F8`/`F9` reach `effect_voices` through a pointer: only then does GCC keep its address in a register as the
     game does.
+  - `C9`/`CA` slide `C8`'s value (to, or from–to), `C0`/`C1`/`C2` set or slide `0x80062F5C`, `D2`/`D6` are `D0`'s and
+    `D4`'s from–to slides, and `E4` sets a byte and flag `0x10` at `0x80062FF8` with it.
+- **Playing effects (sound commands `20`–`34`):** look the id up with `func_8002A6C4` (its two streams), then start it
+  with `func_8002A094(pan, pair, first, second)` after `func_8002A510` on the pair. `20`/`28` play on pair `0x34`,
+  `29` on `0x32`, `2A` on `0x30`, `2B` on `0x36`; `21`, `22` and `23` play two, three or four effects together from
+  `0x30` (or `0x32`) up; `30` hands its effect to `func_8002A28C`; `34` plays two streams the caller gives, centred.
+- **Songs (sound commands `10`, `14`, `18`, `19`):** `seq_song`'s `+0x4A` is the playing song's id (0 = none).
+  - **`10` a b id** loads with `func_80029B78`, then resumes a saved song with that id (either slot,
+    `snd_resume_song`) or starts it (`func_80029C48`); song 14 is saved first when it's playing.
+  - **`14` a b id** saves whatever is playing (`snd_save_song`) before starting the new one (parked: the game
+    computes `&seq_song` once before its branch).
+  - **`18`/`19`** are `10`/`14` with `func_8002AFB8` first while a song plays, given arg 3 (0 = 16) at
+    `0x80062FC8` *(probably a fade-out and its length; unverified)*.
+  - **Two save slots:** `saved_song_channels[2][24]` (`0x8007EC10`) and `saved_songs[2]` (`0x80083334`); slot 1
+    holds song 14 and slot 0 any other. `F2`/`F3` empty them. Their stride confirms `SeqSong` is `0x60` bytes.
 
 ## 8. Sony library map (main exe)
 

@@ -55,45 +55,195 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A7E8);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A958);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002AABC);
+INCLUDE_ASM("asm/nonmatchings/main/sound", snd_resume_song);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002AFB8);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B1A8);
+INCLUDE_ASM("asm/nonmatchings/main/sound", snd_save_song);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B1F8);
+/* 10 a b id: start song id. A saved song with that id is resumed instead (from either slot); song 14 is saved
+ * first when it's the one playing. */
+void snd_cmd_10(SoundCommand *cmd)
+{
+    func_80029B78(cmd->arg[0], cmd->arg[1]);
+    if (seq_song_id == 14) {
+        func_8002A7E8();
+        snd_save_song(seq_channels, saved_song_channels[1], &seq_song, &saved_songs[1]);
+    }
+    func_80029E98();
+    if (saved_songs[0].song_id && saved_songs[0].song_id == (unsigned short)cmd->arg[2])
+        snd_resume_song(0);
+    else if (saved_songs[1].song_id && saved_songs[1].song_id == (unsigned short)cmd->arg[2])
+        snd_resume_song(1);
+    else
+        func_80029C48();
+    seq_song_id = cmd->arg[2];
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B2F8);
+INCLUDE_ASM("asm/nonmatchings/main/sound", snd_cmd_14);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B3B4);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B5A8);
+/* 18 / 19: while a song plays (seq_song_id set), first func_8002AFB8 with the value at 0x80062FC8 = arg 3 (0 = 16); then as 10 / 14. */
+void snd_cmd_18(SoundCommand *cmd)
+{
+    if (seq_song_id) {
+        D_80062FC8 = cmd->arg[3] ? (unsigned short)cmd->arg[3] : 16;
+        func_8002AFB8();
+    }
+    snd_cmd_10(cmd);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B608);
+void snd_cmd_19(SoundCommand *cmd)
+{
+    if (seq_song_id) {
+        D_80062FC8 = cmd->arg[3] ? (unsigned short)cmd->arg[3] : 16;
+        func_8002AFB8();
+    }
+    snd_cmd_14(cmd);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B668);
+/* 34 first second: play two streams the caller gives, centred, on the pair at 0x34. */
+void snd_cmd_34(SoundCommand *cmd)
+{
+    func_8002A510(4, 1);
+    func_8002A094(0x40, 0x34, (unsigned char *)cmd->arg[0], (unsigned char *)cmd->arg[1]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B6AC);
+/* 21 pan a b: play effects a and b together, on the pairs at 0x32 and 0x34. */
+void snd_cmd_21(SoundCommand *cmd)
+{
+    unsigned char *first;
+    unsigned char *second;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B730);
+    func_8002A510(4, 2);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[2]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B7E0);
+/* 22 / 23 pan a b c (d): three or four effects together, on the pairs from 0x30 up. */
+void snd_cmd_22(SoundCommand *cmd)
+{
+    unsigned char *first;
+    unsigned char *second;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B8B4);
+    func_8002A510(4, 3);
+    func_80029A50();
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[2]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[3]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B904);
+void snd_cmd_23(SoundCommand *cmd)
+{
+    unsigned char *first;
+    unsigned char *second;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B958);
+    func_8002A510(6, 4);
+    func_80029A50();
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[2]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[3]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[4]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x36, first, second);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002B9AC);
+/* 30 id: play effect id through func_8002A28C. */
+void snd_cmd_30(SoundCommand *cmd)
+{
+    unsigned char *first;
+    unsigned char *second;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BA08);
+    func_8002A510(6, 1);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[0]);
+    func_8002A28C(first, second);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BA5C);
+/* 20 (and 28) / 29 / 2B pan id: play effect id on the pair at 0x34 / 0x32 / 0x36, after func_8002A510 on it. */
+void snd_cmd_20(SoundCommand *cmd)
+{
+    unsigned char *first;
+    unsigned char *second;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BA98);
+    func_8002A510(4, 1);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x34, first, second);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BB20);
+void snd_cmd_29(SoundCommand *cmd)
+{
+    unsigned char *first;
+    unsigned char *second;
+
+    func_8002A510(2, 1);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x32, first, second);
+}
+
+/* 2A pan id: play effect id on the pair at 0x30, after func_8002A510 on pair 0 and func_80029A50. */
+void snd_cmd_2A(SoundCommand *cmd)
+{
+    unsigned char *first;
+    unsigned char *second;
+
+    func_8002A510(0, 1);
+    func_80029A50();
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x30, first, second);
+}
+
+void snd_cmd_2B(SoundCommand *cmd)
+{
+    unsigned char *first;
+    unsigned char *second;
+
+    func_8002A510(6, 1);
+    func_8002A6C4(&first, &second, (unsigned short)cmd->arg[1]);
+    func_8002A094((unsigned short)cmd->arg[0], 0x36, first, second);
+}
+
+/* C0 v / C1 t v / C2 t a b: set or slide a value at 0x80062F5C (v & 0x7F) << 16, then call func_8002A748. */
+void snd_cmd_C0(SoundCommand *cmd)
+{
+    D_80062F5C = (cmd->arg[0] & 0x7F) << 16;
+    D_80062F44 = 0;
+    func_8002A748();
+}
+
+void snd_cmd_C1(SoundCommand *cmd)
+{
+    int ticks = 1;
+
+    if (cmd->arg[0])
+        ticks = cmd->arg[0];
+    D_80062F2C = (((cmd->arg[1] & 0x7F) << 16) - D_80062F5C) / ticks;
+    D_80062F44 = ticks;
+    func_8002A748();
+}
+
+void snd_cmd_C2(SoundCommand *cmd)
+{
+    int ticks = 1;
+    int to;
+    int from;
+
+    if (cmd->arg[0])
+        ticks = cmd->arg[0];
+    to = (cmd->arg[2] & 0x7F) << 16;
+    from = (cmd->arg[1] & 0x7F) << 16;
+    D_80062F2C = (to - from) / ticks;
+    D_80062F44 = ticks;
+    D_80062F5C = from;
+    func_8002A748();
+}
 
 void snd_cmd_C8(SoundCommand *cmd)
 {
@@ -102,9 +252,31 @@ void snd_cmd_C8(SoundCommand *cmd)
     func_8002E428();
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BBEC);
+/* C9 t v: slide C8's value to v over t ticks (0 = 1). CA t a b: from a to b. */
+void snd_cmd_C9(SoundCommand *cmd)
+{
+    int ticks = 1;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BC58);
+    if (cmd->arg[0])
+        ticks = cmd->arg[0];
+    D_80062FB4 = (((unsigned short)cmd->arg[1] << 16) - D_80062FD4) / ticks;
+    D_80062FCC = ticks;
+}
+
+void snd_cmd_CA(SoundCommand *cmd)
+{
+    int ticks = 1;
+    int to;
+    int from;
+
+    if (cmd->arg[0])
+        ticks = cmd->arg[0];
+    to = (unsigned short)cmd->arg[2] << 16;
+    from = (unsigned short)cmd->arg[1] << 16;
+    D_80062FB4 = (to - from) / ticks;
+    D_80062FCC = ticks;
+    D_80062FD4 = from;
+}
 
 /* Sound commands A0-B7 set or slide the balance, pan or pitch shift of a playing effect, on both channels of its
  * pair (seq_channels 48-55). A slide's length 0 means 1 tick. */
@@ -369,7 +541,18 @@ void snd_cmd_D1(SoundCommand *cmd)
     D_80062F48 = ticks;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_cmd_D2);
+/* D2 a t b: D0's value from a to b over t ticks. D6: the same for D4's. */
+void snd_cmd_D2(SoundCommand *cmd)
+{
+    int ticks = 1;
+    int from = (signed char)cmd->arg[0] << 16;
+
+    D_80062FE8 = from;
+    if (cmd->arg[1])
+        ticks = cmd->arg[1];
+    D_80062F30 = (((signed char)cmd->arg[2] << 16) - from) / ticks;
+    D_80062F48 = ticks;
+}
 
 void snd_cmd_D4(SoundCommand *cmd)
 {
@@ -387,7 +570,17 @@ void snd_cmd_D5(SoundCommand *cmd)
     D_80062F40 = ticks;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_cmd_D6);
+void snd_cmd_D6(SoundCommand *cmd)
+{
+    int ticks = 1;
+    int from = (signed char)cmd->arg[0] << 16;
+
+    D_80062FE4 = from;
+    if (cmd->arg[1])
+        ticks = cmd->arg[1];
+    D_80062F28 = (((signed char)cmd->arg[2] << 16) - from) / ticks;
+    D_80062F40 = ticks;
+}
 
 void snd_cmd_F0(SoundCommand *cmd)
 {
@@ -451,16 +644,28 @@ void snd_cmd_E0(SoundCommand *cmd)
     seq_song_flags |= SONG_UPDATE_REVERB;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CC44);
+/* E4 n: stores n (a byte) and sets flag 0x10 at 0x80062FF8 when it's non-zero; the reverb is updated. */
+void snd_cmd_E4(SoundCommand *cmd)
+{
+    unsigned short n = (unsigned char)cmd->arg[0];
+
+    D_80062FB8 = n;
+    if (n)
+        D_80062FF8 |= 0x10;
+    else
+        D_80062FF8 &= ~0x10;
+    func_80030038();
+    seq_song_flags |= SONG_UPDATE_REVERB;
+}
 
 void snd_cmd_F2(SoundCommand *cmd)
 {
-    D_8008337E = 0;
+    saved_songs[0].song_id = 0;
 }
 
 void snd_cmd_F3(SoundCommand *cmd)
 {
-    D_800833DE = 0;
+    saved_songs[1].song_id = 0;
 }
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CCDC);

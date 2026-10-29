@@ -145,7 +145,7 @@ typedef struct SeqSong {
     int reverb_depth;                   /* 0x40 EA value << 16 */
     int reverb_slide_step;              /* 0x44 EB */
     unsigned short tempo_slide_ticks;   /* 0x48 */
-    unsigned short playing;             /* 0x4A A0 clears it when the last channel ends */
+    unsigned short song_id;             /* 0x4A the playing song (sound command 10); A0 clears it when the last channel ends */
     unsigned short branch_taken;        /* 0x4C EF: the n of the last branch taken */
     unsigned short branch_level;        /* 0x4E EF branches when this is non-zero and at least n (set by the game) */
     unsigned short reverb_slide_ticks;  /* 0x50 */
@@ -185,6 +185,7 @@ extern unsigned int seq_song_update_voices;
 extern unsigned int seq_song_voices_10;
 extern unsigned int seq_song_flags;
 extern unsigned short seq_song_branch_level;
+extern unsigned short seq_song_id;
 
 /* The effect channels' copies of the song voice masks, and of the noise clock. */
 extern unsigned int effect_noise_voices;
@@ -225,11 +226,16 @@ extern int D_80062F28;
 extern unsigned short D_80062F40;
 extern int D_80062FD8;
 extern unsigned short D_80062F70;
-extern unsigned short D_8008337E;
-extern unsigned short D_800833DE;
 extern unsigned short D_80062FCC;
 extern int D_80062FD4;
 extern unsigned int D_80062F00;
+extern int D_80062FB4;
+extern int D_80062F5C;
+extern int D_80062F2C;
+extern unsigned short D_80062F44;
+extern unsigned short D_80062FB8;
+extern unsigned int D_80062FF8;
+extern unsigned short D_80062FC8;
 
 void func_80029A50(void);
 void func_80029F44(void);
@@ -237,6 +243,24 @@ void func_8002A43C(void);
 void func_8002A748(void);
 void func_8002A798(void);
 void func_8002CFC0(SoundCommand *cmd);
+void func_8002A510(int pair, int arg);
+void func_8002A6C4(unsigned char **first, unsigned char **second, int effect); /* an effect's two streams */
+void func_8002A094(int pan, int pair, unsigned char *first, unsigned char *second); /* starts an effect */
+void func_8002A28C(unsigned char *first, unsigned char *second);
+void func_8002AFB8(void);
+void func_80029B78(int a, int b);
+void func_80029C48(void); /* starts the loaded song */
+void func_80029E98(void);
+void func_8002A7E8(void);
+void snd_resume_song(int slot);
+void snd_save_song(SeqChannel *channels, SeqChannel *saved_channels, SeqSong *song, SeqSong *saved);
+
+/* Two saved songs, for sound commands 10/14: slot 1 holds song 14, slot 0 any other. A slot is empty when its
+ * song_id is 0 (F2/F3 empty them). */
+extern SeqChannel saved_song_channels[2][24];
+extern SeqSong saved_songs[2];
+void snd_cmd_10(SoundCommand *cmd);
+void snd_cmd_14(SoundCommand *cmd);
 void func_8002E428(void);
 void func_80030038(void); /* hands the reverb voice masks to the SPU (by analogy with func_80030148) */
 void func_80030148(void); /* hands the FM voice masks to the SPU */
