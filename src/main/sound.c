@@ -1123,7 +1123,20 @@ void snd_effect_pitch_shift(SoundCommand *cmd, SeqChannel *pair)
     pair[1].voice.update |= UPDATE_PITCH;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_effect_pitch_shift_slide);
+void snd_effect_pitch_shift_slide(SoundCommand *cmd, SeqChannel *pair)
+{
+    int ticks = 1;
+    /* One variable for the length and both distances: it is what puts them in the game's registers. */
+    int n = cmd->arg[0];
+
+    if (n)
+        ticks = n;
+    n = ((signed char)cmd->arg[1] << 8) - pair[0].pitch_shift;
+    pair[0].pitch_shift_step = n / ticks;
+    n = ((signed char)cmd->arg[1] << 8) - pair[1].pitch_shift;
+    pair[1].pitch_shift_step = n / ticks;
+    pair[0].pitch_shift_slide_ticks = pair[1].pitch_shift_slide_ticks = ticks;
+}
 
 void snd_cmd_BC(SoundCommand *cmd)
 {
@@ -4223,7 +4236,50 @@ void seq_cmd_branch_if(SeqChannel *ch, SeqSong *song, unsigned int voice)
     }
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_cmd_end);
+void seq_cmd_end(SeqChannel *ch, SeqSong *song, unsigned int voice)
+{
+    unsigned int keep;
+    int layer;
+    unsigned int *held;
+    SeqChannel *other;
+
+    if (!ch->is_effect) {
+        keep = voice ^ 0xFFFFFF;
+        if (!(song->active_voices &= keep))
+            song->song_id = 0;
+        song->noise_voices &= keep;
+        song->reverb_voices &= keep;
+        song->fm_voices &= keep;
+        if (ch->flags & CHANNEL_LAYER) {
+            layer = (unsigned short)ch->layer_voice;
+            if (D_80062F04)
+                layer -= 24;
+            song->layer_voices &= ~(1 << layer);
+        }
+        if (ch->flags & CHANNEL_OVERLAP)
+            song->overlap_voices &= ~(1 << ch->overlap_voice);
+    } else {
+        keep = voice ^ 0xFF0000;
+        held = &effect_voices;
+        *held &= keep;
+        effect_noise_voices &= keep;
+        effect_reverb_voices &= keep;
+        effect_fm_voices &= keep;
+        seq_song_key_on_voices &= ~voice;
+        seq_song_update_voices &= ~voice;
+        seq_song_key_off_voices &= ~voice;
+        held = &ch->overlap_voice;
+        other = &seq_channels[*held];
+        other->voice.update |= UPDATE_SAMPLE | UPDATE_ENVELOPE | UPDATE_LOOP;
+    }
+    /* Through a plain pointer, like the overlap voice above: the game clears the flags before the song's are read. */
+    held = &ch->flags;
+    *held = 0;
+    seq_song_flags |= SONG_UPDATE_NOISE;
+    snd_apply_noise_voices();
+    snd_apply_reverb_voices();
+    snd_apply_fm_voices();
+}
 
 /* Every unused command byte ends the channel, as A0 does. */
 void seq_cmd_unknown(SeqChannel *ch, SeqSong *song, unsigned int voice)

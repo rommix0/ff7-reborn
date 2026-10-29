@@ -882,10 +882,16 @@ then built them with the Win32 `CC1PSX` → `ASPSX` → `PSYLINK /p`:
 | GCC 2.6.3 / 2.7.2 "Sony Playstation" `cc1`, `cpp` | decompals/old-gcc release `0.17`, SHA256-pinned in `tools/toolchain.sha256` | GPL (GCC) | Compiler |
 | maspsx | mkst/maspsx at commit `4ffa8b51` | MIT | Rewrites GCC output the way SN's ASPSX would: delay slots, `$at` expansions, `nop`s |
 | GNU binutils (`mipsel-linux-gnu-*`) | Ubuntu package `binutils-mipsel-linux-gnu` | GPL | Assemble, link, objdump |
+| decomp-permuter | simonlindholm/decomp-permuter, cloned into `toolchain/` (ignored) with its own WSL venv | MIT | Tries random rewrites of one function and keeps those that compile closer to the game |
 
 Pipeline: `cpp` → `cc1 -O2 -G0` → `maspsx --aspsx-version=2.79` (2.34 for the sound driver) → `as -march=r3000 -G0 -O1` → `ld` at the exact address →
 `objcopy -O binary`. `tools/match.sh <file.c> <addr> [gcc]` runs it and either prints `MATCH` or diffs the disassembly
 against your exe.
+
+**Permuter:** `tools/permuter.sh NAME SOURCE.c` sets up `build/perm/NAME` for a `sound.c` function: the preprocessed
+C, the game's asm assembled as `target.o`, and a `compile.sh` with `sound.c`'s flags. Run the permuter with the venv's
+`bin` on `PATH` (the script's header has the command). Treat what it finds as a hint: it found the variable sharing in
+`snd_effect_pitch_shift_slide` and the pointer reads in `A0`, then each was rewritten by hand in the file's style.
 
 **Proven:** `src/main/bitops.c` (3 functions, `80014A00`–`80014A84`, 132 bytes) is **byte-identical** to the game
 with GCC 2.7.2. GCC 2.6.3 matches only one of the three, so that part of the exe was built with 2.7.2.
@@ -961,7 +967,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 229 of the driver's 232 functions are C**, in `sound.c` and `sound_init.c` (226 written here; `seq_cmd_slur_off`,
+- **Recovered: 231 of the driver's 232 functions are C**, in `sound.c` and `sound_init.c` (228 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -972,9 +978,10 @@ Lessons from getting it to match:
   volume follow, layer balance and layer off, overlap off, the envelope setters, `B0` and `B3`, `CB` (all off), and
   `F3` (`func_800335CC`, which sets the song's `+0x54`), the instrument changes `A1` and `F2`, and
   `load_channel_instrument`.
-  - **Handler still asm:** `A0`. `B4`, `F4` and `F8` are C now (see "The note handler and the last handlers").
-  - **Parked, close:** `A0`'s effect branch is right in shape, but GCC moves `~voice` and the update mask early and
-    then copies the voice bit out of `a2`, where the game keeps it.
+  - **Every handler is C.** `A0` reads the effect's overlap voice and clears the channel flags through the same plain
+    `unsigned int *` it used for `effect_voices`. Through `ch->` GCC may move those accesses past the global masks
+    (a struct field and a fixed scalar can't alias, it assumes), which loads the update mask early and pushes the
+    voice bit out of `a2`. Found with decomp-permuter (§7).
   - **Statement order matters at the ends of functions:** in `A1` and `F2` the voice-update `|=` has to come after the
     last field copy for the stores to schedule as in the game.
   - **`F1`** is `F0` that also pops the loop level; **`EF`** jumps when the song's `+0x4E` (set by the game) is
@@ -991,8 +998,8 @@ Lessons from getting it to match:
   its pair to a shared worker (`snd_effect_balance` …), which sets both channels.
   - `SoundCommand` (`include/sound.h`): a 16-bit id, then 32-bit arguments from `+0x04` (`0x24` bytes, as queued).
   - `pitch_shift` (`+0x3C`, step `+0x40`, ticks `+0x5A`) is a signed byte << 8 the game sets on a playing effect.
-  - A slide's length 0 means 1 tick. `snd_effect_pitch_shift_slide` is parked: its tick count is copied to another
-    register before the final stores, and no form tried reproduces that.
+  - A slide's length 0 means 1 tick. `snd_effect_pitch_shift_slide` uses one variable for the length argument and
+    then each channel's distance; that sharing is what gives the game's registers (found with decomp-permuter).
 - **Other sound commands in C:** `B8`–`BD` apply those six controls to all four effect pairs (from slot 54 back,
   two channels a step). `D0`/`D1` and `D4`/`D5` set or slide `snd_tempo_scale` / `snd_pitch_scale` (a signed byte
   << 16 that scales the tempo / pitch), `C8` sets `0x80062FD4` and calls `func_8002E428`, `80`/`81`/`82` store 1/2/4 in
@@ -1089,7 +1096,9 @@ Lessons from getting it to match:
   - **`func_8002A094` (effect start) is C:** its pan parameter is `unsigned short` (every caller casts to it), and
     the shifted pan goes back into the parameter. A separate local put the pan and the second stream in swapped
     saved registers.
-  - **Parked:** `func_8002A28C` (the kind 2 effect's start) shares field addresses differently whichever way it's written.
+  - **Parked:** `func_8002A28C` (the kind 2 effect's start): the game keeps `&seq_channels[54]` in `s1` across
+    the first `channel_reset`; GCC here treats it as a constant, rebuilds it for each use and addresses channel 55's
+    fields from it. An hour of decomp-permuter (about 190,000 tries) didn't find the form either.
 - **Voice output, song start and resume, the stream start (this round):**
   - **`snd_update_voice(voice, settings)`** hands each group whose update bits are set to libspu: pitch, volume,
     start, loop, then the envelope pairs (sustain, attack, release, decay with sustain level). It clears each group's
