@@ -25,9 +25,9 @@ LIST_FIELDS = {"bend": 2, "vibrato": 4, "tremolo": 4, "pan_lfo": 4, "vibrato_sli
 FIELDS = ["note", "len", "slur", "inst", "volume", "expression", "pan", "detune", "tempo", "bend", "vibrato", "tremolo",
           "ar", "dr", "sl", "sr", "rr", "overlap", "pan_lfo", "vibrato_slide", "tremolo_slide", "fm", "layer",
           "balance", "balance_slide", "reverb", "reverb_depth", "noise", "noise_clock", "noise_clock_add", "adsr_reset",
-          "sr_mode", "pitch_follow", "volume_follow", "vibrato_on", "tremolo_on", "pan_lfo_on"]
+          "sr_mode", "pitch_follow", "volume_follow", "vibrato_on", "tremolo_on", "pan_lfo_on", "from_loop"]
 SWITCHES = ("fm", "reverb", "noise", "adsr_reset", "pitch_follow", "volume_follow", "vibrato_on", "tremolo_on",
-            "pan_lfo_on")  # fields that are true or false, shown as 1/0
+            "pan_lfo_on", "from_loop")  # fields that are true or false, shown as 1/0
 
 
 def note_name(key: int) -> str:
@@ -76,6 +76,8 @@ def cell_text(f: dict, timer_hz: float, ticks_per_quarter: int) -> str:
         parts.append("env")
     if "pitch_follow" in f:
         parts.append("PF" if f["pitch_follow"] else "PF-")
+    if "from_loop" in f:
+        parts.append("LP" if f["from_loop"] else "LP-")
     if "volume_follow" in f:
         parts.append("VF" if f["volume_follow"] else "VF-")
     if "reverb_depth" in f:

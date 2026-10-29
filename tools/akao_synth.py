@@ -88,6 +88,7 @@ class Channel:
     reverb: bool = False  # C2/C3: the channel's voices feed the reverb
     noise: bool = False  # C4/C5: the voices play the SPU noise generator instead of their sample
     pitch_follow: bool = False  # D4/D5: the previous channel's pitch, plus this channel's own vibrato
+    from_loop: bool = False  # F2: new notes start at the instrument's loop point
     volume_follow: bool = False  # D6/D7: the volume from the previous channel's pitch register
 
 
@@ -365,6 +366,9 @@ class Synth:
         left = -1 if length is None else length
         ch.voice = Voice(inst, ch.adsr, key, pitch, left, vibrato, self.start_lfo(ch.tremolo),
                          self.start_lfo(ch.pan_lfo))
+        if ch.from_loop:
+            # ponytail: the driver's silent lead-in block (56 samples at the note's pitch) is skipped.
+            ch.voice.pos = float(inst.loop_start)
         layer = self.instruments.get(ch.layer_inst) if ch.layer_inst is not None else None
         ch.layer_voice = Voice(layer, ch.layer_adsr, key, pitch, left, None, None, follow=ch.voice) if layer else None
 
@@ -463,6 +467,7 @@ class Synth:
                     ch.layer_adsr = list(self.instruments[ch.layer_inst].adsr)
             ch.noise = f.get("noise", ch.noise)
             ch.pitch_follow = f.get("pitch_follow", ch.pitch_follow)
+            ch.from_loop = f.get("from_loop", ch.from_loop)
             ch.volume_follow = f.get("volume_follow", ch.volume_follow)
             if "noise_clock" in f:
                 self.noise_clock = f["noise_clock"]
@@ -490,10 +495,16 @@ class Synth:
                         continue
                     if v.phase == RELEASE and not v.left:  # its key-off came on this very tick: the driver has none
                         v.phase = v.released_from
-                    v.key, v.bend = f["note"], None
+                    v.key = f["note"]
                     v.left = -1 if f["len"] is None else f["len"]
                 v = ch.voice
+                bend, v.bend = v.bend, None
                 v.pitch = self.pitch_of(ch, f["note"])  # a layer voice follows the main voice's pitch
+                # The driver zeroes the bend's offset but not its countdown: a bend still running carries on from
+                # the new pitch, at the same step per tick, for the ticks it has left.
+                if bend and bend[3] < bend[2]:
+                    left = bend[2] - bend[3]
+                    v.bend = [v.pitch, v.pitch + (bend[1] - bend[0]) / bend[2] * left, left, 0]
                 # The driver skips only the key-on: the LFOs restart with the channel's current settings.
                 v.vibrato, v.tremolo, v.pan_lfo = (self.start_lfo(s) for s in (ch.vibrato, ch.tremolo, ch.pan_lfo))
                 if v.vibrato:

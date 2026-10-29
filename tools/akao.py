@@ -24,9 +24,9 @@ ARGS = {
     **dict.fromkeys([0xA1, 0xA2, 0xA3, 0xA5, 0xA8, 0xAA, 0xAC, 0xAD, 0xAE, 0xAF, 0xB1, 0xB2, 0xB5, 0xB7, 0xB9,
                      0xBB, 0xBD, 0xBF, 0xC0, 0xC1, 0xC9, 0xCE, 0xCF, 0xD2, 0xD3, 0xD8, 0xD9, 0xDA, 0xDC, 0xF2,
                      0xF6, 0xF8], 1),
-    **dict.fromkeys([0xA4, 0xA9, 0xAB, 0xB0, 0xBC, 0xDD, 0xDE, 0xDF, 0xE8, 0xE9, 0xEA, 0xEB, 0xEC, 0xEE, 0xF4,
-                     0xF7, 0xFD, 0xFE], 2),
-    **dict.fromkeys([0xB4, 0xB8, 0xEF, 0xF0, 0xF1], 3),
+    **dict.fromkeys([0xA4, 0xA9, 0xAB, 0xB0, 0xBC, 0xDD, 0xDE, 0xDF, 0xE8, 0xEA, 0xEC, 0xEE, 0xF4, 0xF7, 0xFD,
+                     0xFE], 2),
+    **dict.fromkeys([0xB4, 0xB8, 0xE9, 0xEB, 0xEF, 0xF0, 0xF1], 3),
 }
 # Commands after which the stream never continues linearly: end of channel, loop back forever, jump.
 STOP = {0xA0, 0xCA, 0xEE}
@@ -229,7 +229,8 @@ def look_ahead(block: bytes, pos: int, loops: list) -> tuple[int, bool]:
     return 0xA0, True
 
 
-def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: int | None = None, effect: bool = False):
+def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: int | None = None, effect: bool = False,
+                 fm_voice: bool = True):
     """Follow one channel like the driver does, once through. Returns (events, loop_start_tick, end_tick).
 
     Events are [tick, kind, ...]: ("note", key, ticks until key-off), ("slur",) just before a note that takes over
@@ -243,10 +244,10 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     ("balance", n) and ("balance_slide", ticks, n) (F6/F7: main voice at (127 - n)/256, layer at n/256). Volume and pan slides become one event per tick that changes the value. Detune d scales the
     pitch by 1 + d/128 (d > 0) or 1 + d/256 (d < 0); a bend slides the pitch linearly in frequency from the held
     note to `semitones` above it. An LFO event gives the settings from then on, depth 0 while it is off.
-    Counted repeats (C8/C9) are unrolled; an endless loop (CA, C9 0, EE backwards) ends the pass and reports
+    Counted repeats (C8/C9, C9 0 = 256 passes) are unrolled; an endless loop (CA, EE backwards) ends the pass and reports
     the tick its target was first reached at. With `until`, the endless loop is followed instead, up to that tick.
     `effect` plays a sound-effect channel, whose flag +0x54 makes B4/B8 take no delay and a non-zero first byte
-    as the depth.
+    as the depth. `fm_voice` False is an effect's first channel: an even SPU voice, where C6 and D2 set no FM.
     """
     pos, tick = start, 0
     # The driver's channel reset: instrument 5, octave 2, volume 100, A3 multiplier 120.
@@ -260,6 +261,8 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
     # The driver's note mode (+0x6E): bit 0 slur (CC), bit 1 "this note slurs from the last", bit 2 full length (D0).
     mode, cut = 0, 0
     glide, last_key = 0, 0  # DA's glide ticks (+0x6C) and the last note's key (+0x6A), 0 = none
+    layered = False  # F4 on; A1 ends it
+    from_loop = False  # F2: notes start at the instrument's loop point, until the next A1
     fm, fm_due = False, None  # FM on, and the tick D2/D3's countdown (+0xA6) flips it
     loops = []  # [loop start pos, pass count]; the driver keeps 4 levels
     first_seen, last_note = {}, None
@@ -338,10 +341,18 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
         args = block[pos + 1:pos + 1 + ARGS[b]]
         nxt = pos + 1 + len(args)
         match b:
-            case 0xA1 | 0xF2:  # instrument (F2 also rescales pitch from the old instrument to the new one)
+            case 0xA1 | 0xF2:  # instrument (both rescale the pitch of a sounding note to the new instrument)
                 events.append([tick, "program", args[0] & 0x7F])
-            case 0xA2:
-                next_len, fixed_len = args[0], 0
+                if (b == 0xF2) != from_loop:
+                    # F2 gives the voice a 2-block silent sample at SPU 0x76FE0 whose end jumps to the
+                    # instrument's loop address: its notes skip the attack and play the loop from the start.
+                    from_loop = b == 0xF2
+                    events.append([tick, "from_loop", from_loop])
+                if b == 0xA1 and layered:  # A1 frees an F4 layer's second voice
+                    layered = False
+                    events.append([tick, "layer", None])
+            case 0xA2:  # also the length DC counts from
+                next_len, fixed_len, last_len = args[0], 0, args[0]
             case 0xA4:  # bend by s semitones over n ticks (0 = 256), starting at the next note or tie
                 semitones = args[1] - 256 if args[1] & 0x80 else args[1]
                 bend = (args[0] or 256, semitones) if semitones else None
@@ -387,12 +398,14 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                     events.append([tick, "pan_lfo_on", True])
             case 0xDD | 0xDE:  # slide the vibrato / tremolo depth to d over t ticks (0 = 256)
                 events.append([tick, "vibrato_slide" if b == 0xDD else "tremolo_slide", args[0] or 256, args[1]])
+            case 0xC6 if not fm_voice:  # an effect's first channel: the handler skips the even voices
+                pass
             case 0xC6 | 0xC7:  # FM: pitch follows the previous voice's output; C7 also stops a D2/D3 countdown
                 fm = b == 0xC6
                 fm_due = fm_due if fm else None
                 events.append([tick, "fm", fm])
             case 0xD2 | 0xD3:  # FM on now (D2 only), and flipped after n + 1 ticks (0 = 257)
-                if b == 0xD2:
+                if b == 0xD2 and fm_voice:
                     fm = True
                     events.append([tick, "fm", True])
                 fm_due = tick + (args[0] + 1 if args[0] else 0x101)
@@ -410,16 +423,21 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "pitch_follow", b == 0xD4])
             case 0xD6 | 0xD7:  # volume from the previous channel's pitch register: 2 x register x A3 / 128
                 events.append([tick, "volume_follow", b == 0xD6])
-            case 0xCB:  # all off: noise, FM (and its countdown), reverb, D4/D6, slur and full length
+            case 0xCB:  # all off: the three LFOs, noise, FM (and its countdown), reverb, D4/D6, slur, full length
                 fm, fm_due, mode = False, None, mode & ~5
                 events += [[tick, "noise", False], [tick, "fm", False], [tick, "reverb", False],
                            [tick, "pitch_follow", False], [tick, "volume_follow", False]]
+                for kind, lfo in lfos.items():
+                    lfo[3] = False
+                    events.append([tick, kind, *lfo[:3], 0])
             case 0xDB:  # glide off
                 glide = 0
             case 0xF4:  # layer: instrument a as usual, instrument b on a second voice playing the same notes
+                layered = True
                 events.append([tick, "program", args[0] & 0x7F])
                 events.append([tick, "layer", [args[0] & 0x7F, args[1] & 0x7F]])
             case 0xF5:
+                layered = False
                 events.append([tick, "layer", None])
             case 0xF6:  # balance between the main and the layer voice
                 events.append([tick, "balance", args[0]])
@@ -434,7 +452,7 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
             case 0xCC:  # slur on; the look-ahead turns it off at a CD
                 mode = 1
             case 0xDA:  # glide over n ticks (0 = 256) from each note to the next; slur mode, ended the same way
-                glide, mode = args[0] or 256, 1
+                glide, mode, last_key = args[0] or 256, 1, 0  # no last key: the first note after it doesn't glide
             case 0xD0:  # full-length notes; the look-ahead turns it off at a D1
                 mode = 4
             case 0xA3:  # multiplier on the channel volume: voice volume = A8 volume * A3 / 128
@@ -467,13 +485,13 @@ def play_channel(block: bytes, start: int, max_ticks: int = MAX_TICKS, until: in
                 events.append([tick, "tempo", args[0] | args[1] << 8])
             case 0xC8:
                 loops = (loops + [[nxt, 0]])[-4:]
-            case 0xC9 if loops and args[0]:
+            case 0xC9 if loops:  # repeat until pass n (0 = 256), then go on
                 loops[-1][1] += 1
-                if loops[-1][1] == args[0]:
+                if loops[-1][1] == (args[0] or 256):
                     loops.pop()
                 else:
                     nxt = loops[-1][0]
-            case 0xCA | 0xC9 if loops:
+            case 0xCA if loops:
                 loop_tick = first_seen.get(loops[-1][0]) if loop_tick is None else loop_tick
                 if until is None:
                     return events, loop_tick, tick
@@ -534,7 +552,9 @@ def play_song(block: bytes, trim_notes: bool = True, starts: list[int] | None = 
     tied on forever (a drone) and gets length None. `starts` and `effect` play a sound effect's channels instead.
     """
     starts = starts or channel_starts(block)
-    first = [play_channel(block, start, effect=effect) for start in starts]
+    # An effect's channels sit on an even and an odd SPU voice, and only the odd one takes FM.
+    fm_voices = [not effect or k % 2 == 1 for k in range(len(starts))]
+    first = [play_channel(block, start, effect=effect, fm_voice=fm) for start, fm in zip(starts, fm_voices)]
     runaway = any(end >= MAX_TICKS for *_, end in first)
     loops = [(loop, end - loop) for _, loop, end in first if loop is not None]
     if not loops or not all(length for _, length in loops):
@@ -550,8 +570,8 @@ def play_song(block: bytes, trim_notes: bool = True, starts: list[int] | None = 
         period = max(lengths)
     # Three passes: a possibly later loop start, plus the extra pass untrimmed notes need (a loop that opens with a
     # tie lengthens the note held at its end).
-    played = [play_channel(block, start, until=loop_start + 3 * period, effect=effect)[0] if loop is not None
-              else events for start, (events, loop, _) in zip(starts, first)]
+    played = [play_channel(block, start, until=loop_start + 3 * period, effect=effect, fm_voice=fm)[0]
+              if loop is not None else events for start, fm, (events, loop, _) in zip(starts, fm_voices, first)]
 
     def one_pass(events, at):
         return [[e[0] - at, *e[1:]] for e in events if at <= e[0] < at + period and e[1] in ("note", "slur", "bend")]

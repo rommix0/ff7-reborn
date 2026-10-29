@@ -126,8 +126,8 @@ starts:
 |---|---|
 | 0 | `A0` end · `A6` `A7` octave ± · `B3` `B6` `BA` `BE` `C2`–`C7` · `C8` loop point · `CA` loop back (stops linear parsing) · `CB`–`CD` `D0` `D1` `D4`–`D7` `DB` `ED` `F3` `F5` `F9` |
 | 1 | `A1`–`A3` `A5` octave · `A8` volume · `AA` `AC`–`AF` `B1` `B2` `B5` `B7` `B9` `BB` `BD` `BF` `C0` `C1` · `C9` repeat count · `CE` `CF` `D2` `D3` `D8`–`DA` `DC` `F2` `F6` `F8` |
-| 2 | `A4` `A9` `AB` `B0` `BC` `DD`–`DF` `E8`–`EC` · `EE` jump (stops linear parsing) · `F4` `F7` `FD` `FE` |
-| 3 | `B4` `B8` `EF` `F0` `F1` |
+| 2 | `A4` `A9` `AB` `B0` `BC` `DD`–`DF` `E8` `EA` `EC` · `EE` jump (stops linear parsing) · `F4` `F7` `FD` `FE` |
+| 3 | `B4` `B8` `E9` `EB` `EF` `F0` `F1` |
 | — | `E0`–`E7` `FA`–`FC` `FF`: unused; the driver treats them as `A0` |
 
 - **Lengths confirmed by real data** for every command except `B7`, `BE`, `BF`, `CE`, `CF`, `DF`, `E9`, `EB`, `EF`, `F1`
@@ -313,14 +313,22 @@ starts:
   - **Precedence:** fixed length, then `A2`, then the length table.
 - **Loop commands:**
   - **`C8`:** pushes a loop point (4 levels).
-  - **`C9 n`:** jumps back until pass `n` (0 = 256), then pops.
+  - **`C9 n`:** jumps back until pass `n` (0 = 256), then pops. We used to read `C9 00` as endless: effects 294
+    and 369 now end after their 256 passes, and effect 396 goes on to the notes after its repeat.
   - **`CA`:** jumps back forever.
   - **`F0 n lo hi`:** jumps by a signed 16-bit offset on pass `n` of the current repeat, for a different ending on the
     last pass.
   - **`EE lo hi`:** jumps by a signed 16-bit offset, counted from after its arguments; a backward jump is the song's
     endless loop.
-- **Instrument commands:** `A1 n` selects instrument `n`. `F2 n` also changes instrument, rescaling the playing pitch
-  from the old instrument to the new one.
+- **Instrument commands:** `A1 n` selects instrument `n`, and frees an `F4` layer's second voice. `F2 n` also
+  changes instrument; both rescale a sounding note's pitch from the old instrument to the new one.
+  - **`F2` plays from the loop point** (`0x80032274`): it sets the voice's sample start to SPU `0x76FE0` instead of
+    the instrument's, and keeps the instrument's loop address. `snd_init` uploads 32 bytes there from `0x8004A60C`:
+    two silent ADPCM blocks, the second flagged end + repeat. So every note after `F2` plays 56 silent samples and
+    jumps to the loop: the attack part of the sample is skipped. It lasts until the next `A1`.
+  - **In the data:** 21 songs use `F2` (42, 47, 48, 49, 71, 78, 80–82, 84, 85 and others), all on notes; no effect
+    does. We used to treat it as `A1`, which played their attacks. The export marks it `from_loop`; the player
+    skips the 56 silent samples.
 
 `python tools/akao.py midi <file|dir> <out>` writes one Standard MIDI File per song:
 - **Layout:** format 1 at 48 PPQ, a conductor track with tempos plus `loopStart`/`loopEnd` markers, and one track per
@@ -423,7 +431,9 @@ Read from `seq_step_channel`'s note and tie paths:
   - **Song 7 channel 16:** a 2-tick note, `A4 04 01`, a 10-tick tie, repeated.
   - **Scale:** 321 bends in the songs, from ±1 semitone over 4 ticks up to +65 over 8.
 - **`DA n` (`seq_cmd_glide`, `0x8003257C`):** a glide (portamento). No song uses it, only sound effects (43 uses).
-  - **Setting it:** the glide time `+0x6C` = n (0 = 256), and slur mode on (`+0x6E` = 1, as `CC`).
+  - **Setting it:** the glide time `+0x6C` = n (0 = 256), and slur mode on (`+0x6E` = 1, as `CC`). It also clears the
+    last key (`+0x6A`) and its transpose (`+0xD4`), so the first note after it doesn't glide. 14 effects play a
+    note before `DA`, and we used to glide their first note from it.
   - **On each note** (`seq_step_channel`, `0x8003131C`): with a glide time and a last key (`+0x6A`, 0 = none), the
     note starts on the last key and bends to its own over the glide time, through the bend fields `+0x68`/`+0xD2`.
     The last key is then this note's.
@@ -461,7 +471,9 @@ Read from `seq_step_channel`'s note and tie paths:
   - **`B0 a b`:** decay rate a, then sustain level b (it calls the `AE` and `AF` handlers).
   - **`B3`:** the instrument's envelope back (all five rates and the three modes).
   - **`BB n`:** sustain mode.
-  - **`CB`:** all off: noise, FM (and its countdown), reverb, flags `0x08`/`0x10`/`0x20`, slur and full length.
+  - **`CB`:** all off: vibrato, tremolo and pan LFO (flags `0x01`/`0x02`/`0x04`, offsets left as they are), noise,
+    FM (and its countdown), reverb, flags `0x10`/`0x20`, slur and full length. We used to leave the LFOs on
+    (effects 17, 102 and 551).
   - **`D2 n` / `D3 n`:** FM on now (`D2` only), and flipped after n + 1 ticks (0 = 257) by the countdown `+0xA6` in
     `seq_channel_slides`. `C7` stops the countdown.
   - **`D4`/`D5`:** flag `0x10`. The voice's pitch register becomes the previous channel's (`−0x108 + 0xF8`) plus its
@@ -523,8 +535,31 @@ Read from `seq_step_channel`'s note and tie paths:
   - **Left to context:**
     - Effect 419 plays noise before setting the clock, so in the game it uses whatever clock the last effect
       left. On its own it starts at 0.
-    - 25 effects turn FM on for their first channel, which in the game follows whichever SPU voice comes before
-      it, outside the effect. On their own they play unmodulated.
+    - 25 effects turn FM on for their first channel. The driver ignores it: `C6` (`0x80032BB4`, also behind `D2`)
+      sets an effect voice's FM bit only outside the mask `0x555555`, and an effect's first channel is always
+      on an even voice. So they never had a modulator in the game either (effects 270, 297, 302, 447 among
+      them). The player now drops those `C6`s.
+
+### Audit against the decompiled driver
+
+Ghidra decompiled every driver function the player depends on from `build/main.elf` (our matching build, so the
+same code at the same addresses with our names): `seq_tick`, `seq_step_channel`, the look-ahead `func_800318BC`,
+the per-tick updates (`func_8002E478` songs, `func_8002E954` effects), the voice updates (`func_8002ED34`,
+`func_8002F24C`), `func_8002F848` and all 85 sequence command handlers. Each was compared with `tools/akao.py`
+and `tools/akao_synth.py`.
+- **Notes:** the note, tie and rest paths, the key-off gate (table lengths, `A2`/`DC`, slur and full-length), the
+  look-ahead, glides and drum kits all match: no note goes missing.
+- **Argument lengths:** checked against the driver's own skip table (`0x800498A8`). `E9` and `EB` take 3 bytes,
+  not 2 (neither occurs on the discs).
+- **Fixed:** `F2` plays from the loop point (21 songs), `DA` clears the last key (14 effects), `CB` turns the
+  LFOs off (3 effects), `C9 00` is 256 passes (3 effects), FM is ignored on an effect's first channel (25
+  effects, no audible change), `A1` frees an `F4` layer and `A2` sets the length `DC` counts from (no data hits
+  either).
+- **Slurred notes and bends:** a slurred note zeroes the bend offset (`+0x34`) but not its countdown (`+0x64`),
+  so a running bend carries on from the new note at the same step. The player used to stop it.
+- **Left as they are:** `A8`/`AA` read signed and unmasked bytes (no data goes past `0x7F`); volume and pan
+  slides keep 1/128 and 1/256 of a step where the export rounds per tick; F4's voice allocation can fail when all
+  24 voices are taken.
 
 ### Our song format and player
 

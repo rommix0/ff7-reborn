@@ -87,6 +87,7 @@ Samples are the instrument's SPU ADPCM decoded to 16-bit PCM, played at the pitc
 | `noise_clock`, `noise_clock_add` | `AC`: the noise generator's clock, 0–63, one for all voices (higher = brighter). `_add` adds to it instead, wrapping at 64. 0 at start |
 | `adsr_reset` | `true` (`B3`): the channel's envelope goes back to its instrument's |
 | `sr_mode` | `BB`: the sustain mode (1 linear up, 3 linear down, 5 exponential up, 7 exponential down), until the next `inst` |
+| `from_loop` | `true` (`F2`): the channel's notes start at the instrument's loop point, skipping the attack (the driver plays a silent lead-in block that jumps there); `false` (the next `A1`) ends it |
 | `pitch_follow` | `true` (`D4`): the channel plays at the previous channel's pitch, plus its own vibrato; `false` (`D5`) ends it |
 | `volume_follow` | `true` (`D6`): the channel's volume is the previous channel's pitch register × 2 × `expression` ÷ 128 in place of `volume` × `expression`. Past the SPU's 15-bit volume it wraps round, as on the hardware; `false` (`D7`) ends it |
 | `ar`, `dr`, `sl`, `sr`, `rr` | The channel's own attack rate, decay rate, sustain level, sustain rate, release rate (`AD`, `AE`, `AF`, `B1`, `B2`; the same values as the bank's ADSR bytes), until the next `inst`. They reach a voice that is already sounding |

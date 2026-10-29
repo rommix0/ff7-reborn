@@ -221,6 +221,21 @@ per = round(RATE / TIMER_HZ)
 levels = [np.abs(out[i:i + per]).max() for i in range(per * 4, len(out) - per, per)]
 assert min(levels) > 0.1 and max(levels) / min(levels) < 3
 
+# A slurred note zeroes a running bend's offset but not its countdown (seq_step_channel): the bend carries on
+# from the new note's pitch at the same step for the ticks it has left.
+s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "note": 72, "len": 96, "bend": [8, 12]}],
+                [4, 0, {"slur": True, "note": 60, "len": 96}]]))
+s.render(frames_for(10))
+v = s.channels[0].voice
+assert v.bend[2] == 4 and v.pitch == 0x400 + 4 * (0x1000 - 0x800) / 8  # key 60 is 0x400, 0x100 a tick
+
+# F2's notes skip the sample's attack and start at its loop point.
+s = Synth({0: Instrument(TONE, True, 32, (0x1000,) * 12, STEADY)}, None, RATE)
+s.load(song([[0, 0, {"tempo": 0x6000, "inst": 0, "from_loop": True, "note": 72, "len": 96}]]))
+s.playing = True
+s.render(1)
+assert 32 <= s.channels[0].voice.pos < 33
+
 # Seeking keeps the state the sequence set before the target, and a note right on the target still plays.
 s = synth(song([[0, 0, {"tempo": 0x6000, "inst": 0, "volume": 50}], [96, 0, {"note": 60, "len": 48}]]))
 s.seek(96)

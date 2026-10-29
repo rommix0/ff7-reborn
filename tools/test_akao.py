@@ -165,6 +165,25 @@ assert at(events, "vibrato") == [(0, 0, 2, 6, 0x30), (48, 0, 1, 7, 0x30)]
 # look-ahead ends it before a rest, as it ends slurs, so the note just before the rest doesn't glide.
 events, *_ = play_channel(one_channel(bytes([0xDA, 0x08, 0x02, 0x18, 0x2E, 0x91, 0xA0])), 0x16, effect=True)
 assert [key for _, key, _ in at(events, "note")] == [36, 36, 40] and at(events, "bend") == [(48, 8, 2)]
+# DA clears the last key (+0x6A), so a note played before it doesn't make the first note after it glide.
+events, *_ = play_channel(one_channel(bytes([0x02, 0xDA, 0x08, 0x18, 0x2E, 0x18, 0xA0])), 0x16, effect=True)
+assert [key for _, key, _ in at(events, "note")] == [36, 38, 38, 38] and at(events, "bend") == [(96, 8, 2)]
+# Checked against the driver's handlers: CB also turns the three LFOs off; A1 frees an F4 layer; A2 sets the
+# length DC counts from; an effect's first channel (an even voice) takes no FM from C6.
+events, *_ = play_channel(one_channel(bytes([0xB4, 0x00, 0x01, 0x07, 0xB5, 0x40, 0xCB, 0xA0])), 0x16)
+assert at(events, "vibrato")[-1] == (0, 0, 1, 7, 0) and at(events, "tremolo") == [(0, 0, 1, 0, 0)]
+events, *_ = play_channel(one_channel(bytes([0xF4, 0x01, 0x02, 0xA1, 0x03, 0xA0])), 0x16)
+assert at(events, "layer") == [(0, [1, 2]), (0, None)]
+events, *_ = play_channel(one_channel(bytes([0xA2, 0x10, 0xDC, 0x02, 0x02, 0xA0])), 0x16)
+assert at(events, "note") == [(0, 36, 16)]  # 16 + 2 = 18 ticks, 2 of them before the key-off
+events, *_ = play_channel(one_channel(bytes([0xC6, 0x02, 0xA0])), 0x16, effect=True, fm_voice=False)
+assert at(events, "fm") == []
+# C9 0 repeats 256 times and then goes on, as the handler reads 0 as 256 (effect 396 has notes after one).
+events, loop_tick, end = play_channel(one_channel(bytes([0xC8, 0x0A, 0xC9, 0x00, 0x02, 0xA0])), 0x16)
+assert loop_tick is None and len(at(events, "note")) == 257 and end == 256 * 4 + 48
+# F2 changes instrument like A1, and its notes start at the instrument's loop point until the next A1.
+events, *_ = play_channel(one_channel(bytes([0xF2, 0x04, 0x02, 0xF2, 0x06, 0xA1, 0x07, 0xA0])), 0x16)
+assert at(events, "from_loop") == [(0, True), (48, False)] and at(events, "program")[1:] == [(0, 4), (48, 6), (48, 7)]
 # The commands only effects use: noise on/off and clock (absolute, or added with a top bit set), B0 = AE + AF,
 # B3 envelope reset, BB sustain mode, D4/D5 pitch from the previous channel, CB all off, and D2 n: FM on, then
 # off again after n + 1 ticks.
