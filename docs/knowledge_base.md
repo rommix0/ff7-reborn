@@ -961,7 +961,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 208 of the file's 232 functions are C** (205 written here; `seq_cmd_slur_off`,
+- **Recovered: 210 of the file's 232 functions are C** (207 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -996,8 +996,8 @@ Lessons from getting it to match:
   - A slide's length 0 means 1 tick. `snd_effect_pitch_shift_slide` is parked: its tick count is copied to another
     register before the final stores, and no form tried reproduces that.
 - **Other sound commands in C:** `B8`–`BD` apply those six controls to all four effect pairs (from slot 54 back,
-  two channels a step). `D0`/`D1` and `D4`/`D5` set or slide a value at `0x80062FE8` / `snd_pitch_scale` (a signed byte
-  << 16; meaning not known yet), `C8` sets `0x80062FD4` and calls `func_8002E428`, `80`/`81`/`82` store 1/2/4 in
+  two channels a step). `D0`/`D1` and `D4`/`D5` set or slide `snd_tempo_scale` / `snd_pitch_scale` (a signed byte
+  << 16 that scales the tempo / pitch), `C8` sets `0x80062FD4` and calls `func_8002E428`, `80`/`81`/`82` store 1/2/4 in
   `seq_song`'s first word and call `func_8002A748` and `func_8002A798`, `90` stores its argument and sets every
   music channel's volume-update bits, `92` sets the song's branch level (what `EF` tests), `E0` sets `0x80062F70`
   and the reverb-changed flag, `F2`/`F3` clear one word each, `F0`/`F1`/`FA` just call a function, and `F8`/`F9`
@@ -1145,25 +1145,33 @@ Lessons from getting it to match:
     - Sound command `90`'s value is a mute mask (`snd_muted_voices`): those voices get volume 0.
     - The meter counters were swapped. `+0x58` is the bar's current beat (`bar_beat`) and `+0x5C` counts ticks into
       the beat (`beat_tick`).
-- **Parked, the tick (this round):**
-  - **`seq_tick`:**
-    - **What it does:** it adds each block's tempo, scaled by `D0`–`D2`'s value (a global tempo scale, byte
-      `0x80062FEA`), to the accumulator. On a carry, every channel's gate counts down: the key-off at the high
-      byte, the next event (`seq_step_channel`) at the low one.
+- **The tick and the global slides (this round):**
+  - **`seq_tick`** (the timer interrupt's tick):
+    - **Tempo:** each block adds its tempo, scaled by `D0`/`D1`'s `snd_tempo_scale` (its top byte, read unsigned,
+      like `snd_pitch_scale`), to its phase. On a carry, every channel's gate counts down: the key-off at the high
+      byte, the next event (`seq_step_channel`) at the low one. The effects have their own tempo and phase
+      (`effect_tempo`, `effect_tempo_phase`).
     - **Effects:** they run only while not paused, except kind 2, and each counts its ticks in `+0x50`.
-    - **Afterwards:** a pause queued by `F3` (`+0x54`) runs as `9B`, then the queue flushes, the global slides run
-      and voices key off.
-    - **Why it's parked:** the C is written, but the game reaches most of `seq_song`'s tempo, reverb and meter
-      fields as plain variables, so it needs more aliases.
-  - **`func_80030380`:**
-    - **What it does:** every 4th tick it runs the global slides: CD volume, the master volume (a fade-out to 0
-      stops the songs), the tempo and pitch scales (a pitch-scale step rewrites every music pitch), and each effect's
-      balance, pan and pitch-shift slides. A balance fade to 0 ends the effect.
+    - **Afterwards:** the first song's tempo, reverb and meter counters advance, a pause queued by `F3`
+      (`pause_pending`, `+0x54`) runs as `9B`, the queue flushes, the global slides run and voices key off.
+  - **`snd_slow_slides`** runs every 4th tick (`snd_slow_slide_tick`):
+    - **Global:** CD volume, the master volume (a fade-out to 0 stops the songs), the tempo and pitch scales (a
+      pitch-scale step rewrites every music pitch).
+    - **Effects:** each one's balance, pan and pitch-shift slides. A balance fade to 0 ends the effect.
     - **The cross-fade:** it steps the per-channel fades. When channel n's fade ends, the old song's channel ends,
       the new song's channel rewrites everything, and the fade restarts as a fade-in.
-    - **Why it's parked:** everything matches but the load order in the pan and pitch-shift slides.
-  - **The two song blocks were one array in the original.** `func_80030380` reaches `seq_song`'s fields as offsets
-    from `seq_song2`'s address, which GCC only does within one symbol. A `SeqSong songs[2]` would model that.
+  - **The two song blocks were one array in the original.** `snd_slow_slides` reaches the first block's fields as
+    offsets from the second's address, which GCC only does within one symbol. `seq_songs[2]` (the same storage as
+    `seq_song` and `seq_song2`) models that; the rest of the file still uses the two names.
+  - **Matching:**
+    - `seq_tick` reaches the first song through plain aliases (tempo, phase, slides, meter, the pause flag) and the
+      second through `seq_song2`'s fields.
+    - Its gate goes through an `unsigned short *`. As a struct field, GCC 2.x lets the mask loads move above the gate
+      store, and the registers shift.
+    - The tempo scale and the phase share one variable, and song 2's loop setup must come in the game's order, or
+      a register or the bit's constant moves.
+    - In `snd_slow_slides`, the slides decrement with `--`, the fade's step divides by `snd_fade_ticks` itself, and
+      the pointer to song 2's masks is set at the top of each loop pass so the game's register holds it.
 - **A second file at the start of the range:** `0x800293D0`–`0x80029A4C` (11 functions, including `snd_init` and
   the instrument-bank loaders) reach small globals through `$gp`, so that part was compiled with `-G8`; from
   `0x80029A50` on, small globals like `0x80062F00` are reached with `lui`, which is `-G0`.

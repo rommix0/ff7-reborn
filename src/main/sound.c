@@ -180,7 +180,7 @@ void snd_start_song(void)
     seq_song.fm_voices = 0;
     seq_song_branch_level = 0;
     seq_song.branch_taken = 0;
-    seq_song.unk_54 = 0;
+    seq_song.pause_pending = 0;
     seq_song_update_voices = 0;
     seq_song_key_on_voices = 0;
     seq_song_overlap_voices = 0;
@@ -495,7 +495,7 @@ void snd_resume_song(int slot)
     seq_song.noise_voices = saved_songs[s].noise_voices;
     seq_song.reverb_voices = saved_songs[s].reverb_voices;
     seq_song.fm_voices = saved_songs[s].fm_voices;
-    seq_song.unk_54 = saved_songs[s].unk_54;
+    seq_song.pause_pending = saved_songs[s].pause_pending;
     seq_song.flags = saved_songs[s].flags;
     seq_song.beats_per_bar = saved_songs[s].beats_per_bar;
     seq_song.bar_beat = saved_songs[s].bar_beat;
@@ -1147,12 +1147,12 @@ void snd_cmd_B7(SoundCommand *cmd)
     snd_effect_pitch_shift_slide(cmd, &seq_channels[54]);
 }
 
-/* D0 v: a value at 0x80062FE8 = v (signed) << 16. D1 t v slides it over t ticks (0 = 1). D4/D5 do the same for
- * 0x80062FE4. What they control isn't known yet. */
+/* D0 v: the tempo scale = v (signed) << 16. D1 t v slides it over t ticks (0 = 1). D4/D5 do the same for the pitch
+ * scale. */
 void snd_cmd_D0(SoundCommand *cmd)
 {
-    D_80062FE8 = (signed char)cmd->arg[0] << 16;
-    D_80062F48 = 0;
+    snd_tempo_scale = (signed char)cmd->arg[0] << 16;
+    snd_tempo_scale_ticks = 0;
 }
 
 void snd_cmd_D1(SoundCommand *cmd)
@@ -1161,8 +1161,8 @@ void snd_cmd_D1(SoundCommand *cmd)
 
     if (cmd->arg[0])
         ticks = cmd->arg[0];
-    D_80062F30 = (((signed char)cmd->arg[1] << 16) - D_80062FE8) / ticks;
-    D_80062F48 = ticks;
+    snd_tempo_scale_step = (((signed char)cmd->arg[1] << 16) - snd_tempo_scale) / ticks;
+    snd_tempo_scale_ticks = ticks;
 }
 
 /* D2 a t b: D0's value from a to b over t ticks. D6: the same for D4's. */
@@ -1171,11 +1171,11 @@ void snd_cmd_D2(SoundCommand *cmd)
     int ticks = 1;
     int from = (signed char)cmd->arg[0] << 16;
 
-    D_80062FE8 = from;
+    snd_tempo_scale = from;
     if (cmd->arg[1])
         ticks = cmd->arg[1];
-    D_80062F30 = (((signed char)cmd->arg[2] << 16) - from) / ticks;
-    D_80062F48 = ticks;
+    snd_tempo_scale_step = (((signed char)cmd->arg[2] << 16) - from) / ticks;
+    snd_tempo_scale_ticks = ticks;
 }
 
 void snd_cmd_D4(SoundCommand *cmd)
@@ -2589,9 +2589,276 @@ unsigned int snd_timer_tick(void)
     return count;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80030380);
+/* Every 4th tick: the CD volume, master volume (a fade to 0 stops the songs), tempo and pitch scale slides; each
+ * effect's balance (a fade to 0 ends it), pan and pitch shift slides; and the cross-fade, where each faded-out
+ * channel of the old song ends and the new song's channel comes back in. */
+void snd_slow_slides(void)
+{
+    unsigned int voices;
+    unsigned int bit;
+    SeqChannel *ch;
+    SeqChannel *main;
+    ChannelFade *fade;
+    int value;
+    unsigned char **pos;
+    unsigned int *active;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", seq_tick);
+    if (++snd_slow_slide_tick & 3)
+        return;
+    if (snd_cd_volume_slide_ticks) {
+        snd_cd_volume_slide_ticks--;
+        snd_cd_volume += snd_cd_volume_slide_step;
+        snd_apply_cd_volume();
+    }
+    if (!(D_80062FF8 & 1)) {
+        if (snd_master_volume_ticks) {
+            value = snd_master_volume + snd_master_volume_step;
+            if (!--snd_master_volume_ticks && !(value & 0x7F0000) && snd_master_volume_step < 0)
+                snd_stop_songs();
+            else if ((value & 0x7F0000) != (snd_master_volume & 0x7F0000))
+                snd_refresh_song_volumes();
+            snd_master_volume = value;
+        }
+        if (snd_tempo_scale_ticks) {
+            snd_tempo_scale_ticks--;
+            snd_tempo_scale += snd_tempo_scale_step;
+        }
+        if (snd_pitch_scale_ticks) {
+            snd_pitch_scale_ticks--;
+            value = snd_pitch_scale + snd_pitch_scale_step;
+            if ((value & 0xFF0000) != (snd_pitch_scale & 0xFF0000)) {
+                ch = seq_channels;
+                for (bit = 24; bit; bit--) {
+                    ch->voice.update |= UPDATE_PITCH;
+                    ch++;
+                }
+            }
+            snd_pitch_scale = value;
+        }
+    }
+    voices = effect_voices;
+    if (voices) {
+        ch = &seq_channels[48];
+        bit = 0x10000;
+        do {
+            if (voices & bit) {
+                if (ch->balance_slide_ticks) {
+                    ch->balance_slide_ticks += (unsigned short)-1;
+                    value = ch->balance + ch->balance_slide_step;
+                    if (!ch->balance_slide_ticks && !(value & 0xFF00) && ch->balance_slide_step < 0) {
+                        effect_key_off_voices |= bit;
+                        effect_key_on_voices &= ~bit;
+                        effect_update_voices &= ~bit;
+                        pos = &ch->pos;
+                        *pos = D_80049C40;
+                    } else if ((value & 0xFF00) != (ch->balance & 0xFF00)) {
+                        ch->voice.update |= UPDATE_VOLUME;
+                    }
+                    ch->balance = value;
+                }
+                if (ch->pan_slide_ticks) {
+                    ch->pan_slide_ticks--;
+                    value = ch->pan + ch->pan_slide_step;
+                    if ((value & 0xFF00) != (ch->pan & 0xFF00))
+                        ch->voice.update |= UPDATE_VOLUME;
+                    ch->pan = value;
+                }
+                if (ch->pitch_shift_slide_ticks) {
+                    ch->pitch_shift_slide_ticks--;
+                    value = ch->pitch_shift + ch->pitch_shift_step;
+                    if ((value & 0xFF00) != (ch->pitch_shift & 0xFF00))
+                        ch->voice.update |= UPDATE_PITCH;
+                    ch->pitch_shift = value;
+                }
+                voices ^= bit;
+            }
+            bit <<= 1;
+            ch++;
+        } while (voices);
+    }
+    if (!snd_channel_fades[0].ticks)
+        return;
+    ch = &seq_channels[24];
+    main = seq_channels;
+    fade = snd_channel_fades;
+    bit = 1;
+    do {
+        /* Set every pass: the game keeps this address in a register and reaches both songs' masks from it. */
+        active = &seq_songs[1].active_voices;
+        if (!fade->ticks)
+            return;
+        fade->ticks--;
+        fade->volume += fade->step;
+        ch->voice.update |= UPDATE_VOLUME;
+        main->voice.update |= UPDATE_VOLUME;
+        if (!fade->ticks && D_80062F68 & bit) {
+            D_80062F68 ^= bit;
+            if (*active & bit) {
+                seq_cmd_end(ch, &seq_songs[1], bit);
+                seq_songs[1].key_on_voices &= ~bit;
+                seq_songs[1].update_voices &= ~bit;
+                seq_songs[1].key_off_voices |= bit;
+            }
+            if (seq_song_active_voices & bit) {
+                main->voice.update |= UPDATE_ALL & ~UPDATE_VOLUME;
+                seq_songs[0].key_on_voices |= seq_songs[0].update_voices & bit;
+            }
+            fade->step = 0x7F8000 / snd_fade_ticks;
+            fade->ticks = snd_fade_ticks;
+        }
+        bit <<= 1;
+        ch++;
+        main++;
+        fade++;
+    } while (bit & 0xFFFFFF);
+}
+
+/* The sequencer tick (timer interrupt): sends last tick's changes to the SPU, then for each song and the effects
+ * adds the tempo (scaled by D0) to the phase and, on each whole step, counts down every channel's gate: at 0 the
+ * channel reads its next notes, at the end of the note's sounding part it keys off. Then the tempo, reverb and
+ * meter counters advance, an F3 pause runs, the queued commands run, and every 4th tick the global slides. */
+void seq_tick(void)
+{
+    unsigned int voices;
+    unsigned int bit;
+    unsigned int tempo;
+    unsigned int value;
+    SeqChannel *ch;
+    unsigned short *gate;
+
+    seq_update_voices();
+    voices = seq_song_active_voices;
+    if (voices) {
+        tempo = seq_song_tempo >> 16;
+        /* One variable for the scale and then the phase: the game keeps them in the same register. */
+        value = (unsigned char)(snd_tempo_scale >> 16);
+        if (value) {
+            if (value < 0x80)
+                tempo += (tempo * value) >> 7;
+            else
+                tempo = (tempo * value) >> 8;
+        }
+        value = tempo + seq_song_tempo_phase;
+        seq_song_tempo_phase = value;
+        if (value & 0xFFFF0000 || D_80062FF8 & 4) {
+            bit = 1;
+            ch = seq_channels;
+            seq_song_tempo_phase = value & 0xFFFF;
+            D_80062F04 = 0;
+            do {
+                if (voices & bit) {
+                    /* Through a plain pointer: the game never moves the mask loads above this store. */
+                    gate = &ch->gate;
+                    *gate += 0xFEFF;
+                    if (!(*gate & 0xFF)) {
+                        seq_step_channel(ch, &seq_song, bit);
+                    } else if (!(*gate & 0xFF00)) {
+                        *gate |= 0x100;
+                        seq_song_key_off_voices |= bit;
+                        seq_song_update_voices &= ~bit;
+                    }
+                    seq_channel_slides(ch, &seq_song, bit);
+                    voices ^= bit;
+                }
+                ch++;
+                bit <<= 1;
+            } while (voices);
+            if (seq_song_tempo_slide_ticks) {
+                seq_song_tempo_slide_ticks--;
+                seq_song_tempo += seq_song_tempo_slide_step;
+            }
+            if (seq_song_reverb_slide_ticks) {
+                seq_song_reverb_slide_ticks--;
+                seq_song_reverb_depth += seq_song_reverb_slide_step;
+                seq_song_flags |= SONG_UPDATE_REVERB;
+            }
+            if (seq_song_beat_ticks && ++seq_song_beat_tick == seq_song_beat_ticks) {
+                seq_song_beat_tick = 0;
+                if (++seq_song_bar_beat == seq_song_beats_per_bar) {
+                    seq_song_bar_beat = 0;
+                    seq_song_bar_number++;
+                }
+            }
+        }
+    }
+    voices = seq_song2.active_voices;
+    if (voices) {
+        tempo = (unsigned int)seq_song2.tempo >> 16;
+        value = (unsigned char)(snd_tempo_scale >> 16);
+        if (value) {
+            if (value < 0x80)
+                tempo += (tempo * value) >> 7;
+            else
+                tempo = (tempo * value) >> 8;
+        }
+        value = tempo + seq_song2.tempo_phase;
+        seq_song2.tempo_phase = value;
+        if (value & 0xFFFF0000 || D_80062FF8 & 4) {
+            seq_song2.tempo_phase = value & 0xFFFF;
+            D_80062F04 = 1;
+            bit = 1;
+            ch = &seq_channels[24];
+            do {
+                if (voices & bit) {
+                    gate = &ch->gate;
+                    *gate += 0xFEFF;
+                    if (!(*gate & 0xFF)) {
+                        seq_step_channel(ch, &seq_song2, bit);
+                    } else if (!(*gate & 0xFF00)) {
+                        *gate |= 0x100;
+                        seq_song2.key_off_voices |= bit;
+                        seq_song2.update_voices &= ~bit;
+                    }
+                    seq_channel_slides(ch, &seq_song2, bit);
+                    voices ^= bit;
+                }
+                ch++;
+                bit <<= 1;
+            } while (voices);
+            if (seq_song2.tempo_slide_ticks) {
+                seq_song2.tempo_slide_ticks--;
+                seq_song2.tempo += seq_song2.tempo_slide_step;
+            }
+        }
+    }
+    voices = effect_voices;
+    if (voices) {
+        value = (effect_tempo >> 16) + effect_tempo_phase;
+        effect_tempo_phase = value;
+        if (value & 0xFFFF0000 || D_80062FF8 & 4) {
+            effect_tempo_phase = value & 0xFFFF;
+            bit = 0x10000;
+            ch = &seq_channels[48];
+            do {
+                if (voices & bit) {
+                    if (!(D_80062FF8 & 2) || ch->is_effect == 2) {
+                        ch->unk_50++;
+                        gate = &ch->gate;
+                        *gate += 0xFEFF;
+                        if (!(*gate & 0xFF)) {
+                            seq_step_channel(ch, &seq_song, bit);
+                        } else if (!(*gate & 0xFF00)) {
+                            *gate |= 0x100;
+                            effect_key_off_voices |= bit;
+                            effect_update_voices &= ~bit;
+                        }
+                        seq_effect_slides(ch, bit);
+                    }
+                    voices ^= bit;
+                }
+                ch++;
+                bit <<= 1;
+            } while (voices);
+        }
+    }
+    if (seq_song_pause_pending) {
+        snd_cmd_9B(&D_8009A000);
+        seq_song_pause_pending = 0;
+    }
+    snd_flush_queue();
+    snd_slow_slides();
+    snd_key_off_voices();
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_step_channel);
 
@@ -3315,7 +3582,7 @@ void seq_cmd_bar_number(SeqChannel *ch, SeqSong *song, unsigned int voice)
 
 void func_800335CC(SeqChannel *ch, SeqSong *song, unsigned int voice)
 {
-    song->unk_54 = 1;
+    song->pause_pending = 1;
 }
 
 void seq_cmd_decay_sustain(SeqChannel *ch, SeqSong *song, unsigned int voice)

@@ -157,7 +157,7 @@ typedef struct SeqSong {
     unsigned short branch_level;        /* 0x4E EF branches when this is non-zero and at least n (set by the game) */
     unsigned short reverb_slide_ticks;  /* 0x50 */
     unsigned short noise_clock;         /* 0x52 AC */
-    unsigned short unk_54;              /* 0x54 F3 sets it to 1 */
+    unsigned short pause_pending;       /* 0x54 F3: seq_tick pauses the music (9B) at its end */
     unsigned short beats_per_bar;       /* 0x56 FD */
     unsigned short bar_beat;            /* 0x58 the bar's current beat */
     unsigned short beat_ticks;          /* 0x5A FD ticks per beat */
@@ -214,6 +214,9 @@ extern SeqSong seq_song;
 /* A second song block on channels 24-47, its voices limited to D_80062F68. What plays there isn't known yet. */
 extern SeqSong seq_song2;
 extern unsigned int D_80062F68;
+/* The two blocks were one array in the original: code that touches both reaches the first through the second's
+ * address, which GCC only does within one symbol. */
+extern SeqSong seq_songs[2];
 
 /* Each LFO waveform: its steps, which the LFOs walk through. */
 extern short *lfo_waveforms[];
@@ -228,6 +231,19 @@ extern unsigned int seq_song_flags;
 extern unsigned int seq_song_paused_voices;
 extern unsigned short seq_song_branch_level;
 extern unsigned short seq_song_id;
+extern unsigned int seq_song_tempo;
+extern int seq_song_tempo_slide_step;
+extern unsigned int seq_song_tempo_phase;
+extern int seq_song_reverb_depth;
+extern int seq_song_reverb_slide_step;
+extern unsigned short seq_song_tempo_slide_ticks;
+extern unsigned short seq_song_reverb_slide_ticks;
+extern unsigned short seq_song_pause_pending;
+extern unsigned short seq_song_beats_per_bar;
+extern unsigned short seq_song_bar_beat;
+extern unsigned short seq_song_beat_ticks;
+extern unsigned short seq_song_beat_tick;
+extern unsigned short seq_song_bar_number;
 
 /* The effect channels' copies of the song voice masks, and of the noise clock. */
 extern unsigned int effect_noise_voices;
@@ -239,6 +255,9 @@ extern unsigned int effect_key_on_voices;
 extern unsigned int effect_update_voices;
 extern unsigned int effect_key_off_voices;
 extern unsigned int effect_paused_voices; /* effect_voices while 9D has the effects paused */
+extern unsigned int effect_tempo; /* << 16, like a song's */
+extern unsigned int effect_tempo_phase;
+extern SoundCommand D_8009A000; /* what seq_tick hands 9B for F3's pause */
 
 extern int D_80062F04; /* when set, layer voices are numbered from 24 */
 
@@ -263,10 +282,10 @@ void snd_effect_pan_slide(SoundCommand *cmd, SeqChannel *pair);
 void snd_effect_pitch_shift(SoundCommand *cmd, SeqChannel *pair);
 void snd_effect_pitch_shift_slide(SoundCommand *cmd, SeqChannel *pair);
 
-/* Driver globals the sound commands set, not yet understood (D0/D1, D4/D5, 90, E0, F2, F3). */
-extern int D_80062FE8;
-extern int D_80062F30;
-extern short D_80062F48;
+/* Driver globals the sound commands set (D0/D1, D4/D5, 90, E0, F2, F3). */
+extern int snd_tempo_scale; /* D0: a signed byte << 16; its top byte, unsigned, scales both songs' tempo like D4 */
+extern int snd_tempo_scale_step;
+extern short snd_tempo_scale_ticks;
 extern int snd_pitch_scale; /* D4: a signed byte << 16; its top byte, unsigned, scales every pitch (n/128 up, or n/256) */
 extern int snd_pitch_scale_step;
 extern short snd_pitch_scale_ticks;
@@ -283,6 +302,7 @@ extern short snd_master_volume_ticks;
 extern unsigned short snd_reverb_scale;
 extern unsigned int D_80062FF8;
 extern unsigned short snd_fade_ticks;
+extern unsigned short snd_slow_slide_tick; /* snd_slow_slides runs on every 4th */
 
 void snd_stream_stop(void);
 void snd_stop_songs(void);
@@ -380,6 +400,7 @@ int SpuGetKeyStatus(unsigned int voice);
 int GetRCnt(unsigned int counter);
 int VSync(int mode);
 void seq_tick(void);
+void seq_step_channel(SeqChannel *ch, SeqSong *song, unsigned int voice);
 extern unsigned short snd_timer_last_count; /* VSync(1) at the last snd_timer_tick */
 extern int snd_tick_time[4];
 extern int snd_tick_time_total;
