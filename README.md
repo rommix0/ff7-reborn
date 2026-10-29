@@ -2,7 +2,7 @@
 
 Code recovery for **Final Fantasy VII (PS1, NTSC-U, SCUS-94163/4/5)**. The original source is lost; this repo rebuilds it from the retail discs, plus scripts so owners of a legit copy can extract the game data themselves.
 
-This it is made in part with the assistance of Claude. If any of you have a problem with that, you're free to leave and to never contribute here. Projects like these are why tools like Claude should exist.
+It is made in part with the assistance of Claude. If any of you have a problem with that, you're free to leave and to never contribute here. Projects like these are why tools like Claude should exist.
 
 No game data is in this repo. `assets/` and any disc images are git-ignored. Bring your own discs.
 
@@ -35,15 +35,8 @@ python tools/akao.py midi assets assets/midi
 `check` parses every song and sound effect it finds and reports anything that doesn't parse (~3 minutes for three
 discs). `midi` writes each distinct song as `song_<id>.mid`, with tempo and `loopStart`/`loopEnd` markers.
 
-Export the songs as FastTracker 2 modules that use the game's own instrument samples (open them in OpenMPT or
-MilkyTracker):
-
-```bash
-python tools/xm.py assets "assets/Final Fantasy VII (USA) (Disc 1)/SOUND" assets/xm
-```
-
-Or export them in our own format and play and edit them in the music player, which emulates the game's sound
-driver (time signatures, vibrato, tremolo, bends and loops as the game plays them). The songs hold no samples; they
+Export the songs in our own format and play and edit them in the music player, which emulates the game's sound
+driver (time signatures, slurs, vibrato, tremolo, bends, envelopes, reverb and loops as the game plays them). The songs hold no samples; they
 share one instrument bank file. The format is described in `docs/ff7song_format.md`. The player needs numpy and
 sounddevice; the window is tkinter.
 
@@ -70,7 +63,7 @@ python tools/ff7player.py assets/ff7song/effects
 ```
 
 Record the game's nine SPU reverb types as impulse-response WAVs for a convolution reverb (24-bit stereo, 44.1 kHz;
-a centred one per type, plus left-in and right-in files for true stereo):
+a centred one per type, plus left-in and right-in files for true stereo; needs numpy):
 
 ```bash
 python tools/reverb_ir.py "assets/Final Fantasy VII (USA) (Disc 1)/SCUS_941.63"
