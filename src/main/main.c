@@ -68,8 +68,9 @@ typedef struct FieldObject {
     unsigned char pad_68[0x1C];
 } FieldObject;
 
-/* State func_800119E4 saves and func_80011AEC puts back. Volatile: the game reads every field in order, and one field
- * twice. */
+/* Part of the save data: the state func_800119E4 saves, func_80011AEC puts back and func_80011BB4 resets, and more.
+ * Volatile: the game reads every field in order, and one field twice. One object: in a function, GCC puts the address
+ * of the first field it touches in a register and reaches the rest directly, as the game does. */
 typedef struct SavedState {
     int unk_00;
     short mode;                         /* game_mode */
@@ -81,6 +82,10 @@ typedef struct SavedState {
     unsigned char unk_10;
     unsigned char unk_11;
     unsigned char unk_12;
+    unsigned char pad_13[0x19];
+    unsigned char counters[4];          /* two 16-bit counters as byte pairs, D_8009D2A0 */
+    unsigned char pad_30[0x2E4];
+    unsigned char disc;                 /* D_8009D588 */
 } SavedState;
 
 extern DiscFile instr_all_file;
@@ -364,15 +369,14 @@ void func_800119E4(void)
 {
     int i;
 
-    /* Two stores go through a pointer: the game puts their addresses in a register. */
     if (game_mode == 3) {
-        *(volatile int *)&D_8009D274.unk_00 = 2;
+        D_8009D274.unk_00 = 2;
         D_8009D274.mode = 3;
     } else {
-        *(volatile int *)&D_8009D274.unk_00 = 0;
+        D_8009D274.unk_00 = 0;
         D_8009D274.mode = 1;
     }
-    *(volatile short *)&D_8009D274.unk_06 = D_8009A05C;
+    D_8009D274.unk_06 = D_8009A05C;
     i = D_800965E0;
     D_8009D274.unk_0A = D_80074EB0[i].x >> 12;
     D_8009D274.unk_0C = D_80074EB0[i].y >> 12;
@@ -398,7 +402,19 @@ void func_80011AEC(void)
     D_8009AD2C = D_8009D274.unk_12;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/main", func_80011BB4);
+void func_80011BB4(void)
+{
+    D_8009D274.disc = 1;
+    D_8009D274.unk_00 = 0;
+    D_8009D274.mode = 1;
+    D_8009D274.unk_06 = 0x74;
+    D_8009D274.unk_0A = 0;
+    D_8009D274.unk_0C = 0;
+    D_8009D274.unk_0E = 0;
+    D_8009D274.unk_10 = 0;
+    D_8009D274.unk_11 = 0;
+    D_8009D274.unk_12 = 0;
+}
 
 #ifdef NON_MATCHING
 /* The game's main: boots, then runs modules by game_mode until D_8009ABF5 asks for 5, 0x0A or 0x1A, and starts over.
@@ -406,7 +422,6 @@ INCLUDE_ASM("asm/nonmatchings/main/main", func_80011BB4);
  * rebuilds it each pass, which costs one more saved register. */
 extern DiscFile D_80048D34, D_80048D3C, D_80048D44, D_80048D4C, D_80048D54;
 extern DiscFile D_80048D5C, D_80048D64, D_80048D6C, D_80048D74;
-extern unsigned char D_8009D2A0[];
 extern volatile unsigned char D_8009D5E5[3];
 extern volatile unsigned char D_8009D3EA[2];
 extern unsigned char D_80071E30, D_80071E34;
@@ -482,8 +497,6 @@ typedef struct MainGlobals {
     int ac38;
 } MainGlobals;
 extern MainGlobals D_8009ABF4;
-/* In the same object as D_8009D2A0: GCC derives &D_8009D2A0 from &D_8009D588. */
-#define D_8009D588 (*(volatile unsigned char *)&D_8009D2A0[0x2E8])
 extern long D_8009A004;
 int main(void)
 {
@@ -524,9 +537,9 @@ int main(void)
         /* Through a pointer: the game keeps this address in a register across the loop. */
         mode = &D_8009ABF4.abf5;
         do {
-            if (D_8009D588 != func_800343F0()) {
+            if (D_8009D274.disc != func_800343F0()) {
                 func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
-                if (func_800A0000(D_8009D588) == 1)
+                if (func_800A0000(D_8009D274.disc) == 1)
                     goto fail;
             }
             init_display();
@@ -542,8 +555,8 @@ int main(void)
                     break;
                 case 2:
                 case 4:
-                    if (++*(volatile unsigned char *)&D_8009D2A0[0] == 0)
-                        D_8009D2A0[1]++;
+                    if (++D_8009D274.counters[0] == 0)
+                        (*(unsigned char *)&D_8009D274.counters[1])++;
                     if (D_80071E34 == 1) {
                         func_800260DC();
                         func_80026090();
@@ -561,8 +574,8 @@ int main(void)
                             D_80095DD8 = D_80048D24.size;
                             func_800111E4();
                             if (D_800707BE & 8) {
-                                if (++*(volatile unsigned char *)&D_8009D2A0[2] == 0)
-                                    D_8009D2A0[3]++;
+                                if (++D_8009D274.counters[2] == 0)
+                                    (*(unsigned char *)&D_8009D274.counters[3])++;
                             }
                         }
                         if ((*(volatile short *)&D_800707BE & 1) && !D_8009ABF4.ac31) {
@@ -586,8 +599,8 @@ int main(void)
                     func_800111E4();
                     flags = *(volatile short *)&D_800707BE;
                     if (flags & 8) {
-                        if (++*(volatile unsigned char *)&D_8009D2A0[2] == 0)
-                            D_8009D2A0[3]++;
+                        if (++D_8009D274.counters[2] == 0)
+                            (*(unsigned char *)&D_8009D274.counters[3])++;
                     } else if ((flags & 1) || (!*(volatile unsigned int *)&D_8009D268 && (D_80095DDC & 0x20000000))) {
                         *(volatile short *)&D_800707BE = 0;
                         D_8009ABF4.abf5 = 0x1A;
@@ -702,9 +715,9 @@ int main(void)
                     game_mode = 1;
                     break;
                 case 12:
-                    if (D_8009D588 != func_800343F0()) {
+                    if (D_8009D274.disc != func_800343F0()) {
                         func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
-                        if (func_800A0000(D_8009D588) == 1) {
+                        if (func_800A0000(D_8009D274.disc) == 1) {
                             D_8009ABF4.abf5 = 0xA;
                             break;
                         }

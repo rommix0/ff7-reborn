@@ -949,8 +949,8 @@ Lessons from getting it to match:
   `#include` from a Windows drive under WSL (it can't `stat` the large inode numbers). The build preprocesses with the
   host `cpp -P -undef -nostdinc` instead, which doesn't change the generated code.
 
-**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 43 in C so far), two files told apart by their assembler:
-- **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 26 of 30 in C): boots the sound driver, sets up the display and
+**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 44 in C so far), two files told apart by their assembler:
+- **`src/main/main.c`** (`0x8001117C`–`0x800144D8`, 27 of 30 in C): boots the sound driver, sets up the display and
   has the game's `main` (`0x80011C1C`, 3 KB, still asm). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed load goes through `addiu $at`
   (`lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`). Its divides carry ASPSX's checks.
 - **`src/main/loader.c`** (`0x800144D8`–`0x80014A00`, all 17 in C): disc reads and module starts. **ASPSX 2.34**:
@@ -996,34 +996,34 @@ Lessons from getting it to match:
   register and adds the field offset, where `array[frame].tile[j].r0` folds the whole address into the `$at` form.
   `main.c` has them as `set_rgb`, `set_wh` and `set_xy`. Linking is libgpu's 24-bit `next` field (the
   `0xFF000000`/`0xFFFFFF` masks), written as a bitfield in `add_prim`.
-- **`volatile`:** `game_mode`, `frame`, a fade level and step (`0x8009AC42`/`0x8009AC44`) and the state block at
-  `0x8009D274` (`func_800119E4` saves it, `func_80011AEC` restores it) only match as `volatile`: the game loads such a
-  `short` with `lhu` and sign-extends it with shifts, reloads it after storing it, and keeps the reads in order (one
-  field is read twice). They are probably shared with the VSync callback. `x++` on a volatile reloads `x` after the
-  store and discards it, as the game does. Some accesses go through a pointer cast to `volatile` instead
-  (`*(volatile int *)&x`), which puts the address in a register as the game does; the same variable can be plain in
-  one function and cast in the next. The state block is a struct: as separate
-  globals, GCC moves a table load above the stores, which it doesn't do between two struct accesses.
-- **Parked:** `func_80011BB4` (resets the state block). It matches with the block as separate `volatile` globals
-  (`D_8009D274` an `int`, then `D_8009D278`... ) and `D_8009D588` written as `*(volatile unsigned char
-  *)&D_8009D2A0[0x2E8]`, but `func_800119E4` stops matching that way (GCC moves a table load above the stores), and
-  with the struct the reset's first store goes through a register whatever the field's type. With the struct it's 4
-  lines off.
+- **`volatile`:** `game_mode`, `frame`, a fade level and step (`0x8009AC42`/`0x8009AC44`) and the save-data block at
+  `0x8009D274` (`func_800119E4` saves its state, `func_80011AEC` restores it, `func_80011BB4` resets it) only match as
+  `volatile`: the game loads such a `short` with `lhu` and sign-extends it with shifts, reloads it after storing it,
+  and keeps the reads in order (one field is read twice). They are probably shared with the VSync callback. `x++` on a
+  volatile reloads `x` after the store and discards it, as the game does.
+- **The save-data block is one struct** from `0x8009D274` to at least `0x8009D588` (the disc number,
+  `D_8009D274.disc`; two byte-pair counters sit at `0x8009D2A0`). The reset only matches that way: it writes the disc
+  number first, and GCC puts the address of the first field a function touches in a register and reaches the rest of
+  the struct directly. As separate globals the save function stops matching (GCC moves a table load above the stores,
+  which it doesn't do past a struct field), and as a struct starting at the state its first field would be the one in
+  a register.
 - **`main`:** sets up memory, the display and the boot files, then loops forever: load the sound files and the first
   module, then run modules by `game_mode` (a 16-case switch, most cases read a file to `0x80180000`, unpack it to
   `0x800A0000` and call into it) until `D_8009ABF5` asks for 5, `0x0A` or `0x1A`, then shut the sound down and start
   over. It has an unused local `"battle.x"`. Its C is in `main.c` behind `NON_MATCHING`: the same instructions as the
   game, with about 83% of the words identical. What's left is one register: GCC keeps `&D_8009AC32` in a saved
   register for the whole function, where the game rebuilds it at the top of each pass and derives `&D_8009ABF5` and
-  `&D_8009ABF6` from it before the middle loop. Getting this far took: one base symbol each for
-  `D_8009D2A0`..`D_8009D588` and `D_8009ABF4`..`D_8009AC38` (GCC derives one address from another), an `int` pad word
-  `D_80095DDC`, `D_8009A004` as its own `long`, the failure path as a `goto` to a label after the mode-5 block,
-  `*(volatile T *)&x` exactly where the game uses a register-held address, and a local pointer to `D_8009ABF5` set
-  just before the middle loop. Where that pointer is set decides which addresses GCC hoists out of which loop; every
-  other position tried is worse.
-- **Register-held addresses:** with optimisation GCC 2.6.3 loads the address of a pointer-expression access
-  (`*(T *)&x`, a struct field) into a register, and a plain scalar global stays a `lui`/`%lo` access. In a loop those
-  registers are hoisted out, which is why `main`'s draft needs the casts exactly where the game has them.
+  `&D_8009ABF6` from it before the middle loop. Getting this far took: the save-data struct and a struct for
+  `D_8009ABF4`..`D_8009AC38` (GCC derives one address from another within one object), an `int` pad word `D_80095DDC`,
+  `D_8009A004` as its own `long`, the failure path as a `goto` to a label after the mode-5 block, `*(volatile T *)&x`
+  exactly where the game uses a register-held address, and a local pointer to `D_8009ABF5` set just before the middle
+  loop. Where that pointer is set decides which addresses GCC hoists out of which loop; every other position tried is
+  worse.
+- **Register-held addresses:** GCC 2.6.3 reaches a plain scalar global with `lui`/`%lo`, but loads the address of a
+  struct field or a pointer expression (`*(T *)&x`) into a register, then folds later accesses to the same object back
+  to `lui`/`%lo`: within a function, the first one touched is the one in a register. In a loop those registers are
+  hoisted out, which is why `main`'s draft needs its casts exactly where the game has them. Many of `main.c`'s older
+  `*(volatile T *)&x` casts are probably this rule in disguise.
 - **In progress:** `func_800140F4` (a screen transition: its own display, the screen copied in four strips with every
   pixel's semi-transparency bit set, and a 10x7 grid of textured quads with an 11x8 vertex grid) and
   `func_80013C9C` (draws it each frame: alternates two quad grids, fades or re-pages them, rotates and scales the

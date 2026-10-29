@@ -382,5 +382,4 @@ shard_disp = 0x8019DA80; // size:0x14
 shard_draw = 0x8019DA24; // size:0x5C
 __main = 0x800110B8; // type:func
 main = 0x80011C1C; // type:func
-D_8009D2A0 = 0x8009D2A0; // size:0x4
 D_8009ABF4 = 0x8009ABF4;
