@@ -126,7 +126,7 @@ typedef struct SeqChannel {
 
 /* The song or effect that owns the channels, handed to every command handler. */
 typedef struct SeqSong {
-    unsigned char pad_00[0x04];
+    unsigned int unk_00;                /* 0x00 sound commands 80/81/82 set 1/2/4 */
     unsigned int active_voices;         /* 0x04 the song's own channels */
     unsigned int voices_08;             /* 0x08 a voice mask (A0 on an effect clears its bit) */
     unsigned int update_voices;         /* 0x0C voices the driver keeps updating (key-off takes a voice out) */
@@ -184,6 +184,7 @@ extern unsigned int seq_song_voices_08;
 extern unsigned int seq_song_update_voices;
 extern unsigned int seq_song_voices_10;
 extern unsigned int seq_song_flags;
+extern unsigned short seq_song_branch_level;
 
 /* The effect channels' copies of the song voice masks, and of the noise clock. */
 extern unsigned int effect_noise_voices;
@@ -215,6 +216,28 @@ void snd_effect_pan_slide(SoundCommand *cmd, SeqChannel *pair);
 void snd_effect_pitch_shift(SoundCommand *cmd, SeqChannel *pair);
 void snd_effect_pitch_shift_slide(SoundCommand *cmd, SeqChannel *pair);
 
+/* Driver globals the sound commands set, not yet understood (D0/D1, D4/D5, 90, E0, F2, F3). */
+extern int D_80062FE8;
+extern int D_80062F30;
+extern unsigned short D_80062F48;
+extern int D_80062FE4;
+extern int D_80062F28;
+extern unsigned short D_80062F40;
+extern int D_80062FD8;
+extern unsigned short D_80062F70;
+extern unsigned short D_8008337E;
+extern unsigned short D_800833DE;
+extern unsigned short D_80062FCC;
+extern int D_80062FD4;
+extern unsigned int D_80062F00;
+
+void func_80029A50(void);
+void func_80029F44(void);
+void func_8002A43C(void);
+void func_8002A748(void);
+void func_8002A798(void);
+void func_8002CFC0(SoundCommand *cmd);
+void func_8002E428(void);
 void func_80030038(void); /* hands the reverb voice masks to the SPU (by analogy with func_80030148) */
 void func_80030148(void); /* hands the FM voice masks to the SPU */
 void func_8002FF4C(void); /* hands the noise voice masks to the SPU (by analogy) */

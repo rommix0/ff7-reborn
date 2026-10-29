@@ -958,7 +958,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 112 of the file's 232 functions are C** (109 written here; `seq_cmd_slur_off`,
+- **Recovered: 136 of the file's 232 functions are C** (133 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -992,6 +992,16 @@ Lessons from getting it to match:
   - `pitch_shift` (`+0x3C`, step `+0x40`, ticks `+0x5A`) is a signed byte << 8 the game sets on a playing effect.
   - A slide's length 0 means 1 tick. `snd_effect_pitch_shift_slide` is parked: its tick count is copied to another
     register before the final stores, and no form tried reproduces that.
+- **Other sound commands in C:** `B8`–`BD` apply those six controls to all four effect pairs (from slot 54 back,
+  two channels a step). `D0`/`D1` and `D4`/`D5` set or slide a value at `0x80062FE8` / `0x80062FE4` (a signed byte
+  << 16; meaning not known yet), `C8` sets `0x80062FD4` and calls `func_8002E428`, `80`/`81`/`82` store 1/2/4 in
+  `seq_song`'s first word and call `func_8002A748` and `func_8002A798`, `90` stores its argument and sets every
+  music channel's volume-update bits, `92` sets the song's branch level (what `EF` tests), `E0` sets `0x80062F70`
+  and the reverb-changed flag, `F2`/`F3` clear one word each, `F0`/`F1`/`FA` just call a function, and `F8`/`F9`
+  take the voices at `0x80062F00` away from the effects with their reverb off or on.
+  - Names follow the command byte (`snd_cmd_D0`) until what they control is known.
+  - `F8`/`F9` reach `effect_voices` through a pointer: only then does GCC keep its address in a register as the
+    game does.
 
 ## 8. Sony library map (main exe)
 

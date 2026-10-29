@@ -95,7 +95,12 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BA98);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BB20);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BBB4);
+void snd_cmd_C8(SoundCommand *cmd)
+{
+    D_80062FD4 = (unsigned short)cmd->arg[0] << 16;
+    D_80062FCC = 0;
+    func_8002E428();
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BBEC);
 
@@ -127,9 +132,26 @@ void snd_effect_balance_slide(SoundCommand *cmd, SeqChannel *pair)
     pair[0].balance_slide_ticks = ticks;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BDCC);
+/* B8-BD: the same controls as A0-B7 on all four effect pairs at once. */
+void snd_cmd_B8(SoundCommand *cmd)
+{
+    SeqChannel *pair = &seq_channels[54];
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BE2C);
+    snd_effect_balance(cmd, pair);
+    snd_effect_balance(cmd, pair - 2);
+    snd_effect_balance(cmd, pair - 4);
+    snd_effect_balance(cmd, pair - 6);
+}
+
+void snd_cmd_B9(SoundCommand *cmd)
+{
+    SeqChannel *pair = &seq_channels[54];
+
+    snd_effect_balance_slide(cmd, pair);
+    snd_effect_balance_slide(cmd, pair - 2);
+    snd_effect_balance_slide(cmd, pair - 4);
+    snd_effect_balance_slide(cmd, pair - 6);
+}
 
 void snd_cmd_A0(SoundCommand *cmd)
 {
@@ -195,9 +217,25 @@ void snd_effect_pan_slide(SoundCommand *cmd, SeqChannel *pair)
     pair[0].pan_slide_ticks = ticks;
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C0CC);
+void snd_cmd_BA(SoundCommand *cmd)
+{
+    SeqChannel *pair = &seq_channels[54];
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C12C);
+    snd_effect_pan(cmd, pair);
+    snd_effect_pan(cmd, pair - 2);
+    snd_effect_pan(cmd, pair - 4);
+    snd_effect_pan(cmd, pair - 6);
+}
+
+void snd_cmd_BB(SoundCommand *cmd)
+{
+    SeqChannel *pair = &seq_channels[54];
+
+    snd_effect_pan_slide(cmd, pair);
+    snd_effect_pan_slide(cmd, pair - 2);
+    snd_effect_pan_slide(cmd, pair - 4);
+    snd_effect_pan_slide(cmd, pair - 6);
+}
 
 void snd_cmd_A8(SoundCommand *cmd)
 {
@@ -253,9 +291,25 @@ void snd_effect_pitch_shift(SoundCommand *cmd, SeqChannel *pair)
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", snd_effect_pitch_shift_slide);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C3A8);
+void snd_cmd_BC(SoundCommand *cmd)
+{
+    SeqChannel *pair = &seq_channels[54];
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C408);
+    snd_effect_pitch_shift(cmd, pair);
+    snd_effect_pitch_shift(cmd, pair - 2);
+    snd_effect_pitch_shift(cmd, pair - 4);
+    snd_effect_pitch_shift(cmd, pair - 6);
+}
+
+void snd_cmd_BD(SoundCommand *cmd)
+{
+    SeqChannel *pair = &seq_channels[54];
+
+    snd_effect_pitch_shift_slide(cmd, pair);
+    snd_effect_pitch_shift_slide(cmd, pair - 2);
+    snd_effect_pitch_shift_slide(cmd, pair - 4);
+    snd_effect_pitch_shift_slide(cmd, pair - 6);
+}
 
 void snd_cmd_B0(SoundCommand *cmd)
 {
@@ -297,31 +351,91 @@ void snd_cmd_B7(SoundCommand *cmd)
     snd_effect_pitch_shift_slide(cmd, &seq_channels[54]);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C5A8);
+/* D0 v: a value at 0x80062FE8 = v (signed) << 16. D1 t v slides it over t ticks (0 = 1). D4/D5 do the same for
+ * 0x80062FE4. What they control isn't known yet. */
+void snd_cmd_D0(SoundCommand *cmd)
+{
+    D_80062FE8 = (signed char)cmd->arg[0] << 16;
+    D_80062F48 = 0;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C5C8);
+void snd_cmd_D1(SoundCommand *cmd)
+{
+    int ticks = 1;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C634);
+    if (cmd->arg[0])
+        ticks = cmd->arg[0];
+    D_80062F30 = (((signed char)cmd->arg[1] << 16) - D_80062FE8) / ticks;
+    D_80062F48 = ticks;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C6A8);
+INCLUDE_ASM("asm/nonmatchings/main/sound", snd_cmd_D2);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C6C8);
+void snd_cmd_D4(SoundCommand *cmd)
+{
+    D_80062FE4 = (signed char)cmd->arg[0] << 16;
+    D_80062F40 = 0;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C734);
+void snd_cmd_D5(SoundCommand *cmd)
+{
+    int ticks = 1;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C7A8);
+    if (cmd->arg[0])
+        ticks = cmd->arg[0];
+    D_80062F28 = (((signed char)cmd->arg[1] << 16) - D_80062FE4) / ticks;
+    D_80062F40 = ticks;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C7C8);
+INCLUDE_ASM("asm/nonmatchings/main/sound", snd_cmd_D6);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C7E8);
+void snd_cmd_F0(SoundCommand *cmd)
+{
+    func_80029F44();
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C81C);
+void snd_cmd_F1(SoundCommand *cmd)
+{
+    func_8002A43C();
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C850);
+void snd_cmd_80(SoundCommand *cmd)
+{
+    seq_song.unk_00 = 1;
+    func_8002A748();
+    func_8002A798();
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C884);
+void snd_cmd_82(SoundCommand *cmd)
+{
+    seq_song.unk_00 = 4;
+    func_8002A748();
+    func_8002A798();
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C8C4);
+void snd_cmd_81(SoundCommand *cmd)
+{
+    seq_song.unk_00 = 2;
+    func_8002A748();
+    func_8002A798();
+}
+
+/* 90 v: stores v, then every music channel rewrites its volume. */
+void snd_cmd_90(SoundCommand *cmd)
+{
+    unsigned short i;
+    SeqChannel *ch;
+
+    D_80062FD8 = cmd->arg[0];
+    for (i = 0, ch = seq_channels; i < 24; i++, ch++)
+        ch->voice_update |= UPDATE_VOLUME;
+}
+
+/* 92 n: the song's branch level, which EF tests. */
+void snd_cmd_92(SoundCommand *cmd)
+{
+    seq_song_branch_level = cmd->arg[0];
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C8DC);
 
@@ -331,23 +445,54 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CA84);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CB78);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CC18);
+void snd_cmd_E0(SoundCommand *cmd)
+{
+    D_80062F70 = cmd->arg[0] & 0x7F;
+    seq_song_flags |= SONG_UPDATE_REVERB;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CC44);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CCBC);
+void snd_cmd_F2(SoundCommand *cmd)
+{
+    D_8008337E = 0;
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CCCC);
+void snd_cmd_F3(SoundCommand *cmd)
+{
+    D_800833DE = 0;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CCDC);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CDD0);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CEC0);
+/* F8/F9: after func_8002CFC0, the voices at 0x80062F00 leave the effects, and their reverb goes off (F8) or on (F9).
+ * The game reaches effect_voices through a pointer here. */
+void snd_cmd_F8(SoundCommand *cmd)
+{
+    unsigned int *voices = &effect_voices;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CF1C);
+    func_8002CFC0(cmd);
+    *voices &= ~D_80062F00;
+    effect_reverb_voices &= ~D_80062F00;
+    func_80030038();
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002CF78);
+void snd_cmd_F9(SoundCommand *cmd)
+{
+    unsigned int *voices = &effect_voices;
+
+    func_8002CFC0(cmd);
+    *voices &= ~D_80062F00;
+    effect_reverb_voices |= D_80062F00;
+    func_80030038();
+}
+
+void snd_cmd_FA(SoundCommand *cmd)
+{
+    func_80029A50();
+}
 
 void func_8002CF98(void) {
 }
