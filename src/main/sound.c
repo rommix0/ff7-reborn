@@ -254,7 +254,67 @@ void snd_stop_songs(void)
     } while (voices);
 }
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A094);
+/* Starts an effect on a channel pair (0x30-0x36): each stream it has plays from a reset channel, panned (0-127) with
+ * no slide. The pair's voices join the effects, any it already held key off first, and none of them carries old
+ * noise, reverb or FM. While the effects are paused (9D), they go straight to the paused set, but a kind 2 effect on
+ * 54/55 stays out of it. */
+void func_8002A094(unsigned short pan, unsigned short pair, unsigned char *first, unsigned char *second)
+{
+    SeqChannel *ch;
+    unsigned int *held;
+    unsigned int voices;
+    unsigned int shift;
+
+    voices = 0;
+    pan = (pan & 0x7F) << 8;
+    ch = &seq_channels[pair];
+    ch[0].gate = 0x101;
+    ch[1].gate = 0x101;
+    ch[0].pos = D_80049C40;
+    ch[1].pos = D_80049C40;
+    ch[0].is_effect = 1;
+    ch[1].is_effect = 1;
+    ch[0].unk_50 = -1;
+    ch[1].unk_50 = -1;
+    if (first) {
+        voices = 1;
+        channel_reset(ch, first);
+        ch->pan = pan;
+        ch->pan_slide_ticks = 0;
+    }
+    ch++;
+    if (second) {
+        voices |= 2;
+        channel_reset(ch, second);
+        ch->pan = pan;
+        ch->pan_slide_ticks = 0;
+    }
+    shift = pair - 32;
+    held = &effect_voices;
+    voices <<= shift;
+    *held |= voices;
+    voices = (3 << shift) & *held;
+    effect_key_off_voices |= voices;
+    voices = ~voices;
+    effect_key_on_voices &= voices;
+    effect_update_voices &= voices;
+    effect_noise_voices &= voices;
+    effect_reverb_voices &= voices;
+    effect_fm_voices &= voices;
+    if (D_80062FF8 & 2) {
+        voices = *held;
+        if (seq_channels[54].is_effect == 2) {
+            *held = voices & 0xC00000;
+            voices &= ~0xC00000;
+        } else {
+            *held = 0;
+        }
+        effect_paused_voices |= voices;
+    }
+    snd_apply_noise_voices();
+    snd_apply_reverb_voices();
+    snd_apply_fm_voices();
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A28C);
 

@@ -1,17 +1,3 @@
-/* With -G8, GCC writes every function after the file's top-level asm, which would put INCLUDE_ASM's functions first.
- * maspsx's workaround: each include sits inside a function whose wrapper it strips (its README). */
-#define INCLUDE_ASM(FOLDER, NAME) \
-    void __maspsx_include_asm_hack_##NAME() { \
-        __asm__( \
-            ".text # maspsx-keep \n" \
-            "\t.align\t2 # maspsx-keep\n" \
-            "\t.set noreorder # maspsx-keep\n" \
-            "\t.set noat # maspsx-keep\n" \
-            ".include \""FOLDER"/"#NAME".s\" # maspsx-keep\n" \
-            "\t.set reorder # maspsx-keep\n" \
-            "\t.set at # maspsx-keep\n" \
-        ); \
-    }
 #include "common.h"
 #include "sound.h"
 
@@ -175,9 +161,42 @@ void snd_reset(void)
 
 /* The instrument banks: the samples go to SPU RAM (the header's address and size, then the data) and the table to
  * instrument_table (all 128, or from 53 for the second bank). */
-INCLUDE_ASM("asm/nonmatchings/main/sound_init", load_instrument_bank);
+void load_instrument_bank(unsigned int *header, unsigned int *instruments)
+{
+    unsigned int *to;
+    unsigned int n;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound_init", load_instrument_bank2);
+    func_80038F64(*header++);
+    n = *header;
+    header += 3;
+    snd_transfer_write((unsigned char *)header, n);
+    to = (unsigned int *)instrument_table;
+    /* Reusing the size as the copy counter is what puts it in a1 in the game. */
+    n = sizeof(instrument_table) / 4;
+    do {
+        n--;
+        *to++ = *instruments++;
+    } while (n);
+    snd_transfer_wait();
+}
+
+void load_instrument_bank2(unsigned int *header, unsigned int *instruments)
+{
+    unsigned int *to;
+    unsigned int n;
+
+    func_80038F64(*header++);
+    n = *header;
+    header += 3;
+    snd_transfer_write((unsigned char *)header, n);
+    to = (unsigned int *)&instrument_table[53];
+    n = (128 - 53) * sizeof(Instrument) / 4;
+    do {
+        n--;
+        *to++ = *instruments++;
+    } while (n);
+    snd_transfer_wait();
+}
 
 /* Boots the driver: the effect file's buffer, SPU memory from 0x77000 for the stream, the first bank, 32 silent
  * bytes at 0x76FE0, a reset, then root counter 2 at 0x43D1 with snd_timer_tick on its interrupt. */

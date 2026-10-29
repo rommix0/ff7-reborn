@@ -961,7 +961,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 226 of the driver's 232 functions are C**, in `sound.c` and `sound_init.c` (223 written here; `seq_cmd_slur_off`,
+- **Recovered: 229 of the driver's 232 functions are C**, in `sound.c` and `sound_init.c` (226 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -1086,9 +1086,10 @@ Lessons from getting it to match:
   - **The clock:** `snd_timer_tick` runs the sequencer ticks due since the last call (scanlines ÷ 66, 1–8, doubled
     by `0x80062FF8` bit 2). It keeps how long the last four calls took in `snd_tick_time[4]` and their sum in
     `snd_tick_time_total`.
-  - **Parked:** `func_8002A094` (effect start): with the pan computed first and `voices` shifted in place, only
-    `s3`/`s4` (the pan and the second stream) are swapped.
-    `func_8002A28C` (the kind 2 effect's start) shares field addresses differently whichever way it's written.
+  - **`func_8002A094` (effect start) is C:** its pan parameter is `unsigned short` (every caller casts to it), and
+    the shifted pan goes back into the parameter. A separate local put the pan and the second stream in swapped
+    saved registers.
+  - **Parked:** `func_8002A28C` (the kind 2 effect's start) shares field addresses differently whichever way it's written.
 - **Voice output, song start and resume, the stream start (this round):**
   - **`snd_update_voice(voice, settings)`** hands each group whose update bits are set to libspu: pitch, volume,
     start, loop, then the envelope pairs (sustain, attack, release, decay with sustain level). It clears each group's
@@ -1211,13 +1212,16 @@ Lessons from getting it to match:
     them tentative definitions, and `--use-comm-section` keeps them common, so the linker resolves them to the data
     section's labels and adds no storage.
   - **`INCLUDE_ASM` under `-G8`:** GCC writes every function after the file's top-level `asm`, so a plain
-    `INCLUDE_ASM` lands first. The file uses maspsx's documented workaround (each include inside a
-    `__maspsx_include_asm_hack_` function). `-mno-gpopt` doesn't help: GCC forces it on when optimizing with `-G`.
+    `INCLUDE_ASM` lands first. maspsx's documented workaround (each include inside a `__maspsx_include_asm_hack_`
+    function) handled that while the file had some; it has none now. `-mno-gpopt` doesn't help: GCC forces it on
+    when optimizing with `-G`.
   - **What's there:** the SPU transfer helpers (`snd_transfer_write`/`read`/`wait`, `snd_transfer_busy` is
     `volatile`: the wait loop reloads it), `snd_reset` (the boot state, `0x800294BC`), `snd_init`, `snd_load_effects`
     (copies EFFECT.ALL, `0xC800` bytes, into its buffer) and `snd_quit`.
-  - **Parked:** `load_instrument_bank` and `load_instrument_bank2`. Their copy loop matches but for its pointer and
-    counter registers (`v1`/`a1` in the game, `a0`/`v1` or `v1`/`a0` here).
+  - **The bank loaders** (`load_instrument_bank`, `load_instrument_bank2`: all 128 instruments, or from 53 on):
+    the copy counter is the variable that held the transfer size, and the header pointer is stepped to the sample
+    data before the transfer call. A fresh counter, or `header + 3` written in the call, puts the pointer and
+    counter in `a0`/`v1` instead of the game's `v1`/`a1`.
 
 ## 8. Sony library map (main exe)
 

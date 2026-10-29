@@ -329,7 +329,7 @@ extern int snd_queue_count;
 void snd_effect_streams(unsigned char **first, unsigned char **second, int effect);
 extern unsigned short *effect_offsets; /* EFFECT.ALL's table: two stream offsets per effect, 0xFFFF = none */
 extern unsigned char *effect_data;     /* what the offsets count from */
-void func_8002A094(int pan, unsigned short pair, unsigned char *first, unsigned char *second); /* starts an effect */
+void func_8002A094(unsigned short pan, unsigned short pair, unsigned char *first, unsigned char *second); /* starts an effect */
 void func_8002A28C(unsigned char *first, unsigned char *second);
 void snd_fade_out_song(void);
 void snd_load_song(unsigned int *data, unsigned int size); /* copies the song into song_data */
