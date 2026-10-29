@@ -101,77 +101,201 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BBEC);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BC58);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BCCC);
+/* Sound commands A0-B7 set or slide the balance, pan or pitch shift of a playing effect, on both channels of its
+ * pair (seq_channels 48-55). A slide's length 0 means 1 tick. */
+void snd_effect_balance(SoundCommand *cmd, SeqChannel *pair)
+{
+    short value = (cmd->arg[0] & 0x7F) << 8;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BD04);
+    pair[1].balance_slide_ticks = 0;
+    pair[0].balance_slide_ticks = 0;
+    pair[1].balance = value;
+    pair[0].balance = value;
+    pair[0].voice_update |= UPDATE_VOLUME;
+    pair[1].voice_update |= UPDATE_VOLUME;
+}
+
+void snd_effect_balance_slide(SoundCommand *cmd, SeqChannel *pair)
+{
+    unsigned short ticks = 1;
+
+    if (cmd->arg[0])
+        ticks = cmd->arg[0];
+    pair[0].balance_slide_step = (short)(((cmd->arg[1] & 0x7F) << 8) - pair[0].balance) / (short)ticks;
+    pair[1].balance_slide_step = (short)(((cmd->arg[1] & 0x7F) << 8) - pair[1].balance) / (short)ticks;
+    pair[1].balance_slide_ticks = ticks;
+    pair[0].balance_slide_ticks = ticks;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BDCC);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BE2C);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BE8C);
+void snd_cmd_A0(SoundCommand *cmd)
+{
+    snd_effect_balance(cmd, &seq_channels[52]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BEB4);
+void snd_cmd_A4(SoundCommand *cmd)
+{
+    snd_effect_balance_slide(cmd, &seq_channels[52]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BEDC);
+void snd_cmd_A1(SoundCommand *cmd)
+{
+    snd_effect_balance(cmd, &seq_channels[50]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BF04);
+void snd_cmd_A5(SoundCommand *cmd)
+{
+    snd_effect_balance_slide(cmd, &seq_channels[50]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BF2C);
+void snd_cmd_A2(SoundCommand *cmd)
+{
+    snd_effect_balance(cmd, &seq_channels[48]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BF54);
+void snd_cmd_A6(SoundCommand *cmd)
+{
+    snd_effect_balance_slide(cmd, &seq_channels[48]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BF7C);
+void snd_cmd_A3(SoundCommand *cmd)
+{
+    snd_effect_balance(cmd, &seq_channels[54]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BFA4);
+void snd_cmd_A7(SoundCommand *cmd)
+{
+    snd_effect_balance_slide(cmd, &seq_channels[54]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002BFCC);
+void snd_effect_pan(SoundCommand *cmd, SeqChannel *pair)
+{
+    unsigned short value = (cmd->arg[0] & 0x7F) << 8;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C004);
+    pair[1].pan_slide_ticks = 0;
+    pair[0].pan_slide_ticks = 0;
+    pair[1].pan = value;
+    pair[0].pan = value;
+    pair[0].voice_update |= UPDATE_VOLUME;
+    pair[1].voice_update |= UPDATE_VOLUME;
+}
+
+void snd_effect_pan_slide(SoundCommand *cmd, SeqChannel *pair)
+{
+    unsigned short ticks = 1;
+
+    if (cmd->arg[0])
+        ticks = cmd->arg[0];
+    pair[0].pan_slide_step = (short)(((cmd->arg[1] & 0x7F) << 8) - pair[0].pan) / (short)ticks;
+    pair[1].pan_slide_step = (short)(((cmd->arg[1] & 0x7F) << 8) - pair[1].pan) / (short)ticks;
+    pair[1].pan_slide_ticks = ticks;
+    pair[0].pan_slide_ticks = ticks;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C0CC);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C12C);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C18C);
+void snd_cmd_A8(SoundCommand *cmd)
+{
+    snd_effect_pan(cmd, &seq_channels[52]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C1B4);
+void snd_cmd_AC(SoundCommand *cmd)
+{
+    snd_effect_pan_slide(cmd, &seq_channels[52]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C1DC);
+void snd_cmd_A9(SoundCommand *cmd)
+{
+    snd_effect_pan(cmd, &seq_channels[50]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C204);
+void snd_cmd_AD(SoundCommand *cmd)
+{
+    snd_effect_pan_slide(cmd, &seq_channels[50]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C22C);
+void snd_cmd_AA(SoundCommand *cmd)
+{
+    snd_effect_pan(cmd, &seq_channels[48]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C254);
+void snd_cmd_AE(SoundCommand *cmd)
+{
+    snd_effect_pan_slide(cmd, &seq_channels[48]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C27C);
+void snd_cmd_AB(SoundCommand *cmd)
+{
+    snd_effect_pan(cmd, &seq_channels[54]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C2A4);
+void snd_cmd_AF(SoundCommand *cmd)
+{
+    snd_effect_pan_slide(cmd, &seq_channels[54]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C2CC);
+void snd_effect_pitch_shift(SoundCommand *cmd, SeqChannel *pair)
+{
+    int value = (signed char)cmd->arg[0] << 8;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C300);
+    pair[1].pitch_shift_slide_ticks = 0;
+    pair[0].pitch_shift_slide_ticks = 0;
+    pair[1].pitch_shift = value;
+    pair[0].pitch_shift = value;
+    pair[0].voice_update |= UPDATE_PITCH;
+    pair[1].voice_update |= UPDATE_PITCH;
+}
+
+INCLUDE_ASM("asm/nonmatchings/main/sound", snd_effect_pitch_shift_slide);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C3A8);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C408);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C468);
+void snd_cmd_B0(SoundCommand *cmd)
+{
+    snd_effect_pitch_shift(cmd, &seq_channels[52]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C490);
+void snd_cmd_B4(SoundCommand *cmd)
+{
+    snd_effect_pitch_shift_slide(cmd, &seq_channels[52]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C4B8);
+void snd_cmd_B1(SoundCommand *cmd)
+{
+    snd_effect_pitch_shift(cmd, &seq_channels[50]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C4E0);
+void snd_cmd_B5(SoundCommand *cmd)
+{
+    snd_effect_pitch_shift_slide(cmd, &seq_channels[50]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C508);
+void snd_cmd_B2(SoundCommand *cmd)
+{
+    snd_effect_pitch_shift(cmd, &seq_channels[48]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C530);
+void snd_cmd_B6(SoundCommand *cmd)
+{
+    snd_effect_pitch_shift_slide(cmd, &seq_channels[48]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C558);
+void snd_cmd_B3(SoundCommand *cmd)
+{
+    snd_effect_pitch_shift(cmd, &seq_channels[54]);
+}
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C580);
+void snd_cmd_B7(SoundCommand *cmd)
+{
+    snd_effect_pitch_shift_slide(cmd, &seq_channels[54]);
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002C5A8);
 

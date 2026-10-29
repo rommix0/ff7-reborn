@@ -45,14 +45,15 @@ typedef struct SeqChannel {
     int note_pitch;                     /* 0x30 the sounding note's pitch register (vibrato scales with it) */
     unsigned char pad_34[0x04];
     unsigned int flags;                 /* 0x38 CHANNEL_* */
-    unsigned char pad_3C[0x08];
+    int pitch_shift;                    /* 0x3C set by the game on a playing effect: a signed byte << 8 */
+    int pitch_shift_step;               /* 0x40 */
     int volume;                         /* 0x44 A8 value << 23 */
     int volume_slide_step;              /* 0x48 */
     unsigned char pad_4C[0x08];
     unsigned short is_effect;           /* 0x54 a sound effect's channel */
     unsigned short gate;                /* 0x56 key-off countdown << 8 | ticks to the next event */
     unsigned short instrument;          /* 0x58 */
-    unsigned char pad_5A[0x02];
+    unsigned short pitch_shift_slide_ticks; /* 0x5A */
     unsigned short volume_slide_ticks;  /* 0x5C */
     unsigned short balance_slide_ticks; /* 0x5E */
     unsigned short pan;                 /* 0x60 AA value << 8 */
@@ -157,6 +158,13 @@ typedef struct SeqSong {
     unsigned short bar_number;          /* 0x5E FE */
 } SeqSong;
 
+/* One sound command, as the game queues it (snd_queue) or runs it at once (snd_run_command). */
+typedef struct SoundCommand {
+    unsigned short id;
+    unsigned char pad_02[0x02];
+    int arg[8];
+} SoundCommand;
+
 /* INSTR.DAT, copied whole by load_instrument_bank. */
 typedef struct Instrument {
     unsigned int sample;                /* SPU address */
@@ -198,6 +206,14 @@ void seq_cmd_decay_rate(SeqChannel *ch, SeqSong *song, unsigned int voice);
 void seq_cmd_sustain_level(SeqChannel *ch, SeqSong *song, unsigned int voice);
 
 void load_channel_instrument(SeqChannel *ch, unsigned short instrument);
+
+/* Sound commands A0-B7: a playing effect's balance, pan and pitch shift, on a pair of channels. */
+void snd_effect_balance(SoundCommand *cmd, SeqChannel *pair);
+void snd_effect_balance_slide(SoundCommand *cmd, SeqChannel *pair);
+void snd_effect_pan(SoundCommand *cmd, SeqChannel *pair);
+void snd_effect_pan_slide(SoundCommand *cmd, SeqChannel *pair);
+void snd_effect_pitch_shift(SoundCommand *cmd, SeqChannel *pair);
+void snd_effect_pitch_shift_slide(SoundCommand *cmd, SeqChannel *pair);
 
 void func_80030038(void); /* hands the reverb voice masks to the SPU (by analogy with func_80030148) */
 void func_80030148(void); /* hands the FM voice masks to the SPU */

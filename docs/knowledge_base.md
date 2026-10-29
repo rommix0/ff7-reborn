@@ -958,9 +958,11 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 81 of the file's 230 functions are C** (78 written here; `seq_cmd_slur_off`,
-  `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). All are sequence
-  command handlers: octave, slur and full length, volume, pan, transpose, detune, lengths (`A2`, `DC`), glide and
+- **Recovered: 112 of the file's 232 functions are C** (109 written here; `seq_cmd_slur_off`,
+  `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
+  command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
+  missed functions with upper-case hex in their names; count with a parser, not by eye.)
+  Sequence handlers: octave, slur and full length, volume, pan, transpose, detune, lengths (`A2`, `DC`), glide and
   bend, loops, repeats and jumps (`C8`, `C9`, `CA`, `EE`, `F0`, `F1`, `EF`), drum kit, tempo and its slide, reverb
   depth and its slide, time signature and bar number, the tremolo and pan-LFO starts, the LFO depths, depth slides
   and off commands, volume, pan and balance slides, noise (on, off, clock, timed), FM and reverb on/off, pitch and
@@ -982,6 +984,14 @@ Lessons from getting it to match:
   - `CE`/`CF` are the noise twins of `D2`/`D3`: noise on now (`CE` only) and flipped after n + 1 ticks.
   - `DF` is the pan-LFO depth slide, the twin of `DD` and `DE`.
   - Every unused command byte calls `seq_cmd_end`.
+- **Sound commands `A0`–`B7`** (what the game sends a playing effect): balance, balance slide, pan, pan slide,
+  pitch shift and pitch-shift slide, four commands each, one per effect pair: `seq_channels` slots 52, 50, 48 and 54
+  (the pairs at `0x30`–`0x36` above, so the channel array runs to at least 56). Each handler passes its command and
+  its pair to a shared worker (`snd_effect_balance` …), which sets both channels.
+  - `SoundCommand` (`include/sound.h`): a 16-bit id, then 32-bit arguments from `+0x04` (`0x24` bytes, as queued).
+  - `pitch_shift` (`+0x3C`, step `+0x40`, ticks `+0x5A`) is a signed byte << 8 the game sets on a playing effect.
+  - A slide's length 0 means 1 tick. `snd_effect_pitch_shift_slide` is parked: its tick count is copied to another
+    register before the final stores, and no form tried reproduces that.
 
 ## 8. Sony library map (main exe)
 
