@@ -27,7 +27,17 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029A50);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", snd_set_reverb_mode);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_80029B78);
+void snd_load_song(unsigned int *data, unsigned int size)
+{
+    unsigned int *dst;
+
+    size >>= 2;
+    dst = song_data;
+    while (size) {
+        size--;
+        *dst++ = *data++;
+    }
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", channel_reset);
 
@@ -47,9 +57,45 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A510);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A6C4);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A748);
+/* Every voice the song's channels hold rewrites its volume. */
+void snd_refresh_song_volumes(void)
+{
+    unsigned int voices = seq_song.active_voices;
+    SeqChannel *ch = seq_channels;
+    unsigned int bit;
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A798);
+    if (!voices)
+        return;
+    bit = 1;
+    do {
+        if (voices & bit) {
+            voices ^= bit;
+            ch->voice_update |= UPDATE_VOLUME;
+        }
+        ch++;
+        bit <<= 1;
+    } while (voices);
+}
+
+/* Every voice an effect holds rewrites its volume. Effect slots 48-55 are SPU voices 16-23. */
+void snd_refresh_effect_volumes(void)
+{
+    unsigned int voices = effect_voices;
+    SeqChannel *ch = &seq_channels[48];
+    unsigned int bit;
+
+    if (!voices)
+        return;
+    bit = 0x10000;
+    do {
+        if (voices & bit) {
+            voices ^= bit;
+            ch->voice_update |= UPDATE_VOLUME;
+        }
+        ch++;
+        bit <<= 1;
+    } while (voices);
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002A7E8);
 
@@ -59,13 +105,31 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", snd_resume_song);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002AFB8);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", snd_save_song);
+/* Copies the playing song's 24 channels and its state into a save slot. */
+void snd_save_song(SeqChannel *channels, SeqChannel *saved_channels, SeqSong *song, SeqSong *saved)
+{
+    unsigned int *src = (unsigned int *)channels;
+    unsigned int *dst = (unsigned int *)saved_channels;
+    unsigned int *song_src = (unsigned int *)song;
+    unsigned int *song_dst = (unsigned int *)saved;
+    unsigned short n = sizeof(SeqChannel) * 24 / 4;
+
+    do {
+        n--;
+        *dst++ = *src++;
+    } while (n);
+    n = sizeof(SeqSong) / 4;
+    do {
+        n--;
+        *song_dst++ = *song_src++;
+    } while (n);
+}
 
 /* 10 a b id: start song id. A saved song with that id is resumed instead (from either slot); song 14 is saved
  * first when it's the one playing. */
 void snd_cmd_10(SoundCommand *cmd)
 {
-    func_80029B78(cmd->arg[0], cmd->arg[1]);
+    snd_load_song(cmd->arg[0], cmd->arg[1]);
     if (seq_song_id == 14) {
         func_8002A7E8();
         snd_save_song(seq_channels, saved_song_channels[1], &seq_song, &saved_songs[1]);
@@ -210,12 +274,12 @@ void snd_cmd_2B(SoundCommand *cmd)
     func_8002A094((unsigned short)cmd->arg[0], 0x36, first, second);
 }
 
-/* C0 v / C1 t v / C2 t a b: set or slide a value at 0x80062F5C (v & 0x7F) << 16, then call func_8002A748. */
+/* C0 v / C1 t v / C2 t a b: set or slide a value at 0x80062F5C (v & 0x7F) << 16, then call snd_refresh_song_volumes. */
 void snd_cmd_C0(SoundCommand *cmd)
 {
     D_80062F5C = (cmd->arg[0] & 0x7F) << 16;
     D_80062F44 = 0;
-    func_8002A748();
+    snd_refresh_song_volumes();
 }
 
 void snd_cmd_C1(SoundCommand *cmd)
@@ -226,7 +290,7 @@ void snd_cmd_C1(SoundCommand *cmd)
         ticks = cmd->arg[0];
     D_80062F2C = (((cmd->arg[1] & 0x7F) << 16) - D_80062F5C) / ticks;
     D_80062F44 = ticks;
-    func_8002A748();
+    snd_refresh_song_volumes();
 }
 
 void snd_cmd_C2(SoundCommand *cmd)
@@ -242,25 +306,25 @@ void snd_cmd_C2(SoundCommand *cmd)
     D_80062F2C = (to - from) / ticks;
     D_80062F44 = ticks;
     D_80062F5C = from;
-    func_8002A748();
+    snd_refresh_song_volumes();
 }
 
 void snd_cmd_C8(SoundCommand *cmd)
 {
-    D_80062FD4 = (unsigned short)cmd->arg[0] << 16;
-    D_80062FCC = 0;
-    func_8002E428();
+    snd_cd_volume = (unsigned short)cmd->arg[0] << 16;
+    snd_cd_volume_slide_ticks = 0;
+    snd_apply_cd_volume();
 }
 
-/* C9 t v: slide C8's value to v over t ticks (0 = 1). CA t a b: from a to b. */
+/* C8 v: the CD audio volume, v << 16 (applied at once). C9 t v slides it over t ticks (0 = 1); CA t a b from a to b. */
 void snd_cmd_C9(SoundCommand *cmd)
 {
     int ticks = 1;
 
     if (cmd->arg[0])
         ticks = cmd->arg[0];
-    D_80062FB4 = (((unsigned short)cmd->arg[1] << 16) - D_80062FD4) / ticks;
-    D_80062FCC = ticks;
+    snd_cd_volume_slide_step = (((unsigned short)cmd->arg[1] << 16) - snd_cd_volume) / ticks;
+    snd_cd_volume_slide_ticks = ticks;
 }
 
 void snd_cmd_CA(SoundCommand *cmd)
@@ -273,9 +337,9 @@ void snd_cmd_CA(SoundCommand *cmd)
         ticks = cmd->arg[0];
     to = (unsigned short)cmd->arg[2] << 16;
     from = (unsigned short)cmd->arg[1] << 16;
-    D_80062FB4 = (to - from) / ticks;
-    D_80062FCC = ticks;
-    D_80062FD4 = from;
+    snd_cd_volume_slide_step = (to - from) / ticks;
+    snd_cd_volume_slide_ticks = ticks;
+    snd_cd_volume = from;
 }
 
 /* Sound commands A0-B7 set or slide the balance, pan or pitch shift of a playing effect, on both channels of its
@@ -595,22 +659,22 @@ void snd_cmd_F1(SoundCommand *cmd)
 void snd_cmd_80(SoundCommand *cmd)
 {
     seq_song.unk_00 = 1;
-    func_8002A748();
-    func_8002A798();
+    snd_refresh_song_volumes();
+    snd_refresh_effect_volumes();
 }
 
 void snd_cmd_82(SoundCommand *cmd)
 {
     seq_song.unk_00 = 4;
-    func_8002A748();
-    func_8002A798();
+    snd_refresh_song_volumes();
+    snd_refresh_effect_volumes();
 }
 
 void snd_cmd_81(SoundCommand *cmd)
 {
     seq_song.unk_00 = 2;
-    func_8002A748();
-    func_8002A798();
+    snd_refresh_song_volumes();
+    snd_refresh_effect_volumes();
 }
 
 /* 90 v: stores v, then every music channel rewrites its volume. */
@@ -722,7 +786,13 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002D7A0);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002D8E8);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002DA30);
+/* The next free command in the queue. */
+void snd_queue_next(SoundCommand **cmd)
+{
+    *cmd = snd_queue;
+    *cmd += snd_queue_count;
+    snd_queue_count++;
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002DA7C);
 
@@ -732,7 +802,17 @@ INCLUDE_ASM("asm/nonmatchings/main/sound", snd_flush_queue);
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", snd_update_voice);
 
-INCLUDE_ASM("asm/nonmatchings/main/sound", func_8002E428);
+/* The CD audio's volume on both sides, with no reverb. */
+void snd_apply_cd_volume(void)
+{
+    SpuCommonAttr *attr = &snd_common_attr;
+
+    attr->mask = 0x1C0;
+    attr->cd_reverb = 0;
+    attr->cd_volume[1] = (unsigned int)snd_cd_volume >> 16;
+    attr->cd_volume[0] = (unsigned int)snd_cd_volume >> 16;
+    func_80039034(attr);
+}
 
 INCLUDE_ASM("asm/nonmatchings/main/sound", seq_channel_slides);
 

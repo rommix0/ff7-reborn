@@ -958,7 +958,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 156 of the file's 232 functions are C** (153 written here; `seq_cmd_slur_off`,
+- **Recovered: 162 of the file's 232 functions are C** (159 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -1017,6 +1017,18 @@ Lessons from getting it to match:
     `0x80062FC8` *(probably a fade-out and its length; unverified)*.
   - **Two save slots:** `saved_song_channels[2][24]` (`0x8007EC10`) and `saved_songs[2]` (`0x80083334`); slot 1
     holds song 14 and slot 0 any other. `F2`/`F3` empty them. Their stride confirms `SeqSong` is `0x60` bytes.
+- **CD audio volume:** sound commands `C8`/`C9`/`CA` set, slide and slide from–to `snd_cd_volume` (`0x80062FD4`,
+  << 16). `snd_apply_cd_volume` writes its top half to both sides of a libspu `SpuCommonAttr` (mask `0x1C0`: CD
+  volume left/right and CD reverb, here 0) and hands it to `0x80039034` *(probably `SpuSetCommonAttr`)*.
+- **Effect voices:** `snd_refresh_effect_volumes` walks `effect_voices` from bit `0x10000` against `seq_channels`
+  slot 48, so **effect slots 48–55 are SPU voices 16–23**. Its twin walks the song's `active_voices` from slot 0.
+- **Helpers in C:** `snd_load_song` (copies the song into `song_data`, `0x80083580`), `snd_save_song` (copies 24
+  channels and the `SeqSong` into a save slot), `snd_queue_next` (the next free `SoundCommand` in `snd_queue`).
+- **A second file at the start of the range:** `0x800293D0`–`0x80029A4C` (11 functions, including `snd_init` and
+  the instrument-bank loaders) reach small globals through `$gp`, so that part was compiled with `-G8`; from
+  `0x80029A50` on, small globals like `0x80062F00` are reached with `lui`, which is `-G0`.
+  - **Why they stay asm for now:** maspsx only emits `$gp` accesses for small variables the same C file defines,
+    and defining them would add storage before the data section is split per file. They need that split first.
 
 ## 8. Sony library map (main exe)
 

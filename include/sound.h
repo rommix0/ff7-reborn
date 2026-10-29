@@ -165,6 +165,20 @@ typedef struct SoundCommand {
     int arg[8];
 } SoundCommand;
 
+/* libspu's SpuCommonAttr (layout from Sony's Libref); only the CD fields are used here. */
+typedef struct SpuCommonAttr {
+    unsigned int mask;
+    short master_volume[2];
+    short master_volume_mode[2];
+    short master_volume_now[2];
+    short cd_volume[2];
+    int cd_reverb;
+    int cd_mix;
+    short ext_volume[2];
+    int ext_reverb;
+    int ext_mix;
+} SpuCommonAttr;
+
 /* INSTR.DAT, copied whole by load_instrument_bank. */
 typedef struct Instrument {
     unsigned int sample;                /* SPU address */
@@ -226,10 +240,10 @@ extern int D_80062F28;
 extern unsigned short D_80062F40;
 extern int D_80062FD8;
 extern unsigned short D_80062F70;
-extern unsigned short D_80062FCC;
-extern int D_80062FD4;
+extern unsigned short snd_cd_volume_slide_ticks;
+extern int snd_cd_volume; /* C8, << 16 */
 extern unsigned int D_80062F00;
-extern int D_80062FB4;
+extern int snd_cd_volume_slide_step;
 extern int D_80062F5C;
 extern int D_80062F2C;
 extern unsigned short D_80062F44;
@@ -240,15 +254,22 @@ extern unsigned short D_80062FC8;
 void func_80029A50(void);
 void func_80029F44(void);
 void func_8002A43C(void);
-void func_8002A748(void);
-void func_8002A798(void);
+void snd_refresh_song_volumes(void);
+void snd_refresh_effect_volumes(void);
 void func_8002CFC0(SoundCommand *cmd);
 void func_8002A510(int pair, int arg);
+void snd_refresh_song_volumes(void);
+void snd_refresh_effect_volumes(void);
+void func_80039034(SpuCommonAttr *attr); /* probably SpuSetCommonAttr */
+extern SpuCommonAttr snd_common_attr;
+extern unsigned int song_data[];
+extern SoundCommand snd_queue[];
+extern int snd_queue_count;
 void func_8002A6C4(unsigned char **first, unsigned char **second, int effect); /* an effect's two streams */
 void func_8002A094(int pan, int pair, unsigned char *first, unsigned char *second); /* starts an effect */
 void func_8002A28C(unsigned char *first, unsigned char *second);
 void func_8002AFB8(void);
-void func_80029B78(int a, int b);
+void snd_load_song(unsigned int *data, unsigned int size); /* copies the song into song_data */
 void func_80029C48(void); /* starts the loaded song */
 void func_80029E98(void);
 void func_8002A7E8(void);
@@ -261,7 +282,7 @@ extern SeqChannel saved_song_channels[2][24];
 extern SeqSong saved_songs[2];
 void snd_cmd_10(SoundCommand *cmd);
 void snd_cmd_14(SoundCommand *cmd);
-void func_8002E428(void);
+void snd_apply_cd_volume(void);
 void func_80030038(void); /* hands the reverb voice masks to the SPU (by analogy with func_80030148) */
 void func_80030148(void); /* hands the FM voice masks to the SPU */
 void func_8002FF4C(void); /* hands the noise voice masks to the SPU (by analogy) */
