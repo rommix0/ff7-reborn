@@ -260,7 +260,7 @@ starts:
   - **In the songs:** only song 10, channels 1–5: instruments 84 and 83, crossfaded.
 - **`C6` / `C7`: FM on / off** (`0x80032BB4` / `0x80032C20`).
   - **Effect:** they set and clear the channel's bit in the song's pitch-modulation mask (`+0x34`), which
-    `func_80030148` hands to the SPU. The voice's sample step then follows the previous voice's output: step ×
+    `snd_apply_fm_voices` hands to the SPU. The voice's sample step then follows the previous voice's output: step ×
     (1 + output).
   - **In the songs:** 53, 66 and 89.
   - **The SPU's rule** (psx-spx): step = pitch register × (previous voice's output after its envelope, + 0x8000)
@@ -937,8 +937,11 @@ Lessons from getting it to match:
   - `SeqChannel`, `0x108` bytes: read pointer, loop stack (`+0x04` starts, `+0xB8` level, `+0xBA` passes), drum map
     (`+0x14`), layer voice (`+0x24`), volume, pan, octave, length fields, glide, bend, transpose and detune, LFO
     depths and offsets, the noise and FM countdowns, the envelope (`+0xEC`–`+0x102`), and the flags at `+0x38`.
-  - `voice_update` (`+0xE0`) is libspu's voice attribute mask: `0x3` the two volumes, `0x10` pitch, `0x100`–`0x400`
-    the envelope modes, `0x800`–`0x8000` the rates and the sustain level.
+  - `VoiceSettings` (`+0xDC`, `0x2C` bytes): what `snd_update_voice(voice, settings)` hands to libspu. Its `update`
+    (`+0xE0` in the channel) is libspu's voice attribute mask: `0x3` the two volumes, `0x10` pitch, `0x100`–`0x400`
+    the envelope modes, `0x800`–`0x8000` the rates and the sustain level. `snd_direct_voice` (`0x8007EBE4`) is a
+    standalone one for voices written without a channel. The driver reaches its fields as plain variables (a
+    register holds the struct's address while the stores use their own), so each has an alias.
   - **Every sequence command handler takes (channel, song, the channel's SPU voice bit).** `B0` and `CB` pass all
     three on to other handlers, and the reverb, noise and FM commands set or clear that bit in a voice mask.
   - `SeqSong`, the handlers' second argument: tempo (`+0x18`), voice masks for layers, overlaps, noise, reverb and
@@ -958,7 +961,7 @@ Lessons from getting it to match:
     note's pitch by the new instrument's C pitch over the old one's, unless an effect holds the voice
     (`effect_voices`, `0x80099FCC`), and with `F8` on they copy everything but the release (update `0x1BB80`).
     `F2` sets the sample to `0x76FE0`, the silent blocks.
-- **Recovered: 169 of the file's 232 functions are C** (166 written here; `seq_cmd_slur_off`,
+- **Recovered: 189 of the file's 232 functions are C** (186 written here; `seq_cmd_slur_off`,
   `seq_cmd_full_length_off` and the sound-command no-op `func_8002CF98` are empty in the game). The sequence
   command handlers below, plus the sound commands `A0`–`B7`. (Earlier counts in this file and in commit messages
   missed functions with upper-case hex in their names; count with a parser, not by eye.)
@@ -998,7 +1001,7 @@ Lessons from getting it to match:
   `seq_song`'s first word and call `func_8002A748` and `func_8002A798`, `90` stores its argument and sets every
   music channel's volume-update bits, `92` sets the song's branch level (what `EF` tests), `E0` sets `0x80062F70`
   and the reverb-changed flag, `F2`/`F3` clear one word each, `F0`/`F1`/`FA` just call a function, and `F8`/`F9`
-  take the voices at `0x80062F00` away from the effects with their reverb off or on.
+  take the stream's voices away from the effects with their reverb off or on.
   - Names follow the command byte (`snd_cmd_D0`) until what they control is known.
   - `F8`/`F9` reach `effect_voices` through a pointer: only then does GCC keep its address in a register as the
     game does.
@@ -1034,11 +1037,42 @@ Lessons from getting it to match:
   - `snd_flush_queue`: runs each queued command through `snd_command_handlers`, unless `0x80062F8C` holds it.
   - `snd_stop_song`: every voice the song holds (layers and overlaps too) gets a 2-tick key-off and steps into an
     end stub at `0x80049C40`; the song's voice masks are cleared.
-  - `func_80029A50` / `func_8002D410`: silence and start a special voice set at `0x80062F00` (voices 16/17, which
-    `F8`/`F9` move): transfer callback, SPU IRQ at `0x78000`, and `0x80038C6C(on, voices)`.
+  - **The sample stream** (`snd_stream_*`): the game streams sample data from main RAM through a double buffer at
+    SPU `0x77000`–`0x78FFF`, on voice 16 (mono) or voices 16/17 (stereo, 2 KB each per half).
+    - **Setup:** `snd_stream_voice_mono` / `snd_stream_voices_stereo` set the voices up through `snd_direct_voice`.
+      `snd_stream_play_mono` / `_stereo` arm the first IRQ and key the voices on.
+    - **Refill:** each half's IRQ (`snd_stream_fill_*_a` / `_b`) copies the next 4 KB into the other half with
+      `SpuWrite` and re-arms the IRQ.
+    - **At the end:** it starts again from `snd_stream_loop` (`snd_stream_loop_size` bytes), or `snd_stream_stop`
+      (also `FA`) keys the voices off.
   - `seq_song`'s voice masks (`+0x04`, `+0x24`, `+0x28`) are also reached as plain globals here, like its flags.
   - **Parked:** `func_80031A70` (skips commands to a length-0 one, returns `CA` or `A0`): the game loads `0xCA`
     into a register before the loop.
+- **Pause and resume (sound commands `9A`–`9D`):**
+  - **`9B` pauses the music:** its voices (not the effects' or the stream's) get volume 0 and a held sustain
+    through `snd_direct_voice`. Its `active_voices` move to `paused_voices` (`+0x14`) and `0x80062FF8` bit 0 is set.
+  - **`9A` resumes it:** the voices rewrite volume and sustain, the masks move back, and the noise, reverb and FM
+    voices go to the SPU again.
+  - **`9D`/`9C`** do the same for the effects (bit 1), but a kind 2 effect on channels 54/55 (`+0x54` = 2) keeps
+    playing.
+  - **The effects' block:** `effect_voices` (`0x80099FCC`) and the words after it follow `SeqSong`'s first fields:
+    `effect_voices_08`, `effect_update_voices`, `effect_key_off_voices`, `effect_paused_voices`.
+- **`F1`, `F4`, `F5`:**
+  - **`F1`** (`snd_stop_effects`) ends every effect but a kind 2 one.
+  - **`F4`** sets the effects aside: their 8 channels into `seq_channels[24..31]` and 12 words of their block after
+    them. Then it stops them and runs `B8` (0x7F) and `BC` (0) on every effect pair.
+  - **`F5`** copies them back and keys off the voices they no longer hold.
+- **Voice masks to the SPU:**
+  - `snd_apply_noise_voices`, `snd_apply_reverb_voices` and `snd_apply_fm_voices` each build one mask from both
+    song blocks and the effects' copy, and set it on and its complement off.
+  - Before that, `snd_add_spare_voices` adds each channel's spare voice (sequence commands `F4` layer, `F8`
+    overlap). `E4`'s flag puts every voice in
+    reverb.
+  - `snd_key_off_voices` does the same with the `key_off_voices` masks (`+0x10`).
+  - **A second song block** (`seq_song2`, `0x8009A164`, right after `seq_song`) owns channels 24–47, its voices
+    limited by `0x80062F68`. Nothing here says what plays there.
+  - The masks are written as one expression with the "free voices" mask repeated as the last argument: computed
+    first into a local, it schedules differently.
 - **A second file at the start of the range:** `0x800293D0`–`0x80029A4C` (11 functions, including `snd_init` and
   the instrument-bank loaders) reach small globals through `$gp`, so that part was compiled with `-G8`; from
   `0x80029A50` on, small globals like `0x80062F00` are reached with `lui`, which is `-G0`.

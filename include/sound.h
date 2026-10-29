@@ -15,7 +15,7 @@
 #define SONG_UPDATE_NOISE  0x10 /* the noise voices or clock changed */
 #define SONG_UPDATE_REVERB 0x80 /* the reverb depth changed */
 
-/* SeqChannel.voice_update: which SPU voice settings snd_update_voice writes next (libspu's voice attribute mask) */
+/* VoiceSettings.update: which SPU voice settings snd_update_voice writes next (libspu's voice attribute mask) */
 #define UPDATE_VOLUME        0x3 /* both sides */
 #define UPDATE_PITCH         0x10
 #define UPDATE_SAMPLE        0x80 /* the sample's start address */
@@ -30,6 +30,24 @@
 #define UPDATE_ENVELOPE      0xFF00 /* all of the above from the attack mode on */
 #define UPDATE_LOOP          0x10000 /* the sample's loop address */
 #define UPDATE_ALL           (UPDATE_VOLUME | UPDATE_PITCH | UPDATE_SAMPLE | UPDATE_ENVELOPE | UPDATE_LOOP)
+
+/* A voice's settings as snd_update_voice hands them to libspu: a channel keeps them at +0xDC. */
+typedef struct VoiceSettings {
+    unsigned char pad_00[0x04];
+    unsigned int update;                /* 0x04 UPDATE_*: which settings to write next */
+    unsigned int sample;                /* 0x08 the instrument's SPU sample address */
+    unsigned int loop;                  /* 0x0C and loop address */
+    unsigned int attack_mode;           /* 0x10 B7 */
+    unsigned int sustain_mode;          /* 0x14 BB */
+    unsigned int release_mode;          /* 0x18 BF */
+    unsigned short pitch;               /* 0x1C the last pitch register written */
+    unsigned short attack_rate;         /* 0x1E AD */
+    unsigned short decay_rate;          /* 0x20 AE */
+    unsigned short sustain_level;       /* 0x22 AF */
+    unsigned short sustain_rate;        /* 0x24 B1 */
+    unsigned short release_rate;        /* 0x26 B2 */
+    short volume[2];                    /* 0x28 left, right */
+} VoiceSettings;
 
 /* One sequence channel of the AKAO driver, 0x108 bytes (docs/knowledge_base.md §4). Fields get names as the
  * functions that use them are recovered; the pads are still unread. */
@@ -109,20 +127,7 @@ typedef struct SeqChannel {
     short vibrato_offset;               /* 0xD6 */
     short tremolo_offset;               /* 0xD8 */
     short pan_lfo_offset;               /* 0xDA */
-    unsigned char pad_DC[0x04];
-    unsigned int voice_update;          /* 0xE0 UPDATE_* */
-    unsigned int sample;                /* 0xE4 the instrument's SPU sample address */
-    unsigned int loop;                  /* 0xE8 and loop address */
-    unsigned int attack_mode;           /* 0xEC B7 */
-    unsigned int sustain_mode;          /* 0xF0 BB */
-    unsigned int release_mode;          /* 0xF4 BF */
-    unsigned short pitch;               /* 0xF8 the last pitch register written */
-    unsigned short attack_rate;         /* 0xFA AD */
-    unsigned short decay_rate;          /* 0xFC AE */
-    unsigned short sustain_level;       /* 0xFE AF */
-    unsigned short sustain_rate;        /* 0x100 B1 */
-    unsigned short release_rate;        /* 0x102 B2 */
-    unsigned char pad_104[0x04];
+    VoiceSettings voice;                /* 0xDC */
 } SeqChannel;
 
 /* The song or effect that owns the channels, handed to every command handler. */
@@ -131,8 +136,8 @@ typedef struct SeqSong {
     unsigned int active_voices;         /* 0x04 the song's own channels */
     unsigned int voices_08;             /* 0x08 a voice mask (A0 on an effect clears its bit) */
     unsigned int update_voices;         /* 0x0C voices the driver keeps updating (key-off takes a voice out) */
-    unsigned int voices_10;             /* 0x10 a voice mask (likewise) */
-    unsigned char pad_14[0x04];
+    unsigned int key_off_voices;        /* 0x10 voices to key off next (snd_key_off_voices) */
+    unsigned int paused_voices;         /* 0x14 the active voices while 9B has the song paused */
     unsigned int tempo;                 /* 0x18 E8 value << 16 */
     int tempo_slide_step;               /* 0x1C E9 */
     unsigned char pad_20[0x04];
@@ -205,6 +210,9 @@ typedef struct Instrument {
 extern Instrument instrument_table[128];
 
 extern SeqSong seq_song;
+/* A second song block on channels 24-47, its voices limited to D_80062F68. What plays there isn't known yet. */
+extern SeqSong seq_song2;
+extern unsigned int D_80062F68;
 
 /* Each LFO waveform: its steps, which the LFOs walk through. */
 extern short *lfo_waveforms[];
@@ -212,10 +220,11 @@ extern short *lfo_waveforms[];
 extern unsigned int seq_song_active_voices;
 extern unsigned int seq_song_voices_08;
 extern unsigned int seq_song_update_voices;
-extern unsigned int seq_song_voices_10;
+extern unsigned int seq_song_key_off_voices;
 extern unsigned int seq_song_layer_voices;
 extern unsigned int seq_song_overlap_voices;
 extern unsigned int seq_song_flags;
+extern unsigned int seq_song_paused_voices;
 extern unsigned short seq_song_branch_level;
 extern unsigned short seq_song_id;
 
@@ -225,6 +234,10 @@ extern unsigned int effect_reverb_voices;
 extern unsigned int effect_fm_voices;
 extern unsigned short effect_noise_clock;
 extern unsigned int effect_voices; /* voices sound effects hold */
+extern unsigned int effect_voices_08;
+extern unsigned int effect_update_voices;
+extern unsigned int effect_key_off_voices;
+extern unsigned int effect_paused_voices; /* effect_voices while 9D has the effects paused */
 
 extern int D_80062F04; /* when set, layer voices are numbered from 24 */
 
@@ -260,9 +273,6 @@ extern int D_80062FD8;
 extern unsigned short D_80062F70;
 extern unsigned short snd_cd_volume_slide_ticks;
 extern int snd_cd_volume; /* C8, << 16 */
-extern unsigned int D_80062F00; /* a special voice set (16/17): F8/F9 move it, func_80029A50 silences it */
-extern int D_80063004;
-extern unsigned int D_80099FD8;
 extern unsigned char D_80049C40[]; /* where snd_stop_song points every channel */
 extern int snd_cd_volume_slide_step;
 extern int D_80062F5C;
@@ -272,9 +282,9 @@ extern unsigned short D_80062FB8;
 extern unsigned int D_80062FF8;
 extern unsigned short D_80062FC8;
 
-void func_80029A50(void);
+void snd_stream_stop(void);
 void func_80029F44(void);
-void func_8002A43C(void);
+void snd_stop_effects(void);
 void snd_refresh_song_volumes(void);
 void snd_refresh_effect_volumes(void);
 void func_8002CFC0(SoundCommand *cmd);
@@ -287,7 +297,7 @@ void func_80038A84(int on);
 void func_80038C6C(int on, unsigned int voices);
 void SpuSetIRQCallback(void (*callback)(void));
 unsigned int SpuSetIRQAddr(unsigned int addr);
-void func_8002D530(void);
+void snd_stream_fill_mono_a(void);
 extern SpuCommonAttr snd_common_attr;
 extern unsigned int song_data[];
 extern SoundCommand snd_queue[];
@@ -304,6 +314,7 @@ void snd_load_song(unsigned int *data, unsigned int size); /* copies the song in
 void func_80029C48(void); /* starts the loaded song */
 void snd_stop_song(void);
 void func_8002A7E8(void);
+void func_8002A958(void); /* F4 calls it before setting the effects aside */
 void snd_resume_song(int slot);
 void snd_save_song(SeqChannel *channels, SeqChannel *saved_channels, SeqSong *song, SeqSong *saved);
 
@@ -314,11 +325,52 @@ extern SeqSong saved_songs[2];
 void snd_cmd_10(SoundCommand *cmd);
 void snd_cmd_14(SoundCommand *cmd);
 void snd_apply_cd_volume(void);
-void func_80030038(void); /* hands the reverb voice masks to the SPU (by analogy with func_80030148) */
-void func_80030148(void); /* hands the FM voice masks to the SPU */
-void func_8002FF4C(void); /* hands the noise voice masks to the SPU (by analogy) */
+void snd_apply_reverb_voices(void);
+void snd_apply_fm_voices(void);
+void snd_apply_noise_voices(void);
+void snd_key_off_voices(void);
 void seq_cmd_noise_off(SeqChannel *ch, SeqSong *song, unsigned int voice);
 void seq_cmd_fm_off(SeqChannel *ch, SeqSong *song, unsigned int voice);
 void seq_cmd_reverb_off(SeqChannel *ch, SeqSong *song, unsigned int voice);
+
+/* Settings written straight to a voice, not through a channel: 9B/9D's silent hold, snd_stream_voice_mono's voice 16. */
+extern VoiceSettings snd_direct_voice;
+/* Its fields, which the driver reaches as plain variables. */
+extern unsigned int snd_direct_voice_update;
+extern unsigned int snd_direct_voice_sample;
+extern unsigned int snd_direct_voice_loop;
+extern unsigned int snd_direct_voice_attack_mode;
+extern unsigned int snd_direct_voice_sustain_mode;
+extern unsigned int snd_direct_voice_release_mode;
+extern unsigned short snd_direct_voice_pitch;
+extern unsigned short snd_direct_voice_attack_rate;
+extern unsigned short snd_direct_voice_decay_rate;
+extern unsigned short snd_direct_voice_sustain_level;
+extern unsigned short snd_direct_voice_sustain_rate;
+extern unsigned short snd_direct_voice_release_rate;
+extern short snd_direct_voice_volume_left;
+extern short snd_direct_voice_volume_right;
+void snd_update_voice(unsigned short voice, VoiceSettings *settings);
+void snd_stream_fill_stereo_a(void);
+void snd_add_spare_voices(SeqChannel *ch, unsigned int *mask, unsigned int voices, unsigned int spares);
+void func_80037964(int on, unsigned int voices); /* noise voices */
+void func_800388C4(int on, unsigned int voices); /* reverb voices */
+void func_80039010(int on, unsigned int voices); /* FM voices */
+
+/* A sample stream from main RAM, double-buffered through SPU 0x77000-0x78FFF on voice 16 (mono) or 16/17 (stereo).
+ * Each half-buffer IRQ copies the next 4 KB into the other half. */
+extern unsigned int snd_stream_voices;
+extern unsigned int snd_stream_left;          /* bytes still to copy, 0 = stopping */
+extern unsigned char *snd_stream_pos;
+extern unsigned char *snd_stream_loop;        /* where it starts again at the end, 0 = it stops */
+extern unsigned int snd_stream_loop_size;
+extern int snd_stream_volume;
+extern int snd_stream_pan;                    /* mono: 0 left to 127 right */
+extern unsigned short snd_stream_pitch;
+void func_80038F64(unsigned int addr); /* SpuSetTransferStartAddr */
+void func_80038F04(unsigned char *data, unsigned int size); /* SpuWrite */
+void func_800396C0(unsigned int voice, unsigned int addr); /* a voice's loop address */
+void snd_stream_fill_mono_b(void);
+void snd_stream_fill_stereo_b(void);
 
 #endif
