@@ -1,5 +1,5 @@
 /* The PS1 hardware Sony's libraries drive, as psx-spx's I/O map describes it: the interrupt registers, DMA to the
- * GPU, the SPU and the OT clear, the root counters, the SPU's registers and RAM, and the vblank at 59.94 Hz of real
+ * MDEC, the GPU, the SPU and the OT clear, the root counters, the SPU's registers and RAM, and the vblank at 59.94 Hz of real
  * time. Registers nothing here models read back what was last written. */
 #include <math.h>
 #include <string.h>
@@ -33,12 +33,18 @@ void gpu_gp1(unsigned int word);
 unsigned int gpu_read(void);
 unsigned int gpu_status(void);
 void gpu_vblank(void); /* the field on screen changes */
+void mdec_write(unsigned int word);
+void mdec_control(unsigned int word);
+unsigned int mdec_read(void);
+unsigned int mdec_status(void);
 
 #define I_STAT 0x1F801070u
 #define I_MASK 0x1F801074u
 #define DMA_BASE 0x1F801080u /* channel n at + 0x10 * n: MADR, BCR, CHCR and an unused word */
 #define DICR 0x1F8010F4u
 #define TIMER_BASE 0x1F801100u /* timer n at + 0x10 * n: value, mode, target */
+#define MDEC0 0x1F801820u /* commands and codes in, pixels out */
+#define MDEC1 0x1F801824u /* control in, status out */
 #define GP0 0x1F801810u
 #define GP1 0x1F801814u
 #define SPU_BASE 0x1F801C00u
@@ -89,6 +95,12 @@ static void dma_run(int ch)
     if (ch == 6) { /* OT clear: from the last entry down, each pointing at the one before */
         for (n = 0; n < words; n++, madr -= 4)
             *dma_word(madr) = n + 1 == words ? 0x00FFFFFF : (madr - 4) & 0x1FFFFF;
+    } else if (ch == 0) {
+        for (n = 0; n < words; n++, madr += 4)
+            mdec_write(*dma_word(madr));
+    } else if (ch == 1) {
+        for (n = 0; n < words; n++, madr += 4)
+            *dma_word(madr) = mdec_read();
     } else if (ch == 2 && sync == 2) { /* linked list: a word count and a link per node */
         for (guard = 0; guard < 0x100000; guard++) {
             header = *dma_word(madr);
@@ -213,6 +225,10 @@ static unsigned int word_read(unsigned int word)
             return timers[n].target;
         }
     }
+    if (word == MDEC0)
+        return mdec_read();
+    if (word == MDEC1)
+        return mdec_status();
     if (word == GP0)
         return gpu_read();
     if (word == GP1)
@@ -226,8 +242,26 @@ static unsigned int word_read(unsigned int word)
 static void word_write(unsigned int word, unsigned int v, unsigned int mask)
 {
     int ch = (word - DMA_BASE) / 0x10, n = (word - TIMER_BASE) / 0x10;
-    unsigned int merged = (word_read(word) & ~mask) | (v & mask);
+    unsigned int merged;
 
+    /* Ports first: reading one to merge a partial write would take its data */
+    if (word == MDEC0) {
+        mdec_write(v);
+        return;
+    }
+    if (word == MDEC1) {
+        mdec_control(v);
+        return;
+    }
+    if (word == GP0) {
+        gpu_gp0(v);
+        return;
+    }
+    if (word == GP1) {
+        gpu_gp1(v);
+        return;
+    }
+    merged = (word_read(word) & ~mask) | (v & mask);
     if (word == I_STAT) {
         i_stat &= v | ~mask; /* writing 0 acknowledges */
         return;
@@ -260,14 +294,6 @@ static void word_write(unsigned int word, unsigned int v, unsigned int mask)
             timers[n].target = merged & 0xFFFF;
             break;
         }
-        return;
-    }
-    if (word == GP0) {
-        gpu_gp0(v);
-        return;
-    }
-    if (word == GP1) {
-        gpu_gp1(v);
         return;
     }
     if (word == (SPU_FIFO & ~3u) && mask & 0xFFFF) { /* manual transfer, a halfword at a time */

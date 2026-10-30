@@ -431,6 +431,7 @@ static void movie_wait_frame(void)
     if (cd_request.state == CD_MOVIE_PLAY) {
         n = 0x800000;
         while (!movie_frame_done) {
+            HW_WAIT();
             if (!--n) {
                 movie_frame_done = 1;
                 movie.slice.x = movie.base_x + movie.x;

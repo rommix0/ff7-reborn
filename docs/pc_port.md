@@ -38,11 +38,12 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
 
 3. **Hardware where the PS1's behaviour is the point, libraries where the PC should differ.**
    - Emulated, so Sony's library code runs as compiled: the **GPU** (GP0/GP1 commands and DMA into 1024×512 VRAM),
-     the **GTE** (COP2, for libgte and inline use alike), the **SPU** (24 ADPCM voices, ADSR, noise, reverb), root
-     counters and the VSync interrupt. Behaviour comes from psx-spx; no emulator code is copied (most are GPL).
-   - Replaced at the library: **libcd** (done: extracted files, the save's disc always inserted), **libpress** (the
-     converted AVIs decoded into VRAM, the `.cam` data through the decompiled `movie.c`), **libcard** (memory cards as
-     save files), **pads** (PC controllers and keyboard), and the BIOS calls (events and callbacks, run in C).
+     the **GTE** (COP2, for libgte and inline use alike), the **MDEC** (done: the in-memory movies run through libpress
+     unchanged), the **SPU** (24 ADPCM voices, ADSR, noise, reverb), root counters and the VSync interrupt. Behaviour
+     comes from psx-spx; no emulator code is copied (most are GPL).
+   - Replaced at the library: **libcd** (done: extracted files, the save's disc always inserted), **libcd's streaming**
+     (the converted AVIs in place of STR sectors, the `.cam` data through the decompiled `movie.c`), **libcard**
+     (memory cards as save files), **pads** (PC controllers and keyboard), and the BIOS calls (events and callbacks, run in C).
    - The 187 unnamed library functions only need names where a library is replaced.
 
 4. **Drawing: a software GPU first.** Rasterise the GPU commands into VRAM exactly (dithering, semi-transparency,
@@ -57,7 +58,8 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
 
 1. **The exe boots on the PC:** the whole exe (C plus recompiled asm) runs to its first screen. *Done: it reaches
    `ENDING.X`'s first screen in an SDL2 window. See the knowledge base, "PC build: the exe runs".*
-2. **New game:** title, the opening movie, the first field with walking, music and sound.
+2. **New game:** title, the opening movie, the first field with walking, music and sound. *So far: the boot runs
+   through the credits and the logo's movie to the title logo.*
 3. **Field complete:** dialogue, menus, saving to files.
 4. **Battle, world map, mini-games:** with the magic effects.
 5. **The whole game,** across all three discs' content with no swaps.
@@ -74,4 +76,6 @@ in the repo.
 
 - SDL2 (zlib licence) is the port's one outside dependency, chosen over DirectX 9 so the build can go cross-platform:
   the window is in; audio output and controllers go through it next.
-- JPEG decoding for the movies: our own baseline decoder (they're our own files) rather than a dependency.
+- JPEG decoding for the movies: our own baseline decoder (they're our own files) rather than a dependency. With the
+  MDEC emulated, a frame's JPEG coefficients could go to it as run-level codes instead, leaving only the Huffman
+  decoding.
