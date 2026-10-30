@@ -16,7 +16,6 @@ extern unsigned char *D_800707C0;
 extern unsigned char D_80063048[];
 extern void *D_80048DD4[]; /* where func_80014750 puts each entry of its file */
 
-void func_80033DAC(unsigned int lba, int mode);
 void copy_words(int *dst, int *src, int bytes);
 void func_80015C3C(void *src, void *dest, int n);
 void func_800148A0(void);
@@ -41,7 +40,7 @@ unsigned int disc_file_lba(int i)
 
 void func_800144F0(unsigned int lba)
 {
-    func_80033DAC(lba, 0);
+    cd_seek(lba, 0);
 }
 
 void func_80014510(int i)
@@ -51,17 +50,17 @@ void func_80014510(int i)
 
 void func_80014540(void)
 {
-    func_80033E34(D_80071744, D_80095DD8, D_800722C8, 0);
+    cd_read(D_80071744, D_80095DD8, D_800722C8, 0);
 }
 
 void read_disc_file(int i, void *dest, void (*callback)(void))
 {
-    func_80033E34(disc_files[i].lba, disc_files[i].size, dest, callback);
+    cd_read(disc_files[i].lba, disc_files[i].size, dest, callback);
 }
 
 void wait_disc_read(void (*idle)(void))
 {
-    while (func_80034B44()) {
+    while (cd_step()) {
         if (idle)
             idle();
     }
@@ -75,7 +74,7 @@ void load_disc_table(void)
 {
     int sector[0x800 / 4];
 
-    func_80033E34(0x266, 0x800, sector, 0);
+    cd_read(0x266, 0x800, sector, 0);
     wait_disc_read(0);
     copy_words((int *)disc_files, sector, 0x50);
 }

@@ -46,6 +46,14 @@ Compression (all checked on disc 1 with `tools/unpack.py`):
   then LZSS data with a 4 KiB window. All 703 decompress to a sane 7-pointer header. The other 84 `.DAT` files are
   2,048-byte uncompressed stubs, likely placeholder or cut maps.
 
+**The three discs share one layout.** Of the 3,337 files on all three, 3,325 have the same sector, size and contents
+on each. The rest:
+- `MOVIE/`: each disc has its own set from sector 128,000 on (72, 79 and 48 files; 33 names on all three, 23 of them at
+  the same sector).
+- `SNOVA/` (17 files, sectors 127,101–127,660): disc 3 only; discs 1 and 2 have nothing there.
+- `FIELD/TUNNEL_6.MIM`: same place and size, but disc 1's contents differ.
+- `MINT/DISKINFO.CNF` starts `DISK0001`/`2`/`3` (the game's disc check, §7); `MINT/MOVIE_ID.BIN` differs too.
+
 ## 3. Code: what is recovered and what isn't
 
 The main exe `SCUS_941.63` is split with splat and `make` rebuilds it byte-identical (SHA1-checked) from asm plus the
@@ -56,6 +64,7 @@ recovered C. Details in §7.
 | Boot code (`main.c`, `transition.c`, `loader.c`) | `0x8001117C`–`0x80014A00` | all 47 functions in C |
 | `bitops.c` | `0x80014A00`–`0x80014A84` | 3 functions in C |
 | AKAO sound driver (`sound_init.c`, `sound.c`) | `0x800293D0`–`0x80033A90` | 231 of 232 functions in C |
+| CD layer (`cd.c`) | `0x80033A90`–`0x80034CF0` | all 38 functions in C |
 | PsyQ library block | `0x80036E84`–`0x80048D18` | 267 of 454 functions named (§8) |
 
 Not recovered yet: the rest of the exe's game code (still asm) and every overlay: battle, field, world, menus,
@@ -761,6 +770,7 @@ same set). They give the original module and file split, and the staff folders b
 | `bitops.c` | `0x80014A00`–`0x80014A84` | 2.7.2 | any 2.21–2.79 (2.79 set) | 0 | |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
+| `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
 
 - **How the versions show:**
   - GCC 2.6.3 over 2.7.2: `func_800135C0` (2.7.2 keeps the quotient in another register); `seq_cmd_loop_point`
@@ -906,6 +916,8 @@ hoisted. To steer it:
   `snd_slow_slides` does that across the two song blocks, so `seq_songs[2]` (the same storage as `seq_song` and
   `seq_song2`) models them; the rest of `sound.c` uses the two names.
 - An address the game computes once before a branch goes in a local there (`&seq_song` in sound command `14`).
+- A plain global whose address the game holds for a load and a later store is reached through a pointer local: the
+  CD layer's frame and retry counters (`int *last = &cd_last_vsync`), `&cd_request` in `cd_step`.
 - Many of `main.c`'s older `*(volatile T *)&x` casts are probably this rule in disguise.
 
 **Address forms of a big constant offset** (`transition.c`'s `ShardState` at `0x8019C000`):
@@ -961,6 +973,17 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   workaround is each include inside a `__maspsx_include_asm_hack_` function (neither file needs it now).
   `-mno-gpopt` doesn't help: GCC forces it on when optimizing with `-G`.
 
+**Switches.**
+- A jump table runs to the highest listed case: `cd_cancel` lists states that do what `default` does, because the
+  game's table runs to 18.
+- `case -1: case 0:` compiles to a range check (`bgtz`, then `slti -1`): `cd_read_disc_number`'s `CdSearchFile` test.
+- Code that falls into a function's final `return 0` must not end in its own return: `cd_check_disc` uses
+  `break`-style switches and lets the success path fall out of the `if`.
+
+**`.rodata` packing.** The link packs each file's `.rodata` back to back (`SUBALIGN(2)`), so a file whose last string
+ends off a word boundary shifts everything after it. Size the string to the game's padded length:
+`diskinfo_path[24]` in `cd.c`.
+
 **Counting:** count recovered functions with a parser, not by eye; names with upper-case hex are easy to miss.
 
 ### Boot code (`0x8001117C`–`0x80014A00`, 47 functions, all C)
@@ -982,8 +1005,8 @@ Before it sit the hand-written entry at `0x800110C0` (clears BSS, sets `$sp`/`$g
 - **Disc files:** `{lba, size}` pairs. The data section opens with the sound files (`instr_all_file`,
   `effect_all_file`, `instr_dat_file`, `instr2_all_file`, `instr2_dat_file`) and more; `disc_files` (`0x80048D84`) is
   a table by number, its first 10 entries reloaded from sector `0x266` by `load_disc_table`.
-  - `read_disc_file(i, dest, callback)` starts a read through `func_80033E34(lba, size, dest, callback)`;
-    `wait_disc_read(idle)` polls `func_80034B44`, calling `idle` while it waits.
+  - `read_disc_file(i, dest, callback)` starts a read through `cd_read(lba, size, dest, callback)`;
+    `wait_disc_read(idle)` polls `cd_step`, calling `idle` while it waits.
   - `load_sound_files` puts INSTR.ALL at `0x800F0000`, EFFECT.ALL at `0x801B0000` and INSTR.DAT at `0x801BC800`, then
     calls `snd_init` and `snd_load_effects`; `snd_load_bank2` loads the second bank into `0x800A0000`/`0x800E0000`.
   - `load_boot_files` reads files 1 and 2 with read callbacks that walk their numbered entries
@@ -1020,6 +1043,31 @@ Before it sit the hand-written entry at `0x800110C0` (clears BSS, sets `$sp`/`$g
   grid with the GTE and links the projected quads. Its buffers sit back to back from `0x8019C000` (two quad grids, the
   current one, the vertex grid, the projected grid) as the struct `ShardState`; scalars past the grids are reached by
   symbol.
+
+### CD layer (`0x80033A90`–`0x80034CF0`, 38 functions, all C)
+
+`src/main/cd.c`. One request at a time, by sector: `cd_start_request(state, lba, size, dest, callback)` waits for
+the current one, then queues the new one in `cd_request` (`0x80071A60`); `cd_step` runs that state's handler from
+`cd_state_handlers` (`0x8004A634`, 21 entries) and returns the state, `CD_IDLE` (0) when done. Callers poll it.
+- **Entry points:** `cd_read` (state 3), `cd_seek` (1), `cd_read_lzs` (11: reads 9 sectors at a time into
+  `cd_sector_buf` and unpacks them as they arrive), and `_wait` versions that poll with `VSync(0)`. `cd_init` runs at
+  boot, `cd_shutdown` on every way out of `main`'s loop.
+- **States:** each request goes seek (`CdControlF(CdlSetloc)`), wait for `CdSync`, read, wait for `CdReadSync`, then
+  17 (done) and 16 (go idle and call the callback). 19–20 pause the drive. 8–10 and 18 belong to the movie player
+  (the stopping path calls `0x80035658`).
+- **Errors:** a `CdlDiskError` retries the step; 16 in a row stop the drive (`cd_stop`, state 7) and loop
+  `cd_error_sound(3)` (sound command 30, then a second's wait) until `cd_check_disc` returns 0. A step that waits
+  3600 frames retries with the same sound.
+- **Disc check:** `cd_check_disc` spins the disc up, checks `CdDiskReady` and the disc type, seeks sector 23
+  (`SYSTEM.CNF`), then reads the disc number; `cd_read_disc_number` finds `\MINT\DISKINFO.CNF` with `CdSearchFile`
+  and returns its eighth character minus `'0'`. `get_disc_number` wraps it; `main` compares it with the save's disc
+  (`0x8009D588`) and runs `FIELD/DSCHANGE.X` when they differ.
+- **`lzs_decode(src, dst)`:** the in-memory LZS decoder (`u32` packed size, flag bytes, 12-bit offsets into a 4 KiB
+  window, lengths 3–18; window positions before the output read as zeros).
+- **After it:** `0x80034CF0`–`0x80034F3C` is hand-written assembly (data words in `.text`, registers kept across
+  calls): `lzs_stream_start`/`lzs_stream_resume`, the decoder `cd_read_lzs` feeds. From `0x80034F3C` comes the movie
+  player (`func_80034F5C` reads `\MINT\MOVIE_ID.BIN`), still assembly.
+- `func_80033A90` sits here but isn't CD code: it clears the 0x500 bytes up to `0x8009D787` and resets play time.
 
 ### Sound driver (`sound_init.c` `0x800293D0`–`0x80029A4C`, `sound.c` `0x80029A50`–`0x80033A90`)
 

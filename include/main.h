@@ -35,8 +35,10 @@ extern volatile short game_mode;
 /* Written twice in a row by func_800111E4, so volatile. */
 extern volatile short D_800707BE;
 
-void func_80033E34(unsigned int lba, unsigned int size, void *dest, void (*callback)(void)); /* starts a disc read */
-int func_80034B44(void); /* a disc read is still running */
+/* The CD layer (cd.c): start a request, then poll cd_step until it returns 0. */
+int cd_read(unsigned int lba, unsigned int size, void *dest, void (*callback)(void));
+int cd_seek(unsigned int lba, void (*callback)(void));
+int cd_step(void);
 void read_disc_file(int i, void *dest, void (*callback)(void));
 void wait_disc_read(void (*idle)(void));
 void func_80015CA0(void *src, void *dest); /* unpacks a module */

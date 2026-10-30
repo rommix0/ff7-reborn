@@ -50,7 +50,8 @@ segments:
       - [0x800, .rodata, main/main] # main.c's switch tables and strings
       - [0x900, rodata, 900]
       - [0xB94, .rodata, main/sound] # seq_look_ahead's switch table
-      - [0xC38, rodata, C38]
+      - [0xC38, .rodata, main/cd] # a switch table and the disc info file's name
+      - [0xC9C, rodata, C9C]
       # splat guessed 0x18AC, but 0x18AC-0x18B7 is the string " (%08x)\n".
       - [0x18B8, asm, 18B8]
       - [0x197C, c, main/main] # the game's boot and main loop; before it, the hand-written entry code
@@ -61,6 +62,9 @@ segments:
       # The AKAO sound driver, 0x800293D0-0x80033A90 (docs/knowledge_base.md §4).
       - [0x19BD0, c, main/sound_init] # compiled with -G8: small globals through $gp
       - [0x1A250, c, main/sound]
-      - [0x24290, asm, 24290]
+      # The game's CD layer: reads by sector, the disc check, the error retries.
+      - [0x24290, c, main/cd]
+      # Hand-written: an LZS decoder that runs while a read streams in. Then the movie player.
+      - [0x254F0, asm, 254F0]
       - [0x394FC, data, 394FC] # starts with the sound files' disc table
   - [0x61000]

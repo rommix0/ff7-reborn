@@ -188,11 +188,11 @@ void func_800111E4(void)
 
 void snd_load_bank2(void)
 {
-    func_80033E34(instr2_dat_file.lba, instr2_dat_file.size, (void *)0x800E0000, 0);
-    while (func_80034B44())
+    cd_read(instr2_dat_file.lba, instr2_dat_file.size, (void *)0x800E0000, 0);
+    while (cd_step())
         ;
-    func_80033E34(instr2_all_file.lba, instr2_all_file.size, (void *)0x800A0000, 0);
-    while (func_80034B44())
+    cd_read(instr2_all_file.lba, instr2_all_file.size, (void *)0x800A0000, 0);
+    while (cd_step())
         ;
     load_instrument_bank2((unsigned int *)0x800A0000, (unsigned int *)0x800E0000);
 }
@@ -200,14 +200,14 @@ void snd_load_bank2(void)
 void func_800112E8(void)
 {
     if (D_800965EC == 2) {
-        while (func_80034B44())
+        while (cd_step())
             ;
         func_80015CA0((void *)0x801C0000, (void *)0x800A0000);
     } else {
-        while (func_80034B44())
+        while (cd_step())
             ;
-        func_80033E34(D_80048D2C.lba, D_80048D2C.size, (void *)0x80180000, 0);
-        while (func_80034B44())
+        cd_read(D_80048D2C.lba, D_80048D2C.size, (void *)0x80180000, 0);
+        while (cd_step())
             ;
         func_80015CA0((void *)0x80180000, (void *)0x800A0000);
     }
@@ -310,12 +310,12 @@ void func_80011860(void)
 {
     if (D_800965EC != 5 && D_800965EC != 13) {
         if (D_800965EC != 2) {
-            func_80033E34(D_80048D24.lba, D_80048D24.size, (void *)0x80180000, 0);
-            while (func_80034B44())
+            cd_read(D_80048D24.lba, D_80048D24.size, (void *)0x80180000, 0);
+            while (cd_step())
                 ;
             func_80015CA0((void *)0x80180000, (void *)0x800A0000);
         } else {
-            while (func_80034B44())
+            while (cd_step())
                 ;
             func_80015CA0((void *)0x801C0000, (void *)0x800A0000);
         }
@@ -332,14 +332,14 @@ void func_80011920(void)
 
 void load_sound_files(void)
 {
-    func_80033E34(instr_all_file.lba, instr_all_file.size, (void *)0x800F0000, 0);
-    while (func_80034B44())
+    cd_read(instr_all_file.lba, instr_all_file.size, (void *)0x800F0000, 0);
+    while (cd_step())
         ;
-    func_80033E34(effect_all_file.lba, effect_all_file.size, (void *)0x801B0000, 0);
-    while (func_80034B44())
+    cd_read(effect_all_file.lba, effect_all_file.size, (void *)0x801B0000, 0);
+    while (cd_step())
         ;
-    func_80033E34(instr_dat_file.lba, instr_dat_file.size, (void *)0x801BC800, 0);
-    while (func_80034B44())
+    cd_read(instr_dat_file.lba, instr_dat_file.size, (void *)0x801BC800, 0);
+    while (cd_step())
         ;
     snd_init((unsigned int *)0x800F0000, (unsigned int *)0x801BC800);
     snd_load_effects((unsigned int *)0x801B0000);
@@ -411,7 +411,7 @@ extern int D_800722C8, D_80071744, D_80095DD8;
 extern int D_800E48E0;
 void ClearImage(RECT *rect, int r, int g, int b);
 int func_80024E5C(void);
-int func_800343F0(void);
+int get_disc_number(void);
 int func_800A0000(int n);
 unsigned short func_800A0450(void);
 unsigned short func_800A00BC(int n);
@@ -440,8 +440,8 @@ int main(void)
 
     SetMem(8);
     func_8001171C();
-    func_80033B70();
-    func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
+    cd_init();
+    cd_read_wait(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
     func_800A0030();
     load_boot_files();
     while (1) {
@@ -450,7 +450,7 @@ int main(void)
         func_800148A0();
         load_sound_files();
         func_8001C434();
-        func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
+        cd_read_wait(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
         func_800A04C4(0);
         {
             SoundCommand *cmd = &snd_request;
@@ -471,11 +471,11 @@ int main(void)
         }
         func_80026090();
         while (1) {
-            if (D_8009D274.disc != func_800343F0()) {
-                func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
+            if (D_8009D274.disc != get_disc_number()) {
+                cd_read_wait(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
                 if (func_800A0000(D_8009D274.disc) == 1) {
                     D_8009ABF4.abf5 = 0;
-                    func_80033BE0();
+                    cd_shutdown();
                     snd_quit();
                     break;
                 }
@@ -657,8 +657,8 @@ int main(void)
                     game_mode = 1;
                     break;
                 case 12:
-                    if (D_8009D274.disc != func_800343F0()) {
-                        func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
+                    if (D_8009D274.disc != get_disc_number()) {
+                        cd_read_wait(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
                         if (func_800A0000(D_8009D274.disc) == 1) {
                             D_8009ABF4.abf5 = 0xA;
                             break;
@@ -670,8 +670,8 @@ int main(void)
                     game_mode = 1;
                     break;
                 case 6:
-                    func_80033E34(D_80048D74.lba, D_80048D74.size, (void *)0x80180000, 0);
-                    while (func_80034B44())
+                    cd_read(D_80048D74.lba, D_80048D74.size, (void *)0x80180000, 0);
+                    while (cd_step())
                         ;
                     func_80015CA0((void *)0x80180000, (void *)0x800A0000);
                     func_800A00D0();
@@ -680,8 +680,8 @@ int main(void)
                     D_8009ABF4.abf5 = 1;
                     break;
                 case 7:
-                    func_80033E34(D_80048D5C.lba, D_80048D5C.size, (void *)0x80180000, 0);
-                    while (func_80034B44())
+                    cd_read(D_80048D5C.lba, D_80048D5C.size, (void *)0x80180000, 0);
+                    while (cd_step())
                         ;
                     func_80015CA0((void *)0x80180000, (void *)0x800A0000);
                     func_800A02D0();
@@ -690,8 +690,8 @@ int main(void)
                     D_8009ABF4.abf5 = 1;
                     break;
                 case 8:
-                    func_80033E34(D_80048D3C.lba, D_80048D3C.size, (void *)0x80180000, 0);
-                    while (func_80034B44())
+                    cd_read(D_80048D3C.lba, D_80048D3C.size, (void *)0x80180000, 0);
+                    while (cd_step())
                         ;
                     func_80015CA0((void *)0x80180000, (void *)0x800A0000);
                     func_800A0390();
@@ -700,8 +700,8 @@ int main(void)
                     D_8009ABF4.abf5 = 1;
                     break;
                 case 14:
-                    func_80033E34(D_80048D44.lba, D_80048D44.size, (void *)0x80180000, 0);
-                    while (func_80034B44())
+                    cd_read(D_80048D44.lba, D_80048D44.size, (void *)0x80180000, 0);
+                    while (cd_step())
                         ;
                     func_80015CA0((void *)0x80180000, (void *)0x800A0000);
                     func_800A0448();
@@ -710,8 +710,8 @@ int main(void)
                     D_8009ABF4.abf5 = 1;
                     break;
                 case 9:
-                    func_80033E34(D_80048D34.lba, D_80048D34.size, (void *)0x80180000, 0);
-                    while (func_80034B44())
+                    cd_read(D_80048D34.lba, D_80048D34.size, (void *)0x80180000, 0);
+                    while (cd_step())
                         ;
                     func_80015CA0((void *)0x80180000, (void *)0x800A0000);
                     func_800B6B58();
@@ -720,8 +720,8 @@ int main(void)
                     D_8009ABF4.abf5 = 1;
                     break;
                 case 11:
-                    func_80033E34(D_80048D64.lba, D_80048D64.size, (void *)0x80180000, 0);
-                    while (func_80034B44())
+                    cd_read(D_80048D64.lba, D_80048D64.size, (void *)0x80180000, 0);
+                    while (cd_step())
                         ;
                     func_80015CA0((void *)0x80180000, (void *)0x800A0000);
                     result = func_800A0450();
@@ -732,8 +732,8 @@ int main(void)
                     D_8009ABF4.abf5 = 1;
                     break;
                 case 10:
-                    func_80033E34(D_80048D6C.lba, D_80048D6C.size, (void *)0x80180000, 0);
-                    while (func_80034B44())
+                    cd_read(D_80048D6C.lba, D_80048D6C.size, (void *)0x80180000, 0);
+                    while (cd_step())
                         ;
                     func_80015CA0((void *)0x80180000, (void *)0x800A0000);
                     result = func_800A00BC(D_8009D5E5[0]);
@@ -746,16 +746,16 @@ int main(void)
                 }
             } while (D_8009ABF4.abf5 != 5 && D_8009ABF4.abf5 != 0x1A && D_8009ABF4.abf5 != 0xA);
             if (D_8009ABF4.abf5 == 5) {
-                func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
+                cd_read_wait(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
                 func_800A04C4(1);
-                func_80033BE0();
+                cd_shutdown();
                 snd_quit();
                 break;
             }
             if (D_8009ABF4.abf5 == 0x1A) {
                 D_8009ABF4.abf5 = 0;
                 snd_submit_request();
-                func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
+                cd_read_wait(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
                 func_800A0C58();
                 {
                     SoundCommand *cmd = &snd_request;
@@ -764,13 +764,13 @@ int main(void)
                     cmd->arg[0] = 0x7F;
                     snd_submit_request();
                 }
-                func_80033BE0();
+                cd_shutdown();
                 snd_quit();
                 break;
             }
             if (D_8009ABF4.abf5 == 0xA) {
                 D_8009ABF4.abf5 = 0;
-                func_80033BE0();
+                cd_shutdown();
                 snd_quit();
                 break;
             }
