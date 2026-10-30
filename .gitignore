@@ -8,3 +8,5 @@ build/
 __pycache__/
 toolchain/
 asm/
+# Dev-only notes on studied sources; never commit.
+docs/REFERENCES.md
