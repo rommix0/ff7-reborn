@@ -1,6 +1,6 @@
-/* Checks the CD layer on the PC (cd.c over native/cd_native.c) against the extracted discs.
+/* Checks the CD layer on the PC (cd.c over pc/cd_native.c) against the extracted discs.
  *
- * usage: cd_test SCUS_941.63 ASSETS
+ * usage: test_cd SCUS_941.63 ASSETS
  *
  * For each disc, as the save's disc: the disc check passes and reports that disc; every file reads back through
  * cd_read and cd_step byte for byte (the movies with XA audio are left to the movie player); and every LZS file
@@ -12,13 +12,14 @@
 #include "sound.h"
 #include "cd.h"
 #include "cd_native.h"
+#include "memory.h"
+#include "recomp.h"
 
-#define RAM_BASE 0x80000000u
-#define RAM(addr) (snd_ram + ((addr) - RAM_BASE))
-#define SAVE_DISC 0x8009D588u
+#define SAVE_DISC ((unsigned char *)0x8009D588) /* the save's disc number */
 
-unsigned char snd_ram[0x200000];
-SoundCommand snd_request;
+/* build/pc/gen/test_cd.c: the code pointers in the exe's data, among them the CD layer's state table. */
+extern const CodePatch cd_patches[];
+extern const int cd_patch_count;
 
 int cd_read(unsigned int lba, unsigned int size, void *dest, void (*callback)(void));
 int cd_read_lzs(unsigned int lba, unsigned int size, void *dest, void (*callback)(void));
@@ -31,6 +32,16 @@ void lzs_decode(unsigned char *src, unsigned char *dst);
 
 int snd_submit_request(void) { return 0; }
 int VSync(int mode) { (void)mode; return 0; }
+int bios_call(int table, int n) { (void)table; (void)n; return 0; }
+unsigned int io_read(unsigned int addr, int size) { (void)addr; (void)size; return 0; }
+void io_write(unsigned int addr, unsigned int v, int size) { (void)addr; (void)v; (void)size; }
+Ctx ctx;
+/* The movie player isn't linked here. */
+void movie_init(void) {}
+void movie_load_table(void) {}
+void movie_stop(void) {}
+void movie_play_frame(void) {}
+void movie_poll_start(void) {}
 
 static int callbacks;
 static void count_callback(void) { callbacks++; }
@@ -59,27 +70,27 @@ static unsigned char *read_file(const char *path, long *size)
 int main(int argc, char **argv)
 {
     static unsigned char got[0x2000000], want[0x400000];
-    unsigned char *exe, *data;
-    unsigned int load, length;
+    unsigned char *data;
     const PcFile *files;
     char path[700];
     long size;
     int disc, count, i, failed = 0, read = 0, unpacked = 0;
 
     if (argc != 3) {
-        fprintf(stderr, "usage: cd_test SCUS_941.63 ASSETS\n");
+        fprintf(stderr, "usage: test_cd SCUS_941.63 ASSETS\n");
         return 2;
     }
-    exe = read_file(argv[1], &size);
-    memcpy(&load, exe + 0x18, 4);
-    memcpy(&length, exe + 0x1C, 4);
-    memcpy(RAM(load), exe + 0x800, length);
+    if (mem_map() || !exe_load(argv[1])) {
+        fprintf(stderr, "%s: can't map memory or load the exe\n", argv[1]);
+        return 1;
+    }
+    patch_code_pointers(cd_patches, cd_patch_count);
     if (pc_cd_open(argv[2]) != 3) {
         fprintf(stderr, "%s: expected three extracted discs with files.txt\n", argv[2]);
         return 1;
     }
     for (disc = 1; disc <= 3; disc++) {
-        *RAM(SAVE_DISC) = disc;
+        *SAVE_DISC = disc;
         cd_init();
         cd_stop();
         if (cd_check_disc() || get_disc_number() != disc || cd_request.disc != disc) {

@@ -931,7 +931,7 @@ Rules for C that builds both ways and still matches:
 
 ### Native build: the CD layer
 
-`make native` also builds `cd.c` with the host GCC over `native/cd_native.c`, a libcd that reads the extracted discs:
+The PC build (`make pc`, below) compiles `cd.c` over `pc/cd_native.c`, a libcd that reads the extracted discs:
 - **By sector, as the game does:** the exe's file tables give sectors, and `load_disc_table` reads sector `0x266`
   (`INIT/YAMADA.BIN`, 80 bytes, read as a whole sector). `files.txt` maps each sector to a file; past a file's end and
   outside every file a sector reads as zeros. Raw movie files give each sector's 2048 data bytes.
@@ -941,11 +941,44 @@ Rules for C that builds both ways and still matches:
 - Reads finish at once and the drive is always ready, so `cd.c`'s retry paths don't run. The hand-written streaming
   decoder (`lzs_stream_start`/`lzs_stream_resume`) has a C version there, fed one 9-sector read per call.
 - The movie player's hooks do nothing on the PC yet: playing a movie also needs libpress and a renderer.
-- `build/native/cd_test` checks it: on each disc as the save's, the disc check passes and reports that disc; all
+- `build/pc/test_cd` (`make pc-test`) checks it: on each disc as the save's, the disc check passes and reports that disc; all
   10,052 files read back byte for byte through `cd_read`/`cd_step`; and the 8,143 files that start with their packed
   length unpack the same streamed (`cd_read_lzs`) as in memory (`lzs_decode`).
 - Two header fixes it needed don't change the PS1 code: `snd_submit_request` has a prototype in `sound.h`, and
   `CdSearchFile` takes a `const char *`. `cd_read_disc_number`'s switch casts the found file to `long`, not `int`.
+
+### PC build: the exe runs (milestone 1)
+
+`make pc` builds `build/pc/ff7.exe`, a 32-bit Windows program (MinGW i686, called from WSL) that runs the whole boot
+exe: the C from `src/main`, and every function still in assembly recompiled to C from the user's own `SCUS_941.63` by
+`tools/recomp.py`. It boots to `ENDING.X`'s first screen ("Sony Computer Entertainment America Presents").
+`pc/sdl.c` shows it in an SDL2 window (640×480 at 4:3; the keyboard is pad 1; F12 saves `screenshot.bmp`), or
+`ff7 [ASSETS] --frames N [--shot FILE.bmp]` runs without one and saves frame N.
+- **Memory:** the PS1's RAM sits at its own address, `0x80000000` (with the 64 KB after it, for the stack words a
+  call from the top of the stack reads), and the scratchpad at `0x1F800000`; the I/O window `0x1F801000`–`0x1F802FFF`
+  goes to `pc/hw.c`. Game pointers need no translation, and C and recompiled code share the game's data. The link is
+  `--large-address-aware --disable-dynamicbase`, and `tools/pc_syms.py` places each game symbol at its address.
+- **Recompiler rules:** one C function per game function over a register context (`pc/recomp.h`); delay slots
+  folded; a backward branch polls the hardware. Each function has a C-callable thunk taking eight ints (the last four
+  are the PS1's stack words). Code pointers are native: a `lui`/`addiu` pair that builds a function's address gives
+  the native function only when the address escapes as a code pointer (stored, passed, returned or called; libgte's
+  `_patch_gte` uses one as a loop's end), and the code addresses in the game's data are patched at start. A game
+  address that still turns up is looked up in the code tables. The point after a `jal setjmp` is an entry of its own:
+  libetc's interrupt entry resumes there, through the BIOS's custom exit.
+- **Modules:** `config/ending.yaml` splits `FIELD/ENDING.X`; `recomp.py` takes a module's functions from splat's
+  `glabel`s, and its calls into the exe by the exe's symbols. Modules share load addresses, so a module's functions
+  stay private to its file. `module_function` (`pc/dispatch.c`) picks the module whose first function's opening 64
+  bytes are in RAM, and patches its data's code pointers that still hold game addresses.
+- **What's emulated:** the BIOS calls the exe makes (56, checked by `tools/test_bios_coverage.py`) and the interrupt
+  path (events, root counters, the custom exit); DMA, timers and vblank; a software GPU (VRAM, every primitive,
+  textures, semi-transparency, masks; in 480i the field on screen changes each vblank, and `ENDING.X` uploads the other
+  one line by line); the GTE. Time is counted in polls of 32 R3000 cycles, about a short loop's pass, because the
+  libraries' spin timeouts count passes (libetc's `VSync` gives up after 32768, ~1.7 frames) and recompiled code runs
+  them far faster; after each vblank the host clock paces it to 59.94 Hz.
+- **Not yet:** the MDEC (libpress's reset reports two `MDEC_in_sync` timeouts at boot; movies take the MJPEG path),
+  SPU output, game controllers, L1/R1/L2/R2 keys. Waiting for the host's clock spins a core.
+- `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
+  bridge, the BIOS, modules, the hardware registers, GPU, GTE, display and the CD layer.
 
 ### Matching rules for GCC 2.6.3/2.7.2 + maspsx
 

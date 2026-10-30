@@ -4,7 +4,8 @@
  * \MINT\DISKINFO.CNF always matches and main never runs the disc-change screen (FIELD/DSCHANGE.X). The PS1 build
  * keeps the check. Reads finish at once and the drive is always ready, so the retry paths never run.
  *
- * Movies don't play on the PC yet (that needs libpress and a renderer), so the movie player's hooks do nothing. */
+ * Game variables (cd_request, the state table) sit at their own addresses in the PC build's RAM; the state table's
+ * code pointers are the runtime's to patch, like every other. */
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,26 +14,12 @@
 #include "cd.h"
 #include "cd_native.h"
 
-#define RAM_BASE 0x80000000u
-#define RAM(addr) (snd_ram + ((addr) - RAM_BASE))
-#define SAVE_DISC 0x8009D588u /* the save's disc number (main.c's D_8009D274.disc) */
-#define CD_STATE_HANDLERS 0x8004A634u
+#define SAVE_DISC ((unsigned char *)0x8009D588) /* the save's disc number (main.c's D_8009D274.disc) */
 #define SECTOR 2048
 
-extern unsigned char snd_ram[];
-
-/* Objects that hold pointers, so they can't live in snd_ram. */
-CdRequest cd_request;
-void (*cd_state_handlers[21])(void);
+/* The hand-written decoder's state block (0x80034CF0) is replaced below, so its first word, the input pointer
+ * cd.c sets, is a plain variable here. */
 void *lzs_stream_src;
-
-/* build/native/cd/funcs.c: each native function's game address. */
-struct GameFunc {
-    unsigned int addr;
-    void *func;
-};
-extern const struct GameFunc game_funcs[];
-extern const int game_func_count;
 
 static struct {
     char folder[512];
@@ -79,23 +66,11 @@ static void load_disc(const char *folder)
     qsort(discs[disc].files, discs[disc].count, sizeof(PcFile), by_lba);
 }
 
-static void *game_func(unsigned int addr)
-{
-    int i;
-
-    for (i = 0; i < game_func_count; i++)
-        if (game_funcs[i].addr == addr)
-            return game_funcs[i].func;
-    fprintf(stderr, "no native function for %08X\n", addr);
-    exit(1);
-}
-
 int pc_cd_open(const char *assets)
 {
     char folder[512];
     struct dirent *entry;
     DIR *dir = opendir(assets);
-    unsigned int addr;
     int i, found = 0;
 
     if (!dir)
@@ -109,10 +84,6 @@ int pc_cd_open(const char *assets)
     closedir(dir);
     for (i = 1; i <= 3; i++)
         found += discs[i].count > 0;
-    for (i = 0; i < 21; i++) {
-        memcpy(&addr, RAM(CD_STATE_HANDLERS + i * 4), 4);
-        cd_state_handlers[i] = game_func(addr);
-    }
     return found;
 }
 
@@ -129,7 +100,7 @@ const char *pc_cd_folder(int disc)
 
 static int inserted_disc(void)
 {
-    int disc = *RAM(SAVE_DISC);
+    int disc = *SAVE_DISC;
 
     return disc >= 1 && disc <= 3 && discs[disc].count ? disc : 1;
 }
@@ -311,10 +282,3 @@ int lzs_stream_resume(void)
     }
     return 1;
 }
-
-/* The movie player's hooks: no movies on the PC yet. */
-void movie_init(void) {}
-void movie_load_table(void) {}
-void movie_stop(void) {}
-void movie_play_frame(void) {}
-void movie_poll_start(void) {}

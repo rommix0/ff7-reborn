@@ -2,6 +2,7 @@
 # First time: tools/setup_toolchain.sh, then `make split`, then `make`.
 
 ORIG_EXE ?= assets/Final Fantasy VII (USA) (Disc 1)/SCUS_941.63
+ORIG_ENDING ?= assets/Final Fantasy VII (USA) (Disc 1)/FIELD/ENDING.X
 PYTHON   := toolchain/venv/bin/python
 GCC      ?= 2.7.2
 CFLAGS   ?= -O2 -G0
@@ -19,8 +20,14 @@ disks/SCUS_941.63:
 	mkdir -p disks
 	cp "$(ORIG_EXE)" $@
 
-split: disks/SCUS_941.63
+# A module the PC port recompiles (config/ending.yaml).
+disks/ENDING.X:
+	mkdir -p disks
+	cp "$(ORIG_ENDING)" $@
+
+split: disks/SCUS_941.63 disks/ENDING.X
 	$(PYTHON) -m splat split config/main.yaml
+	$(PYTHON) -m splat split config/ending.yaml
 
 build/SCUS_941.63: build/main.elf
 	$(CROSS)objcopy -O binary $< $@
@@ -84,7 +91,7 @@ NATIVE_CFLAGS := -std=gnu99 -O2 -g -Wall -Wno-array-bounds -Wno-stringop-overflo
 	-DNATIVE -DNON_MATCHING -Iinclude
 NATIVE_DRIVER := build/native/sound.o build/native/sound_init.o
 
-native: build/native/snd_native build/native/cd_test
+native: build/native/snd_native
 
 build/native/%.o: src/main/%.c include/sound.h
 	@mkdir -p $(dir $@)
@@ -103,21 +110,139 @@ build/native/ram.ld: $(NATIVE_DRIVER) build/native/snd_native.o config/symbols.m
 build/native/snd_native: $(NATIVE_DRIVER) build/native/snd_native.o build/native/ram.ld
 	gcc -no-pie $(NATIVE_DRIVER) build/native/snd_native.o build/native/funcs.c build/native/ram.ld -o $@
 
-# The CD layer built for the PC (native/cd_native.c reads the extracted discs): `make native`, then
-# build/native/cd_test <SCUS_941.63> assets.
-build/native/cd.o: include/cd.h
-build/native/cd_native.o build/native/cd_test.o: build/native/%.o: native/%.c native/cd_native.h include/cd.h
-	@mkdir -p $(dir $@)
-	gcc $(NATIVE_CFLAGS) -Inative -c $< -o $@
+# The PC port (docs/pc_port.md): a 32-bit program with the PS1's RAM at its own address. From WSL the default compiler
+# is the Windows MinGW one; on Linux: make pc-test PC_CC='gcc -m32' PC_LDFLAGS=-no-pie PC_EXE=
+PC_CC ?= /mnt/c/winlibs/mingw32/bin/gcc.exe
+PC_NM ?= /mnt/c/winlibs/mingw32/bin/nm.exe
+# NATIVE turns INCLUDE_ASM off: the PC build recompiles whatever is still assembly.
+PC_CFLAGS := -std=gnu99 -O2 -g -Wall -Iinclude -Ipc -DNATIVE
+# Game addresses are absolute, so the program must load where it was linked: no ASLR.
+PC_LDFLAGS ?= -Wl,--large-address-aware -Wl,--disable-dynamicbase
+# SDL2 from tools/setup_sdl2.sh; a Linux build passes its own (sdl2-config --cflags / --libs).
+SDL2_DIR ?= toolchain/SDL2
+PC_SDL_CFLAGS ?= -I$(SDL2_DIR)/include/SDL2
+PC_SDL_LIBS ?= -L$(SDL2_DIR)/lib -lSDL2
+PC_EXE ?= .exe
+PC_EXE_FILE := assets/Final Fantasy VII (USA) (Disc 1)/SCUS_941.63
 
-build/native/cd/ram.ld: build/native/cd.o build/native/cd_native.o build/native/cd_test.o config/symbols.main.txt 		tools/native_syms.py
+build/pc/test_memory$(PC_EXE): pc/test_memory.c pc/memory.c pc/exe.c pc/memory.h
 	@mkdir -p $(dir $@)
-	$(PYTHON) tools/native_syms.py build/native/cd build/native/cd.o build/native/cd_native.o -- build/native/cd_test.o
+	$(PC_CC) $(PC_CFLAGS) pc/test_memory.c pc/memory.c pc/exe.c $(PC_LDFLAGS) -o $@
 
-build/native/cd_test: build/native/cd.o build/native/cd_native.o build/native/cd_test.o build/native/cd/ram.ld
-	gcc -no-pie build/native/cd.o build/native/cd_native.o build/native/cd_test.o build/native/cd/funcs.c 		build/native/cd/ram.ld -o $@
+# The game's C keeps the dialect GCC 2.x compiled: undeclared functions are called as int f().
+PC_GAME_CFLAGS := -std=gnu89 -Wno-implicit-function-declaration -Wno-implicit-int
+# The game's C, built for the PC. main.c's main becomes game_main (the PC build has its own), and the -G8 files'
+# tentative definitions stay common, so tools/pc_syms.py can place them at their game addresses.
+build/pc/game/%.o: src/main/%.c
+	@mkdir -p $(dir $@)
+	$(PC_CC) $(PC_CFLAGS) $(PC_GAME_CFLAGS) -c $< -o $@
+build/pc/game/main.o: PC_CFLAGS += -Dmain=game_main
+build/pc/game/sound_init.o build/pc/game/loader.o: PC_CFLAGS += -fcommon
+build/pc/obj/%.o: pc/%.c pc/memory.h pc/recomp.h pc/gpu.h pc/cd_native.h
+	@mkdir -p $(dir $@)
+	$(PC_CC) $(PC_CFLAGS) -c $< -o $@
+# Generated from the user's exe: recompiled code compiles without the warnings hand-written C gets.
+build/pc/obj/gen/%.o: build/pc/gen/%.c pc/memory.h pc/recomp.h
+	@mkdir -p $(dir $@)
+	$(PC_CC) $(PC_CFLAGS) -w -c $< -o $@
+
+build/pc/main.nm: build/main.elf
+	@mkdir -p $(dir $@)
+	mipsel-linux-gnu-nm -n $< > $@
+
+build/pc/gen/test_recomp.c: tools/recomp.py build/pc/main.nm
+	$(PYTHON) tools/recomp.py --image "$(PC_EXE_FILE)" --symbols build/pc/main.nm 		--only copy_words,highest_bit,count_bits,lzs_decode --thunk-prefix rc_ -o $@
+
+PC_TEST_RECOMP := build/pc/obj/test_recomp.o build/pc/obj/memory.o build/pc/game/bitops.o build/pc/game/cd.o 	build/pc/obj/gen/test_recomp.o
+build/pc/test_recomp.ld: $(PC_TEST_RECOMP) tools/pc_syms.py
+	$(PYTHON) tools/pc_syms.py $@ "$(PC_CC) $(PC_LDFLAGS)" $(PC_TEST_RECOMP)
+build/pc/test_recomp$(PC_EXE): $(PC_TEST_RECOMP) build/pc/test_recomp.ld
+	$(PC_CC) $(PC_TEST_RECOMP) build/pc/test_recomp.ld $(PC_LDFLAGS) -o $@
+
+build/pc/test_bridge.native: build/pc/obj/test_bridge.o
+	$(PC_NM) $< > $@
+build/pc/gen/test_bridge.c: tools/recomp.py build/pc/main.nm build/pc/test_bridge.native
+	$(PYTHON) tools/recomp.py --image "$(PC_EXE_FILE)" --symbols build/pc/main.nm --native build/pc/test_bridge.native 		--asm asm --only cd_read,cd_state_done --tag bridge -o $@
+
+PC_TEST_BRIDGE := build/pc/obj/test_bridge.o build/pc/obj/memory.o build/pc/obj/exe.o build/pc/obj/dispatch.o 	build/pc/obj/gen/test_bridge.o
+build/pc/test_bridge.ld: $(PC_TEST_BRIDGE) tools/pc_syms.py
+	$(PYTHON) tools/pc_syms.py $@ "$(PC_CC) $(PC_LDFLAGS)" $(PC_TEST_BRIDGE)
+build/pc/test_bridge$(PC_EXE): $(PC_TEST_BRIDGE) build/pc/test_bridge.ld
+	$(PC_CC) $(PC_TEST_BRIDGE) build/pc/test_bridge.ld $(PC_LDFLAGS) -o $@
+
+PC_TEST_BIOS := build/pc/obj/test_bios.o build/pc/obj/bios.o build/pc/obj/memory.o build/pc/obj/dispatch.o
+build/pc/test_bios$(PC_EXE): $(PC_TEST_BIOS)
+	$(PC_CC) $(PC_TEST_BIOS) $(PC_LDFLAGS) -o $@
+
+PC_TEST_MODULES := build/pc/obj/test_modules.o build/pc/obj/memory.o build/pc/obj/dispatch.o
+build/pc/test_modules$(PC_EXE): $(PC_TEST_MODULES)
+	$(PC_CC) $(PC_TEST_MODULES) $(PC_LDFLAGS) -o $@
+
+PC_TEST_HW :=build/pc/obj/test_hw.o build/pc/obj/hw.o build/pc/obj/memory.o
+build/pc/test_hw$(PC_EXE): $(PC_TEST_HW)
+	$(PC_CC) $(PC_TEST_HW) $(PC_LDFLAGS) -o $@
+
+PC_TEST_GPU := build/pc/obj/test_gpu.o build/pc/obj/gpu.o
+build/pc/test_gpu$(PC_EXE): $(PC_TEST_GPU)
+	$(PC_CC) $(PC_TEST_GPU) $(PC_LDFLAGS) -o $@
+
+PC_TEST_GTE := build/pc/obj/test_gte.o build/pc/obj/gte.o
+build/pc/test_gte$(PC_EXE): $(PC_TEST_GTE)
+	$(PC_CC) $(PC_TEST_GTE) $(PC_LDFLAGS) -o $@
+
+PC_TEST_DISPLAY := build/pc/obj/test_display.o build/pc/obj/display.o build/pc/obj/gpu.o
+build/pc/test_display$(PC_EXE): $(PC_TEST_DISPLAY)
+	$(PC_CC) $(PC_TEST_DISPLAY) $(PC_LDFLAGS) -o $@
+
+build/pc/test_cd.native: build/pc/obj/test_cd.o build/pc/game/cd.o build/pc/obj/cd_native.o
+	$(PC_NM) $^ > $@
+# No functions: just the table of code pointers in the exe's data, for the C this test links.
+build/pc/gen/test_cd.c: tools/recomp.py build/pc/main.nm build/pc/test_cd.native
+	$(PYTHON) tools/recomp.py --image "$(PC_EXE_FILE)" --symbols build/pc/main.nm --native build/pc/test_cd.native 		--asm asm --only none --tag cd -o $@
+
+PC_TEST_CD := build/pc/obj/test_cd.o build/pc/game/cd.o build/pc/obj/cd_native.o build/pc/obj/memory.o 	build/pc/obj/exe.o build/pc/obj/dispatch.o build/pc/obj/gen/test_cd.o
+build/pc/test_cd.ld: $(PC_TEST_CD) tools/pc_syms.py
+	$(PYTHON) tools/pc_syms.py $@ "$(PC_CC) $(PC_LDFLAGS)" $(PC_TEST_CD)
+build/pc/test_cd$(PC_EXE): $(PC_TEST_CD) build/pc/test_cd.ld
+	$(PC_CC) $(PC_TEST_CD) build/pc/test_cd.ld $(PC_LDFLAGS) -o $@
+
+# The game: its C, the PC runtime, and the rest of the exe recompiled from the user's copy.
+PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o sound_init.o sound.o cd.o movie.o)
+PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o gpu.o gte.o display.o cd_native.o sdl.o)
+build/pc/obj/sdl.o: PC_CFLAGS += $(PC_SDL_CFLAGS)
+build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)
+	$(PC_NM) $^ > $@
+build/pc/gen/exe.c: tools/recomp.py build/pc/main.nm build/pc/ff7.native
+	$(PYTHON) tools/recomp.py --image "$(PC_EXE_FILE)" --symbols build/pc/main.nm --native build/pc/ff7.native 		--asm asm --rename main=game_main --tag exe -o $@
+build/pc/gen/ending.c: tools/recomp.py build/pc/main.nm build/pc/ff7.native disks/ENDING.X
+	$(PYTHON) tools/recomp.py --image disks/ENDING.X --base 800A0000 --symbols build/pc/main.nm \
+		--native build/pc/ff7.native --asm asm/ending --tag ending -o $@
+PC_GEN := build/pc/obj/gen/exe.o build/pc/obj/gen/ending.o
+build/pc/ff7.ld: $(PC_GAME) $(PC_RUNTIME) $(PC_GEN) tools/pc_syms.py
+	$(PYTHON) tools/pc_syms.py $@ "$(PC_CC) $(PC_LDFLAGS)" $(PC_GAME) $(PC_RUNTIME) $(PC_GEN) 		--nm $(PC_NM) --stubs build/pc/gen/modules.c
+build/pc/gen/modules.c: build/pc/ff7.ld
+build/pc/ff7$(PC_EXE): $(PC_GAME) $(PC_RUNTIME) $(PC_GEN) build/pc/obj/gen/modules.o build/pc/ff7.ld | build/pc/SDL2.dll
+	$(PC_CC) $^ $(PC_LDFLAGS) $(PC_SDL_LIBS) -o $@
+build/pc/SDL2.dll: $(SDL2_DIR)/bin/SDL2.dll
+	cp $< $@
+pc: build/pc/ff7$(PC_EXE)
+
+PC_TESTS := memory recomp bridge bios modules hw gpu gte display cd
+pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE))
+	$(PYTHON) tools/test_recomp.py
+	$(PYTHON) tools/test_bios_coverage.py "$(PC_EXE_FILE)"
+	build/pc/test_memory$(PC_EXE) "$(PC_EXE_FILE)"
+	build/pc/test_recomp$(PC_EXE) assets
+	build/pc/test_bridge$(PC_EXE) "$(PC_EXE_FILE)"
+	build/pc/test_bios$(PC_EXE)
+	build/pc/test_modules$(PC_EXE)
+	build/pc/test_hw$(PC_EXE)
+	build/pc/test_gpu$(PC_EXE)
+	build/pc/test_gte$(PC_EXE)
+	build/pc/test_display$(PC_EXE)
+	build/pc/test_cd$(PC_EXE) "$(PC_EXE_FILE)" assets
 
 clean:
 	rm -rf build asm
 
-.PHONY: check split clean native
+.PHONY: check split clean native pc pc-test
