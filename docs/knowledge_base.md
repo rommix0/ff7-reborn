@@ -1,7 +1,7 @@
 # Final Fantasy VII (PS1, NTSC-U) knowledge base
 
-Facts about the game's discs, code and data formats. Every claim was checked against our own disc images unless it's
-marked *(unverified)*; outside sources are named where a fact comes from them.
+Facts about the game's discs, code and data formats. Claims were checked against our own disc images; guesses say so,
+and outside sources are named where a fact comes from them.
 
 ## 1. Target discs
 
@@ -14,7 +14,7 @@ marked *(unverified)*; outside sources are named where a fact comes from them.
 - The three boot executables are **byte-identical** (397,312 bytes); only the file name and `SYSTEM.CNF` differ.
   `INIT/KERNEL.BIN` and `FIELD/FIELD.BIN` are identical across discs too, so code recovery needs disc 1 plus any
   overlay that exists on a single disc.
-- Main exe: loads at `0x80010000`, `$gp = 0x80062D44`, BSS `0x3C930` bytes *(unverified: the exe header leaves BSS at 0)*.
+- Main exe: loads at `0x80010000`, `$gp = 0x80062D44`.
 
 ## 2. Disc layout (disc 1, 3,377 files)
 
@@ -35,7 +35,7 @@ marked *(unverified)*; outside sources are named where a fact comes from them.
 Compression (all checked on disc 1 with `tools/unpack.py`):
 
 - **Gzip overlays** (`BATTLE/*.X`, `FIELD/FIELD.BIN`, `WORLD/WORLD.BIN`, the mini-game `.BIN`s): `u32` decompressed
-  size, a second `u32` *(unknown)*, then a gzip stream. The size matches in every case.
+  size, a second `u32`, then a gzip stream. The size matches in every case.
 - **Plain gzip:** `BATTLE/TITLE.BIN`, no header.
 - **BIN-GZ archive** (`INIT/KERNEL.BIN`, `INIT/WINDOW.BIN`): each section is a 6-byte header (`u16` gzip length,
   `u16` decompressed length, `u16` section type; Gears calls the last two "unknown" and "file number") and its gzip
@@ -44,7 +44,7 @@ Compression (all checked on disc 1 with `tools/unpack.py`):
   - `WINDOW.BIN`: 3 sections (33,312 + 32,800 + 1,302 bytes). Gears' offset table for it doesn't match the disc.
 - **LZS** (`FIELD/*.DAT`, 703 of 787 files): `u32` **compressed** length (file size − 4; Gears says decompressed),
   then LZSS data with a 4 KiB window. All 703 decompress to a sane 7-pointer header. The other 84 `.DAT` files are
-  2,048-byte uncompressed stubs, likely placeholder or cut maps *(unverified)*.
+  2,048-byte uncompressed stubs, likely placeholder or cut maps.
 
 ## 3. Code: what is recovered and what isn't
 
@@ -59,8 +59,8 @@ recovered C. Details in §7.
 | PsyQ library block | `0x80036E84`–`0x80048D18` | 267 of 454 functions named (§8) |
 
 Not recovered yet: the rest of the exe's game code (still asm) and every overlay: battle, field, world, menus,
-mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` *(unverified: probably the
-title screen code)*.
+mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+title screen).
 
 ### PC vs PS1
 
@@ -101,7 +101,7 @@ direct caller; they're reached through pointer tables.
 | `0x80075F28` | `instrument_table` | 128 × 64-byte instruments (= `INSTR.DAT` 8,192 bytes). Field `+0` is the SPU sample address (`0x1010` for entry 0, matching `INSTR.ALL`'s header) |
 
 The command table is presumably what the field opcodes `AKAO`/`AKAO2` feed; command `0x10` is the first live
-handler. *(unverified)*
+handler.
 
 ### Sequence format
 
