@@ -2,7 +2,7 @@
 # First time: tools/setup_toolchain.sh, then `make split`, then `make`.
 
 ORIG_EXE ?= assets/Final Fantasy VII (USA) (Disc 1)/SCUS_941.63
-ORIG_ENDING ?= assets/Final Fantasy VII (USA) (Disc 1)/FIELD/ENDING.X
+DISC1 ?= assets/Final Fantasy VII (USA) (Disc 1)
 PYTHON   := toolchain/venv/bin/python
 GCC      ?= 2.7.2
 CFLAGS   ?= -O2 -G0
@@ -20,14 +20,24 @@ disks/SCUS_941.63:
 	mkdir -p disks
 	cp "$(ORIG_EXE)" $@
 
-# A module the PC port recompiles (config/ending.yaml).
-disks/ENDING.X:
-	mkdir -p disks
-	cp "$(ORIG_ENDING)" $@
+# The modules the PC port recompiles, as name:file on disc 1:load address (each the same on all three discs). `make
+# split` splits each into asm/<name> with the splat config tools/module_yaml.py writes for it.
+PC_MODULES := ending:FIELD/ENDING.X:800A0000 \
+	$(foreach m,BGIN CHNG CNFG EQIP FORM ITEM LIMT MGIC NAME PATY SAVE SHOP STAT,\
+		$(shell echo $(m) | tr A-Z a-z)menu:MENU/$(m)MENU.MNU:801D0000)
+module = $(word $(2),$(subst :, ,$(filter $(1):%,$(PC_MODULES))))
+PC_MODULE_NAMES := $(foreach m,$(PC_MODULES),$(firstword $(subst :, ,$(m))))
 
-split: disks/SCUS_941.63 disks/ENDING.X
+disks/%:
+	mkdir -p $(dir $@)
+	cp "$(DISC1)/$*" $@
+
+split: disks/SCUS_941.63 $(foreach m,$(PC_MODULE_NAMES),disks/$(call module,$(m),2))
 	$(PYTHON) -m splat split config/main.yaml
-	$(PYTHON) -m splat split config/ending.yaml
+	mkdir -p build/modules
+	for m in $(PC_MODULES); do set -- $$(echo $$m | tr : ' '); \
+		$(PYTHON) tools/module_yaml.py disks/$$2 $$1 $$3 > build/modules/$$1.yaml && \
+		$(PYTHON) -m splat split build/modules/$$1.yaml || exit 1; done
 
 build/SCUS_941.63: build/main.elf
 	$(CROSS)objcopy -O binary $< $@
@@ -218,10 +228,19 @@ build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)
 	$(PC_NM) $^ > $@
 build/pc/gen/exe.c: tools/recomp.py build/pc/main.nm build/pc/ff7.native
 	$(PYTHON) tools/recomp.py --image "$(PC_EXE_FILE)" --symbols build/pc/main.nm --native build/pc/ff7.native 		--asm asm --rename main=game_main --tag exe -o $@
-build/pc/gen/ending.c: tools/recomp.py build/pc/main.nm build/pc/ff7.native disks/ENDING.X
-	$(PYTHON) tools/recomp.py --image disks/ENDING.X --base 800A0000 --symbols build/pc/main.nm \
-		--native build/pc/ff7.native --asm asm/ending --tag ending -o $@
-PC_GEN := build/pc/obj/gen/exe.o build/pc/obj/gen/ending.o
+build/pc/gen/mod/%.c: tools/recomp.py build/pc/main.nm build/pc/ff7.native
+	@mkdir -p $(dir $@)
+	$(PYTHON) tools/recomp.py --image disks/$(call module,$*,2) --base $(call module,$*,3) --symbols build/pc/main.nm \
+		--native build/pc/ff7.native --asm asm/$* --tag $* -o $@
+.PRECIOUS: build/pc/gen/mod/%.c
+build/pc/gen/module_list.c: Makefile
+	@mkdir -p $(dir $@)
+	echo '#include "recomp.h"' > $@
+	for m in $(PC_MODULE_NAMES); do echo "extern const Module $${m}_module;"; done >> $@
+	echo 'const Module *const pc_modules[] = {$(foreach m,$(PC_MODULE_NAMES),&$(m)_module,)};' >> $@
+	echo 'const int pc_module_count = $(words $(PC_MODULE_NAMES));' >> $@
+PC_GEN := build/pc/obj/gen/exe.o build/pc/obj/gen/module_list.o \
+	$(foreach m,$(PC_MODULE_NAMES),build/pc/obj/gen/mod/$(m).o)
 build/pc/ff7.ld: $(PC_GAME) $(PC_RUNTIME) $(PC_GEN) tools/pc_syms.py
 	$(PYTHON) tools/pc_syms.py $@ "$(PC_CC) $(PC_LDFLAGS)" $(PC_GAME) $(PC_RUNTIME) $(PC_GEN) 		--nm $(PC_NM) --stubs build/pc/gen/modules.c
 build/pc/gen/modules.c: build/pc/ff7.ld

@@ -127,8 +127,9 @@ name to `config/symbols.main.txt`. Then `make split && make`.
 
 - `src/`: recovered C source, one folder per executable or overlay
 - `native/`: what the PC build of the sound driver adds (libspu stubs, loader, song runner)
-- `pc/`: the PC build's runtime (memory map, BIOS, hardware, software GPU, GTE, CD, window)
-- `config/`: splat configs and symbol names (`main.yaml` for the boot exe, `ending.yaml` for `FIELD/ENDING.X`)
+- `pc/`: the PC build's runtime (memory map, BIOS, hardware, MDEC, software GPU, GTE, CD, window)
+- `config/`: the boot exe's splat config (`main.yaml`) and symbol names; the PC port's modules get theirs from
+  `tools/module_yaml.py`
 - `include/`: headers and the assembler macros splat expects
 - `tools/`: extractor scripts and the build/match tooling
 - `docs/knowledge_base.md`: what we know about the discs, overlays, sound engine and what is left to recover

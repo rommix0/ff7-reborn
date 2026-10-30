@@ -59,7 +59,7 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
 1. **The exe boots on the PC:** the whole exe (C plus recompiled asm) runs to its first screen. *Done: it reaches
    `ENDING.X`'s first screen in an SDL2 window. See the knowledge base, "PC build: the exe runs".*
 2. **New game:** title, the opening movie, the first field with walking, music and sound. *So far: the boot runs
-   through the credits and the logo's movie to the title logo.*
+   through the credits and the logo's movie to the title menu.*
 3. **Field complete:** dialogue, menus, saving to files.
 4. **Battle, world map, mini-games:** with the magic effects.
 5. **The whole game,** across all three discs' content with no swaps.

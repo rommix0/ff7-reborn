@@ -955,7 +955,7 @@ The PC build (`make pc`, below) compiles `cd.c` over `pc/cd_native.c`, a libcd t
 `make pc` builds `build/pc/ff7.exe`, a 32-bit Windows program (MinGW i686, called from WSL) that runs the whole boot
 exe: the C from `src/main`, and every function still in assembly recompiled to C from the user's own `SCUS_941.63` by
 `tools/recomp.py`. It boots through `ENDING.X`'s opening credits and the logo's movie (`OPENMV.BIN`, around frame
-9000) to the title logo.
+9000) to the title logo, and on Start to the title menu (NEW GAME / Continue?, the menu modules at `0x801D0000`).
 `pc/sdl.c` shows it in an SDL2 window (640×480 at 4:3; the keyboard is pad 1; F12 saves `screenshot.bmp`), or
 `ff7 [ASSETS] --frames N [--shot FILE.bmp]` runs without one and saves frame N.
 - **Memory:** the PS1's RAM sits at its own address, `0x80000000` (with the 64 KB after it, for the stack words a
@@ -969,10 +969,17 @@ exe: the C from `src/main`, and every function still in assembly recompiled to C
   `_patch_gte` uses one as a loop's end), and the code addresses in the game's data are patched at start. A game
   address that still turns up is looked up in the code tables. The point after a `jal setjmp` is an entry of its own:
   libetc's interrupt entry resumes there, through the BIOS's custom exit.
-- **Modules:** `config/ending.yaml` splits `FIELD/ENDING.X`; `recomp.py` takes a module's functions from splat's
-  `glabel`s, and its calls into the exe by the exe's symbols. Modules share load addresses, so a module's functions
-  stay private to its file. `module_function` (`pc/dispatch.c`) picks the module whose first function's opening 64
-  bytes are in RAM, and patches its data's code pointers that still hold game addresses.
+- **Modules:** the Makefile's `PC_MODULES` lists each with its file and load address (`ENDING.X` at `0x800A0000`, the
+  13 `MENU/*.MNU` at `0x801D0000`, all raw and the same on every disc). `make split` splits each with a splat config
+  from `tools/module_yaml.py`: a module is read-only data, code from the first stack-frame setup to the last
+  `jr $ra`, then data (which gives `ENDING.X`'s hand-found bounds exactly). `recomp.py` takes a module's functions
+  from splat's `glabel`s, and its calls into the exe by the exe's symbols. Modules share load addresses, so a
+  module's functions stay private to its file. `module_function` (`pc/dispatch.c`) picks the module whose first
+  function's opening 64 bytes are in RAM and whose code has the address (a module at another address can still be
+  in RAM), and patches its data's code pointers that still hold game addresses.
+- **Code behind a BIOS stub:** splat runs a three-instruction stub (`jr $t2`) on into whatever follows when that has
+  no symbol, so the function after it is never recompiled ("reached … which wasn't recompiled"). `format`,
+  `_new_card` and `StopCARD` hid one each; they now have symbols.
 - **What's emulated:** the BIOS calls the exe makes (56, checked by `tools/test_bios_coverage.py`) and the interrupt
   path (events, root counters, the custom exit); DMA, timers and vblank; a software GPU (VRAM, every primitive,
   textures, semi-transparency, masks; in 480i the field on screen changes each vblank, and `ENDING.X` uploads the other

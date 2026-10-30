@@ -21,6 +21,11 @@ static const CodePatch a_code[] = {{START, (void *)a_entry}}, a_patches[] = {{SL
 static const CodePatch b_code[] = {{START, (void *)b_entry}}, b_patches[] = {{SLOT, (void *)b_entry, START}};
 static Module a = {START, {0}, a_code, a_patches, 1, 1}, b = {START, {0}, b_code, b_patches, 1, 1};
 
+#define MENU 0x801D0000u /* another load address: its modules come and go while one stays at START */
+static int c_entry(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7) { return 0xC + a0 + a7; }
+static const CodePatch c_code[] = {{MENU, (void *)c_entry}};
+static Module c = {MENU, {0}, c_code, 0, 1, 0};
+
 /* What cd_read leaves in RAM: the module's code, and its data with the game's code addresses. */
 static void load(const Module *m)
 {
@@ -36,9 +41,11 @@ int main(void)
     for (i = 0; i < 64; i++) {
         a.signature[i] = i;
         b.signature[i] = 64 - i;
+        c.signature[i] = 3 * i;
     }
     module_register(&a);
     module_register(&b);
+    module_register(&c);
 
     /* overlay_switch_by_content */
     load(&a);
@@ -55,6 +62,11 @@ int main(void)
     mem_w32(SLOT, 0x80100000);
     module_call(START, 0, 0, 0, 0, 0, 0, 0, 0);
     assert(mem_r32(SLOT) == 0x80100000);
+
+    /* modules_at_other_addresses: with b still at START, a call into the menu's address reaches the menu */
+    memcpy((void *)MENU, c.signature, sizeof c.signature);
+    assert(module_call(MENU, 1, 0, 0, 0, 0, 0, 0, 2) == 0xC + 3);
+    assert(module_call(START, 1, 0, 0, 0, 0, 0, 0, 2) == 0xB + 3);
     puts("ok");
     return 0;
 }

@@ -16,8 +16,9 @@
 extern const CodePatch exe_code[], exe_patches[];
 extern const int exe_code_count, exe_patch_count;
 int D_800110C0(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7); /* the entry point */
-/* build/pc/gen/ending.c: FIELD/ENDING.X, the module the boot starts with. */
-extern const Module ending_module;
+/* build/pc/gen/module_list.c: the modules recompiled from the user's discs (the Makefile's PC_MODULES). */
+extern const Module *const pc_modules[];
+extern const int pc_module_count;
 /* sdl.c: the window, unless --frames asks for a run without one. */
 int sdl_open(void);
 int sdl_frame(void);
@@ -83,7 +84,8 @@ int main(int argc, char **argv)
         return 1;
     code_register(exe_code, exe_code_count);
     patch_code_pointers(exe_patches, exe_patch_count);
-    module_register(&ending_module);
+    for (i = 0; i < pc_module_count; i++)
+        module_register(pc_modules[i]);
     gpu_gp1(0);
     cop0[12] = 0x401;           /* interrupts on, as the BIOS leaves them; I_MASK keeps them away until the game asks */
     ctx.r[29] = 0x801FFF00;     /* the BIOS's stack, until the entry code sets the game's */

@@ -83,25 +83,28 @@ void module_register(const Module *m)
     modules[module_count++] = m;
 }
 
-/* The game loads a module by reading it over whatever was there, so which one is loaded is read off RAM each time.
- * Its data comes in with game code addresses: a word still holding the one it was loaded with gets the native
- * function, while anything the game has put there since stays. ponytail: a signature compare and a patch pass per
- * call; cache the last match if it shows. */
+/* The game loads a module by reading it over whatever was there, so which one is loaded is read off RAM each time;
+ * modules at other addresses (the menus' 0x801D0000) stay loaded beside it. Its data comes in with game code
+ * addresses: a word still holding the one it was loaded with gets the native function, while anything the game has
+ * put there since stays. ponytail: a signature compare and a patch pass per call; cache the last match if it shows. */
 void *module_function(unsigned int addr)
 {
     const Module *m;
     const CodePatch *p;
+    void *f;
     int i;
 
     for (i = 0; i < module_count; i++) {
         m = modules[i];
         if (memcmp((const void *)m->start, m->signature, sizeof m->signature))
             continue;
+        if (!(f = find(m->code, m->code_count, addr)))
+            continue;
         for (p = m->patches; p < m->patches + m->patch_count; p++) {
             if (mem_r32(p->addr) == p->game)
                 mem_w32(p->addr, (unsigned int)p->func);
         }
-        return find(m->code, m->code_count, addr);
+        return f;
     }
     return 0;
 }

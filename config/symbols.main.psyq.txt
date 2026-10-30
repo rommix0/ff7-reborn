@@ -300,6 +300,8 @@ write = 0x80042B40; // type:func
 close = 0x80042B50; // type:func
 // LIBAPI.A65
 format = 0x80042B60; // type:func
+// LIBAPI.A66 (splat ran format on into it)
+firstfile = 0x80042B70; // type:func
 // LIBAPI.A67
 nextfile = 0x80042B80; // type:func
 // LIBAPI.A69
@@ -411,9 +413,12 @@ _card_clear = 0x80048998; // type:func
 _card_write = 0x800489D0; // type:func
 // LIBCARD.A80
 _new_card = 0x800489E0; // type:func
+// libcard, unnamed: code after a BIOS stub, which splat would run the stub on into
+func_800489F0 = 0x800489F0; // type:func
 // LIBCARD.A74
 InitCARD = 0x80048AAC; // type:func
 // LIBCARD.A75
 StartCARD = 0x80048ABC; // type:func
 // LIBCARD.A76
 StopCARD = 0x80048ACC; // type:func
+func_80048ADC = 0x80048ADC; // type:func
