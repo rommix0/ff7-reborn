@@ -102,9 +102,10 @@ which loads its data from your `SCUS_941.63`. `python tools/native_check.py <dis
 plays each song on it and checks every channel's notes against `tools/akao.py` (`gcc` is the only extra package).
 
 **The PC build (work in progress):** the whole boot exe runs as a 32-bit Windows program: the recovered C, plus the
-rest of your `SCUS_941.63` and `FIELD/ENDING.X` recompiled to C at build time (never committed). It shows the first
-screen so far. It needs [winlibs](https://winlibs.com/)' 32-bit MinGW GCC at `C:\winlibs\mingw32` (or set `PC_CC`
-and `PC_NM`) and your three extracted discs in `assets/`:
+rest of your `SCUS_941.63` and the field, ending and menu modules recompiled to C at build time (never committed). So
+far it boots through the title menu into NEW GAME's opening movie and the first field, with sound. It needs
+[winlibs](https://winlibs.com/)' 32-bit MinGW GCC at `C:\winlibs\mingw32` (or set `PC_CC` and `PC_NM`) and your three
+extracted discs in `assets/`:
 
 ```bash
 sh tools/setup_sdl2.sh   # SDL2 2.30.12 (zlib licence) into toolchain/SDL2, checked against its pinned SHA-256
@@ -127,7 +128,7 @@ name to `config/symbols.main.txt`. Then `make split && make`.
 
 - `src/`: recovered C source, one folder per executable or overlay
 - `native/`: what the PC build of the sound driver adds (libspu stubs, loader, song runner)
-- `pc/`: the PC build's runtime (memory map, BIOS, hardware, MDEC, software GPU, GTE, CD, window)
+- `pc/`: the PC build's runtime (memory map, BIOS, hardware, MDEC, SPU, software GPU, GTE, CD, window and sound)
 - `config/`: the boot exe's splat config (`main.yaml`) and symbol names; the PC port's modules get theirs from
   `tools/module_yaml.py`
 - `include/`: headers and the assembler macros splat expects

@@ -45,6 +45,8 @@ int VSync(int mode) { (void)mode; return 0; }
 static double ps1_now;
 void hw_poll(void) { ps1_now += 1e-4; } /* the streaming waits on PS1 time, which polls advance */
 double ps1_seconds(void) { return ps1_now; }
+static int xa_frames, xa_rate;
+void spu_cd_input(const short *lr, int frames, int rate) { (void)lr, xa_frames += frames, xa_rate = rate; }
 int bios_call(int table, int n) { (void)table; (void)n; return 0; }
 unsigned int io_read(unsigned int addr, int size) { (void)addr; (void)size; return 0; }
 void io_write(unsigned int addr, unsigned int v, int size) { (void)addr; (void)v; (void)size; }
@@ -170,6 +172,11 @@ int main(int argc, char **argv)
             failed++;
         }
         StFreeRing(frame);
+    }
+    /* movie_sound_reaches_the_spu: the XA sectors among them, whole sectors of stereo 37.8 kHz */
+    if (!xa_frames || xa_frames % 2016 || xa_rate != 37800) {
+        printf("disc 1: the opening movie's sound gave %d frames at %d Hz\n", xa_frames, xa_rate);
+        failed++;
     }
     StUnSetRing();
     printf("%d files read, %d unpacked while streaming, %d failures\n", read, unpacked, failed);

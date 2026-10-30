@@ -37,6 +37,7 @@ void module_register(const Module *m);
 void *module_function(unsigned int addr); /* the loaded module's function at addr, or 0 */
 int module_call(unsigned int addr, int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7);
 void pc_vblank(void);                     /* the PC build's once-a-frame hook (main.c) */
+void pc_audio(const short *lr, int frames); /* the SPU's 44.1 kHz stereo out (sdl.c) */
 
 /* The BIOS in C (bios.c). call_indirect sends the BIOS's three entry points, 0xA0, 0xB0 and 0xC0, to bios_call with
  * the function number in $t1. irq_raise sets an interrupt's bit in I_STAT and, when the CPU accepts interrupts, runs

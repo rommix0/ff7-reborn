@@ -28,6 +28,8 @@ static struct {
 } discs[4];
 
 static unsigned int position; /* the next sector to read */
+static CdlATV cd_mix = {0x80, 0, 0x80, 0}; /* CD audio into the SPU: left to left, left to right, right to right,
+                                              right to left, 0x80 = as it is */
 static FILE *open_file;
 static const PcFile *open_entry;
 
@@ -123,8 +125,9 @@ static const PcFile *file_at(int disc, unsigned int lba)
     return 0;
 }
 
-/* One sector's 2048 data bytes. Past a file's end and outside every file it reads zeros, as the disc's padding does. */
-static void read_sector(unsigned int lba, unsigned char *dst)
+/* size bytes of a sector, from at bytes into its 2352 (its data starts at 24). A file kept as data alone has only
+ * that; elsewhere, past a file's end and outside every file it reads zeros, as the disc's padding does. */
+static void read_part(unsigned int lba, unsigned char *dst, int at, size_t size)
 {
     int disc = inserted_disc();
     const PcFile *f = file_at(disc, lba);
@@ -139,12 +142,17 @@ static void read_sector(unsigned int lba, unsigned char *dst)
         open_file = fopen(path, "rb");
         open_entry = f;
     }
-    if (f && open_file) {
+    if (f && open_file && (f->raw || at == 24)) {
         n = lba - f->lba;
-        fseek(open_file, f->raw ? n * 2352 + 24 : n * SECTOR, SEEK_SET);
-        got = fread(dst, 1, SECTOR, open_file);
+        fseek(open_file, f->raw ? n * 2352 + at : n * SECTOR, SEEK_SET);
+        got = fread(dst, 1, size, open_file);
     }
-    memset(dst + got, 0, SECTOR - got);
+    memset(dst + got, 0, size - got);
+}
+
+static void read_sector(unsigned int lba, unsigned char *dst)
+{
+    read_part(lba, dst, 24, SECTOR);
 }
 
 static int bcd(int n)
@@ -188,7 +196,11 @@ int func_8003E100(int com, void *param, void *result) { return control(com, para
 int func_8003DE2C(int mode, unsigned char *result) { (void)mode; (void)result; return CdlComplete; }
 int CdDiskReady(int mode) { (void)mode; return CdlComplete; }
 int func_8004076C(void) { return 2; } /* the disc type cd_check_disc accepts */
-int func_8003E244(CdlATV *vol) { (void)vol; return 1; }
+int func_8003E244(CdlATV *vol) /* CdMix */
+{
+    cd_mix = *vol;
+    return 1;
+}
 void func_8003DDA4(int mode) { (void)mode; }
 void func_8003DD84(void) {}
 void func_8003DE6C(int a) { (void)a; }
@@ -289,20 +301,87 @@ int lzs_stream_resume(void)
 /* libcd's streaming, for the movies (movie.c). CdRead2 starts the drive streaming from its position at the
  * double-speed CD's 150 sectors a second of PS1 time; StGetNext hands out each frame once its last sector is in: its
  * video sectors' data joined after the first one's 32-byte header (libcd's StHEADER, its position in the last word),
- * in the ring buffer StSetRing gave, which holds two frames (one is VLC-decoded while the next comes in). XA audio
- * sectors are passed over. ponytail: the movies are silent until the SPU has output. */
+ * in the ring buffer StSetRing gave, which holds two frames (one is VLC-decoded while the next comes in). The XA
+ * audio sectors in between go to the SPU's CD input as the frames are taken. */
 #define STR_VIDEO 0x80010160u /* a video sector's id and type */
 #define STR_HEADER 32
 #define SECTORS_PER_SECOND 150
 #define RING_SECTORS 36
 #define FRAME_ROOM (RING_SECTORS / 2 * SECTOR)
+#define XA_GROUPS 18 /* of 128 bytes in an audio sector: 16 of unit headers, then 28 rows of 4 bytes */
 
 double ps1_seconds(void);
+void spu_cd_input(const short *lr, int frames, int rate);
 
 static unsigned char *ring;
 static int ring_half, streaming;
 static unsigned int stream_first, stream_next; /* where the stream started, and its next sector */
 static double stream_start;
+static int xa_history[2][2];      /* each side's last two samples */
+static double xa_emphasis[2][2];  /* each side's last sample in and out of the de-emphasis */
+
+static short clamp16(double s)
+{
+    return s < -0x8000 ? -0x8000 : s > 0x7FFF ? 0x7FFF : (short)s;
+}
+
+/* An XA audio sector (psx-spx, "CDROM XA Audio ADPCM Compression"): 4-bit ADPCM, each group 8 units of 28 samples
+ * (alternately left and right in stereo), at 37.8 or 18.9 kHz; through CdMix's matrix to the SPU. A sector flagged
+ * for emphasis is undone with the CD's 50/15 us shelf (tools/movie.py works it the same way). ponytail: 8-bit XA is
+ * passed over; FF7's movies are all 4-bit. */
+static void xa_sector(unsigned int lba)
+{
+    static const int forward[4] = {0, 60, 115, 98}, back[4] = {0, 0, -52, -55};
+    static short pcm[XA_GROUPS * 8 * 28][2];
+    unsigned char sector[8 + XA_GROUPS * 128], *group;
+    int stereo, rate, frames, g, unit, j, shift, filter, s, side, i, l, r;
+    int *h;
+
+    read_part(lba, sector, 16, sizeof sector);
+    if (!(sector[2] & 4) || sector[3] & 0x30) /* the subheader: audio, 4-bit */
+        return;
+    stereo = sector[3] & 1;
+    rate = sector[3] & 4 ? 18900 : 37800;
+    frames = XA_GROUPS * 28 * (stereo ? 4 : 8);
+    for (g = 0; g < XA_GROUPS; g++) {
+        group = sector + 8 + g * 128;
+        for (unit = 0; unit < 8; unit++) {
+            shift = group[4 + unit] & 0xF;
+            shift = shift > 12 ? 9 : shift;
+            filter = group[4 + unit] >> 4 & 3;
+            side = stereo ? unit & 1 : 0;
+            h = xa_history[side];
+            for (j = 0; j < 28; j++) {
+                s = ((short)((group[16 + j * 4 + unit / 2] >> (unit & 1) * 4 & 0xF) << 12) >> shift)
+                    + ((h[0] * forward[filter] + h[1] * back[filter] + 32) >> 6);
+                h[1] = h[0];
+                h[0] = clamp16(s);
+                i = stereo ? (g * 4 + unit / 2) * 28 + j : (g * 8 + unit) * 28 + j;
+                pcm[i][side] = h[0];
+                if (!stereo)
+                    pcm[i][1] = h[0];
+            }
+        }
+    }
+    for (i = 0; i < frames; i++) {
+        if (sector[3] & 0x40) {
+            double t50 = 2.0 * rate * 50e-6, t15 = 2.0 * rate * 15e-6;
+
+            for (side = 0; side < 2; side++) {
+                double *e = xa_emphasis[side], y = ((1 + t15) * pcm[i][side] + (1 - t15) * e[0] - (1 - t50) * e[1])
+                    / (1 + t50);
+
+                e[0] = pcm[i][side];
+                e[1] = y;
+                pcm[i][side] = clamp16(y);
+            }
+        }
+        l = pcm[i][0], r = pcm[i][1];
+        pcm[i][0] = clamp16((l * cd_mix.val0 + r * cd_mix.val3) >> 7);
+        pcm[i][1] = clamp16((r * cd_mix.val2 + l * cd_mix.val1) >> 7);
+    }
+    spu_cd_input(pcm[0], frames, rate);
+}
 
 static double sectors_in(void)
 {
@@ -331,6 +410,8 @@ int CdRead2(int mode)
     stream_first = stream_next = position;
     stream_start = ps1_seconds();
     streaming = 1;
+    memset(xa_history, 0, sizeof xa_history);
+    memset(xa_emphasis, 0, sizeof xa_emphasis);
     return 1;
 }
 
@@ -364,7 +445,11 @@ int StGetNext(unsigned int **addr, unsigned int **header)
         read_sector(lba, sector);
         memcpy(&id, sector, 4);
         memcpy(&index, sector + 4, 2);
-        if (id != STR_VIDEO || (!count && index))
+        if (id != STR_VIDEO) {
+            xa_sector(lba);
+            continue;
+        }
+        if (!count && index)
             continue;
         if (!count) {
             memcpy(&count, sector + 6, 2);

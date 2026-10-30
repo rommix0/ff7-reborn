@@ -1,13 +1,18 @@
-/* The window: the PS1's display scaled to 640x480 at 4:3, and the keyboard as pad 1. */
+/* The window: the PS1's display scaled to 640x480 at 4:3, the keyboard as pad 1, and the SPU's sound. */
 #include <stdio.h>
 #define SDL_MAIN_HANDLED /* main.c keeps its own main */
 #include <SDL.h>
 #include "gpu.h"
 #include "recomp.h"
 
+#define AUDIO_RING 8192  /* stereo frames the SPU can be ahead of the sound card: 0.19 s */
+#define AUDIO_START 2048 /* frames to have in before playing, and again after running dry */
+
 static SDL_Window *window;
 static SDL_Renderer *renderer;
 static SDL_Texture *texture;
+static short audio_ring[AUDIO_RING][2];
+static SDL_atomic_t audio_in, audio_out; /* frames written and played, counted on from 0 */
 
 /* Keys for the pad's bits, in the PS1's order (bit 0 Select ... bit 15 Square). */
 static const struct {
@@ -19,8 +24,49 @@ static const struct {
     {SDL_SCANCODE_Z, 14}, {SDL_SCANCODE_A, 15},
 };
 
+/* On SDL's audio thread: the SPU's frames, or silence until enough have come. */
+static void play(void *unused, Uint8 *stream, int len)
+{
+    static int playing;
+    short *dst = (short *)stream;
+    unsigned int in = SDL_AtomicGet(&audio_in), out = SDL_AtomicGet(&audio_out);
+    int i;
+
+    (void)unused;
+    if (in - out >= AUDIO_START)
+        playing = 1;
+    for (i = 0; i < len / 4; i++) {
+        if (!playing || out == in) {
+            playing = 0;
+            dst[2 * i] = dst[2 * i + 1] = 0;
+            continue;
+        }
+        dst[2 * i] = audio_ring[out % AUDIO_RING][0];
+        dst[2 * i + 1] = audio_ring[out % AUDIO_RING][1];
+        out++;
+    }
+    SDL_AtomicSet(&audio_out, out);
+}
+
+/* The SPU's frames, as the PS1's time passes; while the sound card is behind (or there's none) the rest is dropped.
+ * ponytail: the PS1's clock and the card's drift apart by a frame now and then; resample if that's ever heard. */
+void pc_audio(const short *lr, int frames)
+{
+    unsigned int in = SDL_AtomicGet(&audio_in), out = SDL_AtomicGet(&audio_out);
+    int i;
+
+    for (i = 0; i < frames && in - out < AUDIO_RING; i++, in++) {
+        audio_ring[in % AUDIO_RING][0] = lr[2 * i];
+        audio_ring[in % AUDIO_RING][1] = lr[2 * i + 1];
+    }
+    SDL_AtomicSet(&audio_in, in);
+}
+
 int sdl_open(void)
 {
+    SDL_AudioSpec want;
+    SDL_AudioDeviceID device = 0;
+
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL: %s\n", SDL_GetError());
@@ -37,6 +83,18 @@ int sdl_open(void)
         return -1;
     }
     SDL_RenderSetLogicalSize(renderer, 640, 480);
+    SDL_zero(want);
+    want.freq = 44100;
+    want.format = AUDIO_S16SYS;
+    want.channels = 2;
+    want.samples = 1024;
+    want.callback = play;
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
+        device = SDL_OpenAudioDevice(0, 0, &want, 0, 0);
+    if (device)
+        SDL_PauseAudioDevice(device, 0);
+    else
+        fprintf(stderr, "SDL: no sound: %s\n", SDL_GetError());
     return 0;
 }
 

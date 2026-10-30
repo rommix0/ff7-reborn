@@ -39,7 +39,7 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
 3. **Hardware where the PS1's behaviour is the point, libraries where the PC should differ.**
    - Emulated, so Sony's library code runs as compiled: the **GPU** (GP0/GP1 commands and DMA into 1024×512 VRAM),
      the **GTE** (COP2, for libgte and inline use alike), the **MDEC** (done: the in-memory movies run through libpress
-     unchanged), the **SPU** (24 ADPCM voices, ADSR, noise, reverb), root counters and the VSync interrupt. Behaviour
+     unchanged), the **SPU** (done but reverb: 24 ADPCM voices, ADSR, noise, CD input), root counters and the VSync interrupt. Behaviour
      comes from psx-spx; no emulator code is copied (most are GPL).
    - Replaced at the library: **libcd** (done: extracted files, the save's disc always inserted), **libcd's streaming**
      (the STR sectors read from the extracted files, so movies run through libpress, the MDEC and `movie.c` as they
@@ -53,14 +53,14 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
    upscaling later.
 
 5. **Audio:** the SPU mixed at 44.1 kHz into a fixed ring buffer read by the audio callback (no allocation or locking
-   there); movie audio decoded from the STR's XA sectors, at each movie's `MOVIE_ID.BIN` volume.
+   there); movie audio decoded from the STR's XA sectors, at each movie's `MOVIE_ID.BIN` volume. *Done but reverb.*
 
 ## Milestones
 
 1. **The exe boots on the PC:** the whole exe (C plus recompiled asm) runs to its first screen. *Done: it reaches
    `ENDING.X`'s first screen in an SDL2 window. See the knowledge base, "PC build: the exe runs".*
 2. **New game:** title, the opening movie, the first field with walking, music and sound. *So far: the boot runs
-   through the credits and the title menu, and NEW GAME plays the opening movie (silent so far).*
+   through the credits and the title menu, and NEW GAME plays the opening movie, with its sound, into the first field; music and effects play.*
 3. **Field complete:** dialogue, menus, saving to files.
 4. **Battle, world map, mini-games:** with the magic effects.
 5. **The whole game,** across all three discs' content with no swaps.
@@ -76,4 +76,4 @@ in the repo.
 ## Open
 
 - SDL2 (zlib licence) is the port's one outside dependency, chosen over DirectX 9 so the build can go cross-platform:
-  the window is in; audio output and controllers go through it next.
+  the window and sound are in; controllers go through it next.

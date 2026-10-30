@@ -23,6 +23,7 @@ void irq_raise(unsigned int bit)
 }
 void irq_check(void) {}
 void pc_vblank(void) {}
+void pc_audio(const short *lr, int frames) { (void)lr, (void)frames; }
 void gpu_vblank(void) {}
 void hw_set_clock(double (*now)(void));
 

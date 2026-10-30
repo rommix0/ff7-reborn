@@ -1011,11 +1011,16 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
 - **Streamed movies:** libcd's streaming is C in `pc/cd_native.c`. `CdRead2` starts reading the STR sectors from the
   drive's position at 150 a second of PS1 time; `StGetNext` waits for a frame's last sector and hands out its video
   sectors' data joined after the first one's header, in the ring `movie.c` gave `StSetRing`. libpress, the MDEC and
-  `movie.c` run as they are, camera data included.
-- **Not yet:** movie sound (the XA sectors are skipped) and SPU output, game controllers, L1/R1/L2/R2 keys. Waiting
-  for the host's clock spins a core.
+  `movie.c` run as they are, camera data included. The XA audio sectors among them are decoded there (stereo 37.8 kHz
+  4-bit, through `CdMix`'s matrix) into the SPU's CD input.
+- **Sound:** the SPU is `pc/spu.c`: 24 voices of ADPCM from its RAM with ADSR, pitch modulation and noise, the CD
+  input, mixed at 44.1 kHz of PS1 time as `hw_poll` advances it, then a ring that SDL's audio thread reads. The
+  opening movie's sound comes out as `tools/movie.py` decodes it, with no drift; from about 50 s in, the field's own
+  sound plays along with it. Not yet: reverb, the SPU interrupt, volume sweeps (the game writes none up to the first
+  field; one would hold the last fixed volume), Gaussian interpolation (straight lines here).
+- **Not yet:** game controllers, L1/R1/L2/R2 keys. Waiting for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
-  bridge, the BIOS, modules, the hardware registers, MDEC, GPU, GTE, display and the CD layer.
+  bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display and the CD layer.
 
 ### Matching rules for GCC 2.6.3/2.7.2 + maspsx
 

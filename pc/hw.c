@@ -1,8 +1,7 @@
 /* The PS1 hardware Sony's libraries drive, as psx-spx's I/O map describes it: the interrupt registers, DMA to the
- * MDEC, the GPU, the SPU and the OT clear, the root counters, the SPU's registers and RAM, and the vblank at 59.94 Hz of real
- * time. Registers nothing here models read back what was last written. */
+ * MDEC, the GPU, the SPU and the OT clear, the root counters, the SPU (spu.c) mixed as the PS1's time passes, and the
+ * vblank at 59.94 Hz of real time. Registers nothing here models read back what was last written. */
 #include <math.h>
-#include <string.h>
 #include "recomp.h"
 
 #ifdef _WIN32
@@ -37,6 +36,10 @@ void mdec_write(unsigned int word);
 void mdec_control(unsigned int word);
 unsigned int mdec_read(void);
 unsigned int mdec_status(void);
+unsigned short spu_read(unsigned int addr);
+void spu_write(unsigned int addr, unsigned short v);
+void spu_dma(unsigned int *words, unsigned int count, int to_spu);
+void spu_mix(short *lr, int frames);
 
 #define I_STAT 0x1F801070u
 #define I_MASK 0x1F801074u
@@ -48,10 +51,8 @@ unsigned int mdec_status(void);
 #define GP0 0x1F801810u
 #define GP1 0x1F801814u
 #define SPU_BASE 0x1F801C00u
-#define SPU_TRANSFER_ADDR 0x1F801DA6u
-#define SPU_FIFO 0x1F801DA8u
-#define SPU_CNT 0x1F801DAAu
-#define SPU_STAT 0x1F801DAEu
+#define SPU_END 0x1F802000u
+#define SPU_HZ 44100
 #define IRQ_VBLANK 0x01u
 #define IRQ_DMA 0x08u
 #define IRQ_TIMER0 0x10u
@@ -63,10 +64,9 @@ unsigned int mdec_status(void);
 #define POLL_CYCLES 32
 #define POLL_STRIDE 256 /* hw_poll advances the PS1's time once per this many calls */
 
-unsigned char spu_ram[0x80000];
 static unsigned char io_mem[IO_END - IO_START];
 static unsigned int dma[7][4], dicr, dma_irq_pending;
-static unsigned int spu_transfer;
+static unsigned int spu_frames; /* mixed so far */
 static struct {
     double count;
     unsigned int mode, target;
@@ -118,12 +118,7 @@ static void dma_run(int ch)
                 *dma_word(madr) = gpu_read();
         }
     } else if (ch == 4) {
-        for (n = 0; n < words; n++, madr += 4, spu_transfer += 4) {
-            if (to_device)
-                memcpy(spu_ram + (spu_transfer & 0x7FFFC), dma_word(madr), 4);
-            else
-                memcpy(dma_word(madr), spu_ram + (spu_transfer & 0x7FFFC), 4);
-        }
+        spu_dma(dma_word(madr), words, to_device);
     }
     dma[ch][2] &= ~0x11000000u; /* start and trigger clear: done at once */
     if (dicr >> (16 + ch) & 1) {
@@ -177,6 +172,8 @@ double ps1_seconds(void)
 void hw_poll(void)
 {
     const double stride = POLL_STRIDE * POLL_CYCLES / CPU_HZ;
+    static short audio[32][2];
+    unsigned int due, n;
     double now;
 
     if (dma_irq_pending && dicr_value() >> 31) {
@@ -189,6 +186,11 @@ void hw_poll(void)
         return;
     ps1_time += stride;
     timers_advance(stride);
+    for (due = (unsigned int)(ps1_time * SPU_HZ) - spu_frames; due; due -= n, spu_frames += n) {
+        n = due < 32 ? due : 32;
+        spu_mix(audio[0], n);
+        pc_audio(audio[0], n);
+    }
     if (ps1_time < next_vblank)
         return;
     next_vblank += VBLANK_SECONDS;
@@ -239,9 +241,8 @@ static unsigned int word_read(unsigned int word)
         return gpu_read();
     if (word == GP1)
         return gpu_status();
-    if (word == (SPU_STAT & ~3u)) /* SPUSTAT echoes SPUCNT's mode bits and is never busy */
-        return (unsigned int)(*(unsigned short *)&io_mem[SPU_CNT - IO_START] & 0x3F) << 16
-            | *(unsigned short *)&io_mem[(SPU_STAT & ~3u) - IO_START];
+    if (word >= SPU_BASE && word < SPU_END)
+        return spu_read(word) | (unsigned int)spu_read(word + 2) << 16;
     return *(unsigned int *)&io_mem[word - IO_START];
 }
 
@@ -265,6 +266,13 @@ static void word_write(unsigned int word, unsigned int v, unsigned int mask)
     }
     if (word == GP1) {
         gpu_gp1(v);
+        return;
+    }
+    if (word >= SPU_BASE && word < SPU_END) { /* halfword registers, the transfer FIFO among them */
+        if (mask & 0xFFFF)
+            spu_write(word, v);
+        if (mask >> 16)
+            spu_write(word + 2, v >> 16);
         return;
     }
     merged = (word_read(word) & ~mask) | (v & mask);
@@ -302,13 +310,7 @@ static void word_write(unsigned int word, unsigned int v, unsigned int mask)
         }
         return;
     }
-    if (word == (SPU_FIFO & ~3u) && mask & 0xFFFF) { /* manual transfer, a halfword at a time */
-        memcpy(spu_ram + (spu_transfer & 0x7FFFE), &v, 2);
-        spu_transfer += 2;
-    }
     *(unsigned int *)&io_mem[word - IO_START] = merged;
-    if (word == (SPU_TRANSFER_ADDR & ~3u) && mask >> 16)
-        spu_transfer = (merged >> 16) * 8;
 }
 
 unsigned int io_read(unsigned int addr, int size)
