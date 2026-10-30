@@ -1,4 +1,4 @@
-"""Link glue for the native sound driver (native/snd_native.c), from config/symbols.main.txt and the native objects.
+"""Link glue for the native builds (native/), from config/symbols.main.txt and the native objects.
 
 usage: python tools/native_syms.py OUT_DIR DRIVER.o... -- OTHER.o...
 
@@ -37,7 +37,7 @@ def main():
                 wanted.add(name)
             else:
                 defined.add(name)
-                if kind == "T" and obj in driver:
+                if kind == "T" and obj in driver and address(name) is not None:
                     driver_funcs.append(name)
     data = sorted(n for n in wanted - defined if address(n) is not None and n not in funcs)
     (out / "ram.ld").write_text("".join(f"{n} = snd_ram + {address(n) - RAM_BASE:#x};\n" for n in data))

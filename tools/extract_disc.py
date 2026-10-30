@@ -1,4 +1,7 @@
-"""Extract files from a raw 2352-byte-sector .bin image (ISO9660, MODE1 or MODE2) into assets/."""
+"""Extract files from a raw 2352-byte-sector .bin image (ISO9660, MODE1 or MODE2) into assets/.
+
+Also writes files.txt there: each file's first sector, size, 1 if kept as raw sectors, and path.
+"""
 import argparse
 import hashlib
 from pathlib import Path
@@ -63,6 +66,7 @@ def main():
     args = ap.parse_args()
     out = args.out or Path("assets") / args.bin.stem
 
+    index = []
     with args.bin.open("rb") as img:
         for path, lba, size in files(img):
             data, raw = read_file(img, lba, size)
@@ -72,6 +76,10 @@ def main():
             dst = out / path
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(data)
+            index.append(f"{lba} {size} {int(raw)} {path}\n")
+    if not args.list:
+        # The PC build reads by sector, as the game does, so it needs each file's place on the disc
+        (out / "files.txt").write_text("".join(index))
 
 
 if __name__ == "__main__":

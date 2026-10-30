@@ -103,7 +103,7 @@ void movie_load_table(void)
     int r;
 
     do {
-        while (!func_8003FB8C(&file, (char *)movie_table_path))
+        while (!func_8003FB8C(&file, movie_table_path))
             ;
         func_8003E100(CdlSetloc, &file.pos, 0);
         CdRead(1, movie_table, 0x80);

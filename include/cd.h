@@ -67,7 +67,7 @@ int func_8003DFD4(int com, void *param);               /* probably CdControlF */
 int func_8003E100(int com, void *param, void *result); /* probably CdControlB */
 int func_8003DE2C(int mode, unsigned char *result);    /* probably CdSync */
 int func_8003E244(CdlATV *vol);                        /* probably CdMix */
-CdlFILE *func_8003FB8C(CdlFILE *file, char *name);     /* probably CdSearchFile */
+CdlFILE *func_8003FB8C(CdlFILE *file, const char *name); /* probably CdSearchFile */
 int func_8004076C(void);                               /* probably CdGetDiskType */
 void func_8003DDA4(int mode);
 void func_8003DD84(void);

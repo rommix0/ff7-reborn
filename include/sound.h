@@ -270,6 +270,7 @@ extern unsigned int effect_paused_voices; /* effect_voices while 9D has the effe
 extern unsigned int effect_tempo; /* << 16, like a song's */
 extern unsigned int effect_tempo_phase;
 extern SoundCommand snd_request; /* the game fills it and calls snd_submit_request (seq_tick also hands it to 9B for F3) */
+int snd_submit_request(void);
 
 extern int seq_stepping_song2; /* when set, layer voices are numbered from 24 */
 

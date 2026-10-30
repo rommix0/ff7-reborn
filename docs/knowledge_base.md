@@ -778,7 +778,8 @@ same set). They give the original module and file split, and the staff folders b
 
 - `tools/extract_disc.py`: stdlib ISO9660 reader for raw 2352-byte images, MODE2 (PS1) and MODE1 (PC). Files with
   any Form 2 sector (movies) are written as raw 2352-byte sectors so video players / jPSXdec keep the interleaved XA
-  audio. `-l` lists LBA, size and SHA1 without writing anything.
+  audio. `-l` lists LBA, size and SHA1 without writing anything. Extracting also writes `files.txt` (first sector,
+  size, raw or not, path), the sector index the PC build reads through.
 - `tools/unpack.py`: detects and decompresses gzip overlays, plain gzip, BIN-GZ archives and LZS.
   `tools/test_unpack.py` is the LZS self-check.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
@@ -927,6 +928,24 @@ Rules for C that builds both ways and still matches:
   turns `INCLUDE_ASM` off.
 - **`-G8` tentative definitions stay common** (`-fcommon`), so they resolve into `snd_ram` as they resolve to the data
   section's labels on the PS1. The link is `-no-pie`, since those addresses are absolute.
+
+### Native build: the CD layer
+
+`make native` also builds `cd.c` with the host GCC over `native/cd_native.c`, a libcd that reads the extracted discs:
+- **By sector, as the game does:** the exe's file tables give sectors, and `load_disc_table` reads sector `0x266`
+  (`INIT/YAMADA.BIN`, 80 bytes, read as a whole sector). `files.txt` maps each sector to a file; past a file's end and
+  outside every file a sector reads as zeros. Raw movie files give each sector's 2048 data bytes.
+- **No disc swapping:** the drive always holds the disc the save is on (`0x8009D588`, disc 1 before there's a save),
+  so `\MINT\DISKINFO.CNF` always matches it and `main` never loads `FIELD/DSCHANGE.X`. `cd.c` and `main.c` are
+  unchanged; the PS1 build keeps its disc check.
+- Reads finish at once and the drive is always ready, so `cd.c`'s retry paths don't run. The hand-written streaming
+  decoder (`lzs_stream_start`/`lzs_stream_resume`) has a C version there, fed one 9-sector read per call.
+- The movie player's hooks do nothing on the PC yet: playing a movie also needs libpress and a renderer.
+- `build/native/cd_test` checks it: on each disc as the save's, the disc check passes and reports that disc; all
+  10,052 files read back byte for byte through `cd_read`/`cd_step`; and the 8,143 files that start with their packed
+  length unpack the same streamed (`cd_read_lzs`) as in memory (`lzs_decode`).
+- Two header fixes it needed don't change the PS1 code: `snd_submit_request` has a prototype in `sound.h`, and
+  `CdSearchFile` takes a `const char *`. `cd_read_disc_number`'s switch casts the found file to `long`, not `int`.
 
 ### Matching rules for GCC 2.6.3/2.7.2 + maspsx
 

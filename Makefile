@@ -84,7 +84,7 @@ NATIVE_CFLAGS := -std=gnu99 -O2 -g -Wall -Wno-array-bounds -Wno-stringop-overflo
 	-DNATIVE -DNON_MATCHING -Iinclude
 NATIVE_DRIVER := build/native/sound.o build/native/sound_init.o
 
-native: build/native/snd_native
+native: build/native/snd_native build/native/cd_test
 
 build/native/%.o: src/main/%.c include/sound.h
 	@mkdir -p $(dir $@)
@@ -102,6 +102,20 @@ build/native/ram.ld: $(NATIVE_DRIVER) build/native/snd_native.o config/symbols.m
 # ram.ld's addresses are absolute (snd_ram plus an offset), so the program can't be position-independent.
 build/native/snd_native: $(NATIVE_DRIVER) build/native/snd_native.o build/native/ram.ld
 	gcc -no-pie $(NATIVE_DRIVER) build/native/snd_native.o build/native/funcs.c build/native/ram.ld -o $@
+
+# The CD layer built for the PC (native/cd_native.c reads the extracted discs): `make native`, then
+# build/native/cd_test <SCUS_941.63> assets.
+build/native/cd.o: include/cd.h
+build/native/cd_native.o build/native/cd_test.o: build/native/%.o: native/%.c native/cd_native.h include/cd.h
+	@mkdir -p $(dir $@)
+	gcc $(NATIVE_CFLAGS) -Inative -c $< -o $@
+
+build/native/cd/ram.ld: build/native/cd.o build/native/cd_native.o build/native/cd_test.o config/symbols.main.txt 		tools/native_syms.py
+	@mkdir -p $(dir $@)
+	$(PYTHON) tools/native_syms.py build/native/cd build/native/cd.o build/native/cd_native.o -- build/native/cd_test.o
+
+build/native/cd_test: build/native/cd.o build/native/cd_native.o build/native/cd_test.o build/native/cd/ram.ld
+	gcc -no-pie build/native/cd.o build/native/cd_native.o build/native/cd_test.o build/native/cd/funcs.c 		build/native/cd/ram.ld -o $@
 
 clean:
 	rm -rf build asm

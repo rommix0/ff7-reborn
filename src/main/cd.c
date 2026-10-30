@@ -325,7 +325,7 @@ int cd_read_disc_number(void)
     while (cd_step())
         ;
     do {
-        switch ((int)func_8003FB8C(&file, diskinfo_path)) {
+        switch ((long)func_8003FB8C(&file, diskinfo_path)) {
         case -1:
         case 0:
             return -1;
