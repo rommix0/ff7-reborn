@@ -228,7 +228,7 @@ build/pc/SDL2.dll: $(SDL2_DIR)/bin/SDL2.dll
 pc: build/pc/ff7$(PC_EXE)
 
 PC_TESTS := memory recomp bridge bios modules hw gpu gte display cd
-pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE))
+pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_EXE)
 	$(PYTHON) tools/test_recomp.py
 	$(PYTHON) tools/test_bios_coverage.py "$(PC_EXE_FILE)"
 	build/pc/test_memory$(PC_EXE) "$(PC_EXE_FILE)"
@@ -241,6 +241,8 @@ pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE))
 	build/pc/test_gte$(PC_EXE)
 	build/pc/test_display$(PC_EXE)
 	build/pc/test_cd$(PC_EXE) "$(PC_EXE_FILE)" assets
+	@# boots past the second sound load (frame ~680), which waits on an SPU transfer in C; 900 frames take 15 s
+	timeout 60 build/pc/ff7$(PC_EXE) assets --frames 900 --shot build/pc/boot.bmp > /dev/null 2>&1
 
 clean:
 	rm -rf build asm

@@ -4,7 +4,8 @@
  *
  * For each disc, as the save's disc: the disc check passes and reports that disc; every file reads back through
  * cd_read and cd_step byte for byte (the movies with XA audio are left to the movie player); and every LZS file
- * unpacked while it streams in (cd_read_lzs) matches the same file unpacked in memory (lzs_decode). */
+ * unpacked while it streams in (cd_read_lzs), or streamed from memory, matches the same file unpacked in memory
+ * (lzs_decode). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +30,8 @@ void cd_stop(void);
 int cd_check_disc(void);
 int get_disc_number(void);
 void lzs_decode(unsigned char *src, unsigned char *dst);
+void lzs_stream_start(void *buf, void *dest);
+int lzs_stream_resume(void);
 
 int snd_submit_request(void) { return 0; }
 int VSync(int mode) { (void)mode; return 0; }
@@ -122,6 +125,15 @@ int main(int argc, char **argv)
                 lzs_decode(data, want);
                 if (memcmp(got, want, sizeof(want)) || callbacks != 2) {
                     printf("disc %d: %s unpacks wrong while streaming\n", disc, files[i].path);
+                    failed++;
+                }
+                /* stream_from_memory: ENDING.X resumes on data already in RAM, 9 sectors' worth a frame */
+                memset(got, 0, sizeof(want));
+                lzs_stream_start(data, got);
+                while (lzs_stream_resume())
+                    ;
+                if (memcmp(got, want, sizeof(want))) {
+                    printf("disc %d: %s unpacks wrong streamed from memory\n", disc, files[i].path);
                     failed++;
                 }
                 unpacked++;

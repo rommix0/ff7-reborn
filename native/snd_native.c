@@ -92,6 +92,7 @@ static void (*transfer_callback)(void);
 void func_80038FEC(void *callback) { transfer_callback = callback; }
 void func_80038F04(unsigned char *data, unsigned int size) { (void)data; (void)size; if (transfer_callback) transfer_callback(); }
 void func_80037BE0(unsigned char *data, unsigned int size) { (void)data; (void)size; if (transfer_callback) transfer_callback(); }
+void hw_poll(void) {} /* transfers finish at once, so a wait has nothing to give a turn to */
 /* Key-ons print by song channel, a channel's F4/F8 spare voice counting as its own: akao.py reports notes that way. */
 void func_80038C6C(int on, unsigned int voices)
 {

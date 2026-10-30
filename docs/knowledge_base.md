@@ -939,11 +939,14 @@ The PC build (`make pc`, below) compiles `cd.c` over `pc/cd_native.c`, a libcd t
   so `\MINT\DISKINFO.CNF` always matches it and `main` never loads `FIELD/DSCHANGE.X`. `cd.c` and `main.c` are
   unchanged; the PS1 build keeps its disc check.
 - Reads finish at once and the drive is always ready, so `cd.c`'s retry paths don't run. The hand-written streaming
-  decoder (`lzs_stream_start`/`lzs_stream_resume`) has a C version there, fed one 9-sector read per call.
+  decoder (`lzs_stream_start`/`lzs_stream_resume`) has a C version there: 9 sectors of `lzs_stream_src` per call,
+  leaving `lzs_stream_src` where it stopped. `cd.c` points it at each new read; `ENDING.X` unpacks `MOVIE/OPENING.BIN`'s
+  pictures from memory a frame at a time and relies on the saved position (without it the opening's background broke
+  up after its first 9 sectors).
 - The movie player's hooks do nothing on the PC yet: playing a movie also needs libpress and a renderer.
 - `build/pc/test_cd` (`make pc-test`) checks it: on each disc as the save's, the disc check passes and reports that disc; all
   10,052 files read back byte for byte through `cd_read`/`cd_step`; and the 8,143 files that start with their packed
-  length unpack the same streamed (`cd_read_lzs`) as in memory (`lzs_decode`).
+  length unpack the same streamed (`cd_read_lzs`), streamed from memory, and in memory (`lzs_decode`).
 - Two header fixes it needed don't change the PS1 code: `snd_submit_request` has a prototype in `sound.h`, and
   `CdSearchFile` takes a `const char *`. `cd_read_disc_number`'s switch casts the found file to `long`, not `int`.
 
@@ -975,6 +978,10 @@ exe: the C from `src/main`, and every function still in assembly recompiled to C
   one line by line); the GTE. Time is counted in polls of 32 R3000 cycles, about a short loop's pass, because the
   libraries' spin timeouts count passes (libetc's `VSync` gives up after 32768, ~1.7 frames) and recompiled code runs
   them far faster; after each vblank the host clock paces it to 59.94 Hz.
+- **Waits in C:** the hardware moves only when something polls it. Recompiled loops do at every backward branch;
+  decompiled C doesn't, so a C loop that waits on a flag only an interrupt changes has `HW_WAIT()` (`common.h`) as
+  its body, which is `hw_poll()` under `NATIVE` and nothing on the PS1 (`snd_transfer_wait` hung the boot at frame
+  ~680 without it). `make pc-test` boots 900 frames to catch the next one.
 - **Not yet:** the MDEC (libpress's reset reports two `MDEC_in_sync` timeouts at boot; movies take the MJPEG path),
   SPU output, game controllers, L1/R1/L2/R2 keys. Waiting for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled

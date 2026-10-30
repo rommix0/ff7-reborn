@@ -55,7 +55,7 @@ void snd_transfer_read(unsigned char *data, unsigned int size)
 void snd_transfer_wait(void)
 {
     do
-        ;
+        HW_WAIT();
     while (snd_transfer_busy);
 }
 

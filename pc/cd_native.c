@@ -225,8 +225,10 @@ CdlFILE *func_8003FB8C(CdlFILE *file, const char *name)
     return 0;
 }
 
-/* The hand-written streaming decoder (0x80034CF0) in C: the LZS of lzs_decode, fed one 9-sector read
- * (lzs_stream_src) per call. Its packed length comes first; a reference's two bytes can straddle two reads. */
+/* The hand-written streaming decoder (0x80034CF0) in C: the LZS of lzs_decode, 9 sectors of lzs_stream_src per call.
+ * It leaves lzs_stream_src where it stopped: the CD layer points it at the next read each time, and ENDING.X, with
+ * the whole file in memory, just calls again. Its packed length comes first; a reference's two bytes can straddle
+ * two calls. */
 static unsigned char *lzs_out, *lzs_start;
 static int lzs_left, lzs_flags, lzs_bits, lzs_low;
 
@@ -280,5 +282,6 @@ int lzs_stream_resume(void)
         lzs_flags >>= 1;
         lzs_bits--;
     }
+    lzs_stream_src = src;
     return 1;
 }
