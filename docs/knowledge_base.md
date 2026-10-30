@@ -955,24 +955,34 @@ The PC build (`make pc`, below) compiles `cd.c` over `pc/cd_native.c`, a libcd t
 `make pc` builds `build/pc/ff7.exe`, a 32-bit Windows program (MinGW i686, called from WSL) that runs the whole boot
 exe: the C from `src/main`, and every function still in assembly recompiled to C from the user's own `SCUS_941.63` by
 `tools/recomp.py`. It boots through `ENDING.X`'s opening credits and the logo's movie (`OPENMV.BIN`, around frame
-9000) to the title logo, and on Start to the title menu (NEW GAME / Continue?, the menu modules at `0x801D0000`).
+9000) to the title logo, on Start to the title menu (NEW GAME / Continue?, the menu modules at `0x801D0000`), and on
+NEW GAME into the field module, which loads `MD1STIN` and plays the opening movie (`OPENINGE.MOV`, streamed).
 `pc/sdl.c` shows it in an SDL2 window (640×480 at 4:3; the keyboard is pad 1; F12 saves `screenshot.bmp`), or
 `ff7 [ASSETS] --frames N [--shot FILE.bmp]` runs without one and saves frame N.
 - **Memory:** the PS1's RAM sits at its own address, `0x80000000` (with the 64 KB after it, for the stack words a
   call from the top of the stack reads), and the scratchpad at `0x1F800000`; the I/O window `0x1F801000`–`0x1F802FFF`
-  goes to `pc/hw.c`. Game pointers need no translation, and C and recompiled code share the game's data. The link is
+  goes to `pc/hw.c`. Of RAM's mirrors, `0xA0000000` folds back, and so does the first 64 KB from 0 (the field reads
+  through a null pointer at the start of `MD1STIN`); the rest of KUSEG can't, as the host's own stack and heap may
+  sit there. Game pointers need no translation, and C and recompiled code share the game's data. The link is
   `--large-address-aware --disable-dynamicbase`, and `tools/pc_syms.py` places each game symbol at its address.
 - **Recompiler rules:** one C function per game function over a register context (`pc/recomp.h`); delay slots
   folded; a backward branch polls the hardware. Each function has a C-callable thunk taking eight ints (the last four
   are the PS1's stack words). Code pointers are native: a `lui`/`addiu` pair that builds a function's address gives
   the native function only when the address escapes as a code pointer (stored, passed, returned or called; libgte's
-  `_patch_gte` uses one as a loop's end), and the code addresses in the game's data are patched at start. A game
+  `_patch_gte` uses one as a loop's end), and the code addresses in the game's data are patched at start: every
+  aligned word in a data file's range that holds a function's address, whatever type splat gave it. (A `.word func`
+  parse missed most of `snd_command_handlers`: `seq_cmd_scan_sizes` and `seq_cmd_sizes` are named at their C base,
+  0xA0 entries before their tables, which puts a label inside the handler table, and splat emits the rest of it as
+  bytes. Sound command 0xF0 then called a game address natively.) A game
   address that still turns up is looked up in the code tables. The point after a `jal setjmp` is an entry of its own:
   libetc's interrupt entry resumes there, through the BIOS's custom exit.
-- **Modules:** the Makefile's `PC_MODULES` lists each with its file and load address (`ENDING.X` at `0x800A0000`, the
-  13 `MENU/*.MNU` at `0x801D0000`, all raw and the same on every disc). `make split` splits each with a splat config
-  from `tools/module_yaml.py`: a module is read-only data, code from the first stack-frame setup to the last
-  `jr $ra`, then data (which gives `ENDING.X`'s hand-found bounds exactly). `recomp.py` takes a module's functions
+- **Modules:** the Makefile's `PC_MODULES` lists each with its file and load address (`ENDING.X` and the field's
+  `FIELD.BIN` at `0x800A0000`, the 13 `MENU/*.MNU` at `0x801D0000`, all the same on every disc; `FIELD.BIN` is
+  gzipped behind an 8-byte header, so the list names `FIELD.BIN.dec`, which `tools/unpack.py` makes). `make split`
+  clears each `asm/<name>` (a stale file from an earlier split gets read as more functions) and splits it with a
+  splat config from `tools/module_yaml.py`: a module is read-only data, then code from its first function to the last
+  `jr $ra`, then data. The first function starts at its stack-frame setup or at the instructions GCC scheduled before
+  it (two loads, in the field), which gives `ENDING.X`'s hand-found bounds exactly. `recomp.py` takes a module's functions
   from splat's `glabel`s, and its calls into the exe by the exe's symbols. Modules share load addresses, so a
   module's functions stay private to its file. `module_function` (`pc/dispatch.c`) picks the module whose first
   function's opening 64 bytes are in RAM and whose code has the address (a module at another address can still be
@@ -981,9 +991,13 @@ exe: the C from `src/main`, and every function still in assembly recompiled to C
   no symbol, so the function after it is never recompiled ("reached … which wasn't recompiled"). `format`,
   `_new_card` and `StopCARD` hid one each; they now have symbols.
 - **What's emulated:** the BIOS calls the exe makes (56, checked by `tools/test_bios_coverage.py`) and the interrupt
-  path (events, root counters, the custom exit); DMA, timers and vblank; a software GPU (VRAM, every primitive,
+  path (events, root counters, the custom exit; an event opened `EvMdINTR`, 0x1000, calls its function, and one
+  opened `EvMdNOINTR`, 0x2000, is marked ready for `TestEvent`: the title menu waits that way on the memory cards,
+  which answer "no card"); DMA, timers and vblank; a software GPU (VRAM, every primitive,
   textures, semi-transparency, masks; in 480i the field on screen changes each vblank, and `ENDING.X` uploads the other
-  one line by line); the GTE; the MDEC (`pc/mdec.c`, dequantizing as `tools/movie.py` does, so the in-memory movies
+  one line by line); the GTE (a command reads all its inputs before it writes any: OP and MVMVA on IR overwrite the
+  IR they read, and a zero walkmesh normal from OP hit GCC's divide-by-zero `break` when the opening movie ends); the
+  MDEC (`pc/mdec.c`, dequantizing as `tools/movie.py` does, so the in-memory movies
   run through libpress and `movie.c` as they are). Time is counted in polls of 32 R3000 cycles, about a short loop's pass, because the
   libraries' spin timeouts count passes (libetc's `VSync` gives up after 32768, ~1.7 frames) and recompiled code runs
   them far faster; after each vblank the host clock paces it to 59.94 Hz.
@@ -994,8 +1008,12 @@ exe: the C from `src/main`, and every function still in assembly recompiled to C
   to catch the next one.
 - **Ports:** a register that's a port (MDEC0/1, GP0/1) takes a write as it is: merging a partial write with a read
   of it would take its data.
-- **Not yet:** streamed movies (libcd's streaming; they take the converted AVIs), SPU output, game controllers,
-  L1/R1/L2/R2 keys. Waiting for the host's clock spins a core.
+- **Streamed movies:** libcd's streaming is C in `pc/cd_native.c`. `CdRead2` starts reading the STR sectors from the
+  drive's position at 150 a second of PS1 time; `StGetNext` waits for a frame's last sector and hands out its video
+  sectors' data joined after the first one's header, in the ring `movie.c` gave `StSetRing`. libpress, the MDEC and
+  `movie.c` run as they are, camera data included.
+- **Not yet:** movie sound (the XA sectors are skipped) and SPU output, game controllers, L1/R1/L2/R2 keys. Waiting
+  for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
   bridge, the BIOS, modules, the hardware registers, MDEC, GPU, GTE, display and the CD layer.
 

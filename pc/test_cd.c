@@ -32,9 +32,19 @@ int get_disc_number(void);
 void lzs_decode(unsigned char *src, unsigned char *dst);
 void lzs_stream_start(void *buf, void *dest);
 int lzs_stream_resume(void);
+/* libcd's streaming, as movie.c calls it */
+void func_8003DBA0(void *ring, int sectors);
+int CdRead2(int mode);
+int StGetNext(unsigned int **addr, unsigned int **header);
+void StFreeRing(unsigned int *base);
+void StUnSetRing(void);
+int func_8003E100(int com, void *param, void *result);
 
 int snd_submit_request(void) { return 0; }
 int VSync(int mode) { (void)mode; return 0; }
+static double ps1_now;
+void hw_poll(void) { ps1_now += 1e-4; } /* the streaming waits on PS1 time, which polls advance */
+double ps1_seconds(void) { return ps1_now; }
 int bios_call(int table, int n) { (void)table; (void)n; return 0; }
 unsigned int io_read(unsigned int addr, int size) { (void)addr; (void)size; return 0; }
 void io_write(unsigned int addr, unsigned int v, int size) { (void)addr; (void)v; (void)size; }
@@ -74,6 +84,8 @@ int main(int argc, char **argv)
 {
     static unsigned char got[0x2000000], want[0x400000];
     unsigned char *data;
+    unsigned int *frame, *header;
+    CdlLOC loc;
     const PcFile *files;
     char path[700];
     long size;
@@ -141,6 +153,25 @@ int main(int argc, char **argv)
             free(data);
         }
     }
+
+    /* movie_frames_stream_in_order: the opening movie's first frames, each its video sectors' data joined after the
+     * first one's header: 40 bytes of camera, then the MDEC header (0x3800) */
+    *SAVE_DISC = 1;
+    files = pc_cd_files(1, &count);
+    for (i = 0; i < count && strcmp(files[i].path, "MOVIE/OPENINGE.MOV"); i++)
+        ;
+    CdIntToPos(files[i].lba, &loc);
+    func_8003E100(CdlSetloc, &loc, 0);
+    func_8003DBA0(got, 36);
+    CdRead2(0x1E0);
+    for (i = 1; i <= 3; i++) {
+        if (StGetNext(&frame, &header) || header[0] != 0x80010160 || header[2] != (unsigned int)i || frame[10] >> 16 != 0x3800) {
+            printf("disc 1: the opening movie's frame %d doesn't stream in\n", i);
+            failed++;
+        }
+        StFreeRing(frame);
+    }
+    StUnSetRing();
     printf("%d files read, %d unpacked while streaming, %d failures\n", read, unpacked, failed);
     return failed != 0;
 }

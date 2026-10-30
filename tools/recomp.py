@@ -115,6 +115,22 @@ def recompile(image: bytes, base: int, funcs: dict[int, str], native: set[str], 
     return "".join(out)
 
 
+def code_pointers(image: bytes, base: int, data_asm: list[str], funcs: dict[int, str]) -> list[tuple[int, str]]:
+    """The data's words that hold a function's address, as (address, function name), whatever type splat gave them:
+    a table it cut at a label inside it comes out as bytes. Each data file's address range is scanned word by word."""
+    found = []
+    for text in data_asm:
+        addrs = [int(a, 16) for a in re.findall(r"/\* \w+ ([0-9A-F]{8}) ", text)]
+        if not addrs:
+            continue
+        lo, hi = max(min(addrs), base), min(max(addrs) + 4, base + len(image))
+        for a in range(lo + 3 & ~3, hi - 3, 4):
+            word = int.from_bytes(image[a - base:a - base + 4], "little")
+            if word in funcs:
+                found.append((a, funcs[word]))
+    return found
+
+
 def function(image, base, start, end, funcs, native_at, names, table, entry=None):
     words = [int.from_bytes(image[p - base:p - base + 4], "little") for p in range(start, end, 4)]
     instrs = [rabbitizer.Instruction(w, vram=start + 4 * i) for i, w in enumerate(words)]
@@ -407,6 +423,7 @@ def main():
     args = ap.parse_args()
     data = args.image.read_bytes()
     base = args.base
+    image, image_base = data, base  # all of it, for the code pointers in its data
     # splat's segment bounds keep the rodata before the exe's code and the data after it out of the function list.
     bounds = {parts[2]: int(parts[0], 16) for parts in map(str.split, args.symbols.read_text().splitlines())
               if len(parts) == 3}
@@ -414,6 +431,7 @@ def main():
     funcs = read_symbols(args.symbols, lo, hi)
     if data.startswith(b"PS-X EXE"):
         base, size = int.from_bytes(data[0x18:0x1C], "little"), int.from_bytes(data[0x1C:0x20], "little")
+        image, image_base = data[0x800:], base
         data, base = data[0x800 + lo - base:0x800 + hi - base], lo
     else:
         # A module, which has no ELF: its functions are splat's glabels and its code ends at the last instruction.
@@ -436,11 +454,10 @@ def main():
         emit = {a for a, n in funcs.items() if n in names}
     data_words = []
     if args.asm:
-        for path in sorted(args.asm.rglob("*.s")):
-            data_words += [(int(m[1], 16), m[2]) for m in re.finditer(
-                r"/\* \w+ ([0-9A-F]{8}) [0-9A-F]{8} \*/ \.word ([A-Za-z_]\w*)$", path.read_text(), re.M)]
         # The exe's asm folder holds the modules' too: each patches only its own data.
-        data_words = [(a, n) for a, n in data_words if (a >= MODULES) == (base >= MODULES)]
+        data_asm = [p.read_text() for p in sorted(args.asm.rglob("*.s")) if "data" in p.parts]
+        data_words = [(a, n) for a, n in code_pointers(image, image_base, data_asm, funcs)
+                      if (a >= MODULES) == (base >= MODULES)]
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(recompile(data, base, funcs, native, jtbls, emit, args.tag, data_words, args.thunk_prefix))
 

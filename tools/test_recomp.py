@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from recomp import recompile
+from recomp import code_pointers, recompile
 
 ZERO, V0, V1, A0, A1, T0, RA = 0, 2, 3, 4, 5, 8, 31
 BASE = 0x80100000
@@ -193,12 +193,25 @@ def module_calls_exe_and_keeps_its_names_private():
     assert f"const Module mod_module = {{{m:#010x}u, {{{', '.join(str(b) for b in image[:64])}}}" in c
 
 
+def code_pointers_found_whatever_splat_typed():
+    # A table splat cut at a label inside it comes out as bytes: its function addresses are still code pointers.
+    # Only words inside a data file's range count, and only exact function starts.
+    g = BASE + 0x40
+    image = bytearray(0x100)
+    image[0x80:0x84] = g.to_bytes(4, "little")  # in the data file's range, as .byte lines
+    image[0x84:0x88] = (g + 4).to_bytes(4, "little")  # inside g, not its start
+    image[0xC0:0xC4] = g.to_bytes(4, "little")  # past the data file
+    data_asm = "".join(f"    /* {a - BASE:X} {a:08X} */ .byte 0x{image[a - BASE]:02X}\n" for a in range(BASE + 0x80, BASE + 0x88))
+    assert code_pointers(bytes(image), BASE, [data_asm], {BASE: "f", g: "g"}) == [(BASE + 0x80, "g")]
+
+
 if __name__ == "__main__":
     for test in (delay_slot_runs_on_both_paths, branch_reads_condition_before_slot, jr_ra_returns,
                  div_by_zero_values, unaligned_pair_order, backward_branch_polls, bltzal_links,
                  mult_is_signed_64_bit, function_address_becomes_native,
                  module_call_goes_indirect, function_address_kept_for_compares,
                  stored_function_address_becomes_native, module_calls_exe_and_keeps_its_names_private,
-                 setjmp_return_is_an_entry, address_stored_in_return_slot_becomes_native):
+                 setjmp_return_is_an_entry, address_stored_in_return_slot_becomes_native,
+                 code_pointers_found_whatever_splat_typed):
         test()
     print("ok")

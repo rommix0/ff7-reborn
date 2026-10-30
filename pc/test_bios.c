@@ -68,12 +68,12 @@ int main(void)
     ctx.r[29] = 0x801FFF00;
 
     /* A callback event (EvMdINTR) runs on DeliverEvent; a flag event (EvMdNOINTR) is seen once by TestEvent. */
-    ev = call(0xB0, 0x08, 0xF0000010, 0x0002, 0x2000, (unsigned int)on_event);
+    ev = call(0xB0, 0x08, 0xF0000010, 0x0002, 0x1000, (unsigned int)on_event);
     assert(ev >> 24 == 0xF1);
     call(0xB0, 0x0C, ev, 0, 0, 0);
     call(0xB0, 0x07, 0xF0000010, 0x0002, 0, 0);
     assert(event_calls == 1);
-    ev = call(0xB0, 0x08, 0xF0000011, 0x0004, 0x1000, 0);
+    ev = call(0xB0, 0x08, 0xF0000011, 0x0004, 0x2000, 0);
     call(0xB0, 0x0C, ev, 0, 0, 0);
     assert(call(0xB0, 0x0B, ev, 0, 0, 0) == 0);
     call(0xB0, 0x07, 0xF0000011, 0x0004, 0, 0);

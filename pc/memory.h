@@ -11,6 +11,9 @@
 #define IO_START 0x1F801000u
 #define IO_END 0x1F803000u
 #define UNCACHED_START 0xA0000000u /* KSEG1, the same RAM without the cache */
+/* KUSEG mirrors RAM from 0 too. Only its first 64 KB folds here, where a null pointer's reads land: no host pointer is
+ * ever there (Windows and Linux both keep it unmapped), while above it the host's own stack or heap may be. */
+#define NULL_PAGE_END 0x10000u
 
 int mem_map(void);
 unsigned int exe_load(const char *path);
@@ -21,6 +24,8 @@ static inline void *mem_ptr(unsigned int addr)
 {
     if (addr >= UNCACHED_START && addr < UNCACHED_START + RAM_SIZE)
         addr -= UNCACHED_START - RAM_START;
+    else if (addr < NULL_PAGE_END)
+        addr += RAM_START;
     return (void *)addr;
 }
 

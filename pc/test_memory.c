@@ -41,6 +41,10 @@ int main(int argc, char **argv)
 
     mem_w32(0xA0001000, 7);
     assert(mem_r32(0x80001000) == 7);
+    /* null_page_is_kuseg_ram: the field reads through a null pointer, which the PS1 takes as RAM from 0 */
+    assert(mem_r16(0x0000100A) == 7 >> 16 && mem_r32(0x00001000) == 7);
+    mem_w8(0x0000FFFF, 9);
+    assert(mem_r8(0x8000FFFF) == 9);
     /* A C call from code whose $sp is the top of RAM reads four words above it as stack arguments */
     assert(mem_r32(RAM_START + RAM_SIZE + 0x1C) == 0);
     mem_w8(0x1F800010, 0xAB); /* the scratchpad */

@@ -42,7 +42,8 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
      unchanged), the **SPU** (24 ADPCM voices, ADSR, noise, reverb), root counters and the VSync interrupt. Behaviour
      comes from psx-spx; no emulator code is copied (most are GPL).
    - Replaced at the library: **libcd** (done: extracted files, the save's disc always inserted), **libcd's streaming**
-     (the converted AVIs in place of STR sectors, the `.cam` data through the decompiled `movie.c`), **libcard**
+     (the STR sectors read from the extracted files, so movies run through libpress, the MDEC and `movie.c` as they
+     are, camera data included; their XA audio decoded in C), **libcard**
      (memory cards as save files), **pads** (PC controllers and keyboard), and the BIOS calls (events and callbacks, run in C).
    - The 187 unnamed library functions only need names where a library is replaced.
 
@@ -52,14 +53,14 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
    upscaling later.
 
 5. **Audio:** the SPU mixed at 44.1 kHz into a fixed ring buffer read by the audio callback (no allocation or locking
-   there); movie audio from the converted PCM, at each movie's `MOVIE_ID.BIN` volume.
+   there); movie audio decoded from the STR's XA sectors, at each movie's `MOVIE_ID.BIN` volume.
 
 ## Milestones
 
 1. **The exe boots on the PC:** the whole exe (C plus recompiled asm) runs to its first screen. *Done: it reaches
    `ENDING.X`'s first screen in an SDL2 window. See the knowledge base, "PC build: the exe runs".*
 2. **New game:** title, the opening movie, the first field with walking, music and sound. *So far: the boot runs
-   through the credits and the logo's movie to the title menu.*
+   through the credits and the title menu, and NEW GAME plays the opening movie (silent so far).*
 3. **Field complete:** dialogue, menus, saving to files.
 4. **Battle, world map, mini-games:** with the magic effects.
 5. **The whole game,** across all three discs' content with no swaps.
@@ -76,6 +77,3 @@ in the repo.
 
 - SDL2 (zlib licence) is the port's one outside dependency, chosen over DirectX 9 so the build can go cross-platform:
   the window is in; audio output and controllers go through it next.
-- JPEG decoding for the movies: our own baseline decoder (they're our own files) rather than a dependency. With the
-  MDEC emulated, a frame's JPEG coefficients could go to it as run-level codes instead, leaving only the Huffman
-  decoding.

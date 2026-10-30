@@ -96,8 +96,34 @@ static void registers(void)
     assert(gte_read(29) == (31 | 16 << 5 | 1 << 10));
 }
 
+/* ir_read_before_written: libgte's OuterProduct0 as the field runs it on a walkmesh triangle's edges: the first edge in the rotation
+ * matrix's diagonal, the second in IR, then op 0 (no shift); MAC is the cross product */
+static void ir_read_before_written(void)
+{
+    gte_write_ctrl(0, -259);
+    gte_write_ctrl(2, -51);
+    gte_write_ctrl(4, 0);
+    gte_write(9, 20);
+    gte_write(10, 183);
+    gte_write(11, 0);
+    gte_cmd(0x170000C);
+    assert(gte_read(25) == 0 && gte_read(26) == 0 && (int)gte_read(27) == -259 * 183 - -51 * 20);
+    /* and MVMVA on IR reads all of IR before it writes any: a matrix that swaps x and y */
+    gte_write_ctrl(0, 0x1000 << 16);
+    gte_write_ctrl(1, 0x1000 << 16);
+    gte_write_ctrl(2, 0);
+    gte_write_ctrl(3, 0);
+    gte_write_ctrl(4, 0x1000);
+    gte_write(9, 100);
+    gte_write(10, 200);
+    gte_write(11, 300);
+    gte_cmd(0x9E012); /* sf, RT x IR, no translation */
+    assert(gte_read(9) == 200 && gte_read(10) == 100 && gte_read(11) == 300);
+}
+
 int main(void)
 {
+    ir_read_before_written();
     rtps_projects();
     nclip_sign();
     mvmva_shift();

@@ -285,3 +285,103 @@ int lzs_stream_resume(void)
     lzs_stream_src = src;
     return 1;
 }
+
+/* libcd's streaming, for the movies (movie.c). CdRead2 starts the drive streaming from its position at the
+ * double-speed CD's 150 sectors a second of PS1 time; StGetNext hands out each frame once its last sector is in: its
+ * video sectors' data joined after the first one's 32-byte header (libcd's StHEADER, its position in the last word),
+ * in the ring buffer StSetRing gave, which holds two frames (one is VLC-decoded while the next comes in). XA audio
+ * sectors are passed over. ponytail: the movies are silent until the SPU has output. */
+#define STR_VIDEO 0x80010160u /* a video sector's id and type */
+#define STR_HEADER 32
+#define SECTORS_PER_SECOND 150
+#define RING_SECTORS 36
+#define FRAME_ROOM (RING_SECTORS / 2 * SECTOR)
+
+double ps1_seconds(void);
+
+static unsigned char *ring;
+static int ring_half, streaming;
+static unsigned int stream_first, stream_next; /* where the stream started, and its next sector */
+static double stream_start;
+
+static double sectors_in(void)
+{
+    return stream_first + (ps1_seconds() - stream_start) * SECTORS_PER_SECOND;
+}
+
+void func_8003DBA0(void *buf, int sectors) /* StSetRing */
+{
+    (void)sectors;
+    ring = buf;
+}
+
+void StSetStream(int mode, int start, int end, void (*func1)(void), void (*func2)(void))
+{
+    (void)mode, (void)start, (void)end, (void)func1, (void)func2;
+}
+
+void func_80040C88(int mask, int start, int end) { (void)mask, (void)start, (void)end; } /* StSetMask */
+void func_80040CA8(void) {} /* StCdInterrupt: the drive never interrupts the MDEC here */
+void StFreeRing(unsigned int *base) { (void)base; }
+void StUnSetRing(void) { streaming = 0; }
+
+int CdRead2(int mode)
+{
+    (void)mode;
+    stream_first = stream_next = position;
+    stream_start = ps1_seconds();
+    streaming = 1;
+    return 1;
+}
+
+void StRingStatus(short *free_sectors, short *over_sectors)
+{
+    double in = streaming ? sectors_in() - stream_next : 0;
+
+    *over_sectors = in < 0 ? 0 : in < RING_SECTORS ? (short)in : RING_SECTORS;
+    *free_sectors = RING_SECTORS - *over_sectors;
+}
+
+int StGetBackloc(CdlLOC *loc)
+{
+    CdIntToPos(stream_next, loc);
+    return 0;
+}
+
+/* 0 with the next frame, waiting for its sectors to come in; 1 when the stream has no more. */
+int StGetNext(unsigned int **addr, unsigned int **header)
+{
+    unsigned char sector[SECTOR], *slot;
+    unsigned int lba, id, frame = 0;
+    unsigned short index, count = 0, k = 0;
+
+    if (!streaming)
+        return 1;
+    slot = ring + (ring_half ^= 1) * FRAME_ROOM;
+    for (lba = stream_next; !count || k < count; lba++) {
+        if (lba - stream_next > 64)
+            return 1;
+        read_sector(lba, sector);
+        memcpy(&id, sector, 4);
+        memcpy(&index, sector + 4, 2);
+        if (id != STR_VIDEO || (!count && index))
+            continue;
+        if (!count) {
+            memcpy(&count, sector + 6, 2);
+            memcpy(&frame, sector + 8, 4);
+            if (STR_HEADER + count * (SECTOR - STR_HEADER) > FRAME_ROOM)
+                return 1;
+            memcpy(slot, sector, STR_HEADER);
+            CdIntToPos(lba, (CdlLOC *)(slot + 28));
+        }
+        if (index != k || memcmp(sector + 8, &frame, 4))
+            return 1;
+        memcpy(slot + STR_HEADER + k++ * (SECTOR - STR_HEADER), sector + STR_HEADER, SECTOR - STR_HEADER);
+    }
+    stream_next = lba;
+    while (sectors_in() < stream_next)
+        hw_poll();
+    *addr = (unsigned int *)(slot + STR_HEADER);
+    *header = (unsigned int *)slot;
+    return 0;
+}

@@ -3,21 +3,34 @@
 usage: python tools/module_yaml.py FILE NAME VRAM
 
 FILE is the module as the game loads it (raw, at VRAM). Modules lay out as read-only data, code, then data: the code
-runs from the first function's stack-frame setup to the last `jr $ra`'s delay slot. Its asm goes to asm/NAME, and calls
+runs from the first function (its stack-frame setup, and any instructions GCC put before it) to the last `jr $ra`'s
+delay slot. Its asm goes to asm/NAME, and calls
 into the exe take their names from the exe's symbol files.
 """
 import argparse
 import hashlib
 from pathlib import Path
 
+import rabbitizer
+
 PROLOGUE = 0x27BD  # addiu $sp, $sp, -n
 JR_RA = 0x03E00008
+
+
+def is_lead_in(word: int) -> bool:
+    """Whether a word before the first stack-frame setup can be the start of that function: GCC may schedule a load
+    or two ahead of it. A pointer, a zero word, a branch or a non-instruction is the data before the code."""
+    ins = rabbitizer.Instruction(word)
+    return bool(word) and not 0x80000000 <= word < 0x80200000 and ins.isValid() and not ins.isBranch() \
+        and not ins.isJump()
 
 
 def code_bounds(image: bytes) -> tuple[int, int]:
     """Where the code starts and ends in a module."""
     words = [int.from_bytes(image[i:i + 4], "little") for i in range(0, len(image) & ~3, 4)]
     start = next(i for i, w in enumerate(words) if w >> 16 == PROLOGUE and w & 0x8000)
+    while start and is_lead_in(words[start - 1]):
+        start -= 1
     end = max(i for i, w in enumerate(words) if w == JR_RA) + 2
     return start * 4, end * 4
 

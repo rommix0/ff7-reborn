@@ -16,7 +16,7 @@
 #define EV_ROOT_COUNTER 0xF2000000u
 #define EV_CARD 0xF4000001u  /* SwCARD */
 #define EV_TIMEOUT 0x0100u   /* EvSpTIMOUT: no card answered */
-#define EV_MODE_CALLBACK 0x2000u /* EvMdINTR: DeliverEvent calls the function; otherwise it marks the event ready */
+#define EV_MODE_CALLBACK 0x1000u /* EvMdINTR: DeliverEvent calls the function; EvMdNOINTR marks the event ready */
 #define EVENT_COUNT 32
 
 unsigned int i_stat, i_mask;

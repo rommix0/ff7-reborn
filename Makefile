@@ -20,9 +20,10 @@ disks/SCUS_941.63:
 	mkdir -p disks
 	cp "$(ORIG_EXE)" $@
 
-# The modules the PC port recompiles, as name:file on disc 1:load address (each the same on all three discs). `make
-# split` splits each into asm/<name> with the splat config tools/module_yaml.py writes for it.
-PC_MODULES := ending:FIELD/ENDING.X:800A0000 \
+# The modules the PC port recompiles, as name:file on disc 1:load address (each the same on all three discs; a .dec
+# is a packed one as the game unpacks it). `make split` splits each into asm/<name> with the splat config
+# tools/module_yaml.py writes for it.
+PC_MODULES := ending:FIELD/ENDING.X:800A0000 field:FIELD/FIELD.BIN.dec:800A0000 \
 	$(foreach m,BGIN CHNG CNFG EQIP FORM ITEM LIMT MGIC NAME PATY SAVE SHOP STAT,\
 		$(shell echo $(m) | tr A-Z a-z)menu:MENU/$(m)MENU.MNU:801D0000)
 module = $(word $(2),$(subst :, ,$(filter $(1):%,$(PC_MODULES))))
@@ -31,11 +32,15 @@ PC_MODULE_NAMES := $(foreach m,$(PC_MODULES),$(firstword $(subst :, ,$(m))))
 disks/%:
 	mkdir -p $(dir $@)
 	cp "$(DISC1)/$*" $@
+disks/%.dec:
+	mkdir -p $(dir $@)
+	cp "$(DISC1)/$*" disks/$*
+	$(PYTHON) tools/unpack.py disks/$*
 
 split: disks/SCUS_941.63 $(foreach m,$(PC_MODULE_NAMES),disks/$(call module,$(m),2))
 	$(PYTHON) -m splat split config/main.yaml
 	mkdir -p build/modules
-	for m in $(PC_MODULES); do set -- $$(echo $$m | tr : ' '); \
+	for m in $(PC_MODULES); do set -- $$(echo $$m | tr : ' '); rm -rf asm/$$1; \
 		$(PYTHON) tools/module_yaml.py disks/$$2 $$1 $$3 > build/modules/$$1.yaml && \
 		$(PYTHON) -m splat split build/modules/$$1.yaml || exit 1; done
 

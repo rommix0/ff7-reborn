@@ -168,6 +168,12 @@ static void timers_advance(double seconds)
     }
 }
 
+/* The PS1's time so far, which the CD's streaming paces itself by. */
+double ps1_seconds(void)
+{
+    return ps1_time;
+}
+
 void hw_poll(void)
 {
     const double stride = POLL_STRIDE * POLL_CYCLES / CPU_HZ;

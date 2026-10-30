@@ -122,8 +122,9 @@ static void rtps(int i, int last)
 }
 
 /* Matrix times vector plus translation (MVMVA and the light/colour steps). */
-static void multiply(short m[3][3], const short *vec, const int *add, int far_color_bug)
+static void multiply(short m[3][3], const short *in, const int *add, int far_color_bug)
 {
+    short vec[3] = {in[0], in[1], in[2]}; /* in may be IR, which the results overwrite */
     long long sum;
     int k;
 
@@ -200,11 +201,14 @@ void gte_cmd(unsigned int op)
                                        - (long long)x0 * y2 - (long long)x1 * y0 - (long long)x2 * y1);
         break;
     }
-    case 0x0C: /* OP: IR x the rotation matrix's diagonal */
-        set_mac_ir(1, (long long)ir[3] * rt[1][1] - (long long)ir[2] * rt[2][2]);
-        set_mac_ir(2, (long long)ir[1] * rt[2][2] - (long long)ir[3] * rt[0][0]);
-        set_mac_ir(3, (long long)ir[2] * rt[0][0] - (long long)ir[1] * rt[1][1]);
+    case 0x0C: { /* OP: IR x the rotation matrix's diagonal, all from IR as it was */
+        short a[4] = {0, ir[1], ir[2], ir[3]};
+
+        set_mac_ir(1, (long long)a[3] * rt[1][1] - (long long)a[2] * rt[2][2]);
+        set_mac_ir(2, (long long)a[1] * rt[2][2] - (long long)a[3] * rt[0][0]);
+        set_mac_ir(3, (long long)a[2] * rt[0][0] - (long long)a[1] * rt[1][1]);
         break;
+    }
     case 0x10: /* DPCS */
     case 0x2A: /* DPCT: three times, from the colour FIFO's bottom */
         for (i = 0; i < ((op & 0x3F) == 0x2A ? 3 : 1); i++) {
