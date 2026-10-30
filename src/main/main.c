@@ -409,7 +409,6 @@ extern unsigned char D_8007EBC8, D_8009C6D8;
 extern short D_8007173C;
 extern int D_800722C8, D_80071744, D_80095DD8;
 extern int D_800E48E0;
-void ClearImage(RECT *rect, int r, int g, int b);
 int func_80024E5C(void);
 int get_disc_number(void);
 int func_800A0000(int n);

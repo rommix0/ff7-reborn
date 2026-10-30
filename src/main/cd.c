@@ -1,96 +1,13 @@
 #include "common.h"
 #include "main.h"
 #include "sound.h"
+#include "cd.h"
 
 /* The game's CD layer (0x80033A90-0x80034CF0): one request at a time, by sector. cd_start_request queues it and
  * cd_step runs the current state's handler; callers poll cd_step until it returns CD_IDLE. Read errors retry, and
  * after 16 in a row the drive is stopped and the game waits for a readable disc (cd_check_disc). The disc number
  * comes from \MINT\DISKINFO.CNF. GCC 2.6.3 and ASPSX 2.21, like main.c. */
 
-enum {
-    CD_IDLE,
-    CD_SEEK,
-    CD_SEEK_WAIT,
-    CD_READ, /* seek, then read */
-    CD_READ_SEEK_WAIT,
-    CD_READ_START,
-    CD_READ_WAIT,
-    CD_STOPPED,
-    CD_MOVIE_A, /* 8-10 and 18: the movie player's */
-    CD_MOVIE_B,
-    CD_MOVIE_C,
-    CD_LZS, /* read 9 sectors at a time, unpacking as they arrive */
-    CD_LZS_SEEK_WAIT,
-    CD_LZS_READ,
-    CD_LZS_WAIT,
-    CD_UNUSED,
-    CD_FINISH, /* go idle and call the request's callback */
-    CD_DONE,
-    CD_MOVIE_D,
-    CD_PAUSE,
-    CD_PAUSE_WAIT
-};
-
-/* libcd's types, commands and results (names from Sony's libcd.h). */
-typedef struct CdlLOC {
-    unsigned char minute, second, sector, track;
-} CdlLOC;
-
-typedef struct CdlATV {
-    unsigned char val0, val1, val2, val3;
-} CdlATV;
-
-typedef struct CdlFILE {
-    CdlLOC pos;
-    unsigned int size;
-    char name[16];
-} CdlFILE;
-
-#define CdlNop 0x01
-#define CdlSetloc 0x02
-#define CdlStandby 0x07
-#define CdlStop 0x08
-#define CdlPause 0x09
-#define CdlSetmode 0x0E
-#define CdlSeekL 0x15
-#define CdlModeSpeed 0x80
-#define CdlComplete 0x02
-#define CdlDiskError 0x05
-#define CdlStatError 0x01
-#define CdlStatStandby 0x02
-#define CdlStatShellOpen 0x10
-
-int CdInit(void);
-int CdReset(int mode);
-int CdIntToPos(int i, CdlLOC *p);
-int CdRead(int sectors, void *buf, int mode);
-int CdReadSync(int mode, unsigned char *result);
-int CdDiskReady(int mode);
-int func_8003DE9C(int com, void *param, void *result); /* probably CdControl */
-int func_8003DFD4(int com, void *param);               /* probably CdControlF */
-int func_8003E100(int com, void *param, void *result); /* probably CdControlB */
-int func_8003DE2C(int mode, unsigned char *result);    /* probably CdSync */
-int func_8003E244(CdlATV *vol);                        /* probably CdMix */
-CdlFILE *func_8003FB8C(CdlFILE *file, char *name);     /* probably CdSearchFile */
-int func_8004076C(void);                               /* probably CdGetDiskType */
-void func_8003DDA4(int mode);
-void func_8003DD84(void);
-void func_8003DE6C(int);
-void func_8003DE84(int);
-void func_80034F3C(void);
-void func_80034F5C(void); /* reads \MINT\MOVIE_ID.BIN */
-void func_80035658(void); /* stops a movie */
-
-typedef struct CdRequest {
-    unsigned int state;
-    int disc; /* from DISKINFO.CNF, -1 if it can't be read */
-    CdlLOC loc;
-    unsigned int sectors;
-    int pad_10[4];
-    void *dest;
-    void (*callback)(void);
-} CdRequest;
-extern CdRequest cd_request;
 extern void (*cd_state_handlers[])(void); /* by state */
 
 extern CdlATV cd_volume;
@@ -160,12 +77,12 @@ void cd_init(void)
         ;
     cd_request.state = CD_IDLE;
     func_8003DDA4(0);
-    func_80034F3C();
+    movie_init();
     /* The game passes the mode itself where libcd wants a pointer to it. */
     func_8003E100(CdlSetmode, (void *)CdlModeSpeed, 0);
     VSync(3);
     cd_request.disc = cd_read_disc_number();
-    func_80034F5C();
+    movie_load_table();
 }
 
 void cd_shutdown(void)
@@ -202,10 +119,10 @@ int cd_start_request(int mode, unsigned int lba, unsigned int size, void *dest, 
     do {
         state = cd_step();
         switch (state) {
-        case CD_MOVIE_A:
-        case CD_MOVIE_B:
-        case CD_MOVIE_C:
-            func_80035658();
+        case CD_MOVIE_PLAY:
+        case CD_MOVIE_START:
+        case CD_MOVIE_READY:
+            movie_stop();
             break;
         case CD_MOVIE_D:
             func_8003DE9C(CdlPause, 0, 0);
@@ -295,10 +212,10 @@ void cd_cancel(void)
         func_8003DE84(0);
         cd_pause();
         break;
-    case CD_MOVIE_A:
-    case CD_MOVIE_B:
-    case CD_MOVIE_C:
-        func_80035658();
+    case CD_MOVIE_PLAY:
+    case CD_MOVIE_START:
+    case CD_MOVIE_READY:
+        movie_stop();
         break;
     case CD_IDLE:
     case CD_STOPPED:
@@ -390,7 +307,7 @@ int cd_check_disc(void)
             cd_stop();
             return 1;
         }
-        func_80034F5C();
+        movie_load_table();
     }
     return 0;
 }

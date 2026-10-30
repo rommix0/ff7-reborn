@@ -68,8 +68,22 @@ A movie name found on several discs has the same contents on each, so the PC por
   audio was mastered with the CD's 50/15 µs pre-emphasis (IEC 60908): against the same movies on the PC release,
   their spectrum rises by that curve to within 1 dB, while unflagged movies match flat. The PS1 de-emphasizes them on
   playback (psx-spx; its exact filter is undocumented).
-- The movie player calls libpress (`DecDCTvlc`, `DecDCTin`) and its reset loads the default quantization tables at
-  `0x80051A50` (luma) and `0x80051A90` (chroma). Both tables are the same.
+- The movie player (§7) calls libpress (`DecDCTvlc`, `DecDCTin`) and its reset loads the default quantization tables
+  at `0x80051A50` (luma) and `0x80051A90` (chroma). Both tables are the same.
+- Of the 40 bytes before each MDEC frame, the player copies all to `movie_camera` for the field; the last `u16` is a
+  colour flag: 1 decodes in 24-bit colour from the next frame on, 0 in 16-bit. A movie without camera data has
+  zeros and that 1.
+- `MINT/MOVIE_ID.BIN` is the movie table, by number (54 entries on disc 1): 20 bytes each, `u32` sector, `u32` size,
+  `u16` x, y (where the frame goes), `u16` w, h, `u16` last frame, `u16` type. Type 0 streams an STR or MOV, and w, h
+  are its XA volume, left and right (255 for most, down to 152). Types 2 (looping) and 3 (once) are read into memory
+  whole: a table of `u32` frame offsets, then a bare MDEC frame at each, no STR headers, no camera data. There are
+  seven: `FSHIP2.BIN` and `FSHIP2N.BIN` (320×128, 45 frames, type 2), `OPENMV.BIN` (320×224 at y 8, 30 frames, type
+  3), and 320×224 type 2 loops `WHITE2.BIN` (discs 2–3), `LAST4_2.BIN`, `LAST4_3.BIN` and `LASTMAP.BIN` (disc 3).
+- Only the field opens movies. Its main loop waits `VSync(2)` (30 fps), or `VSync(3)` while a streamed movie plays;
+  an in-memory movie (`D_800965E4` = 1) keeps 30 fps, and advances one frame per pass, since the field calls
+  `cd_step` once per pass.
+- Each movie fades the XA audio up (sound command `C9`, 30 ticks) when it opens and down 15 frames before its end. On
+  disc 1, movie `0x26` (`HIWIND0`) slides to 0 and `0x31` (`GOLD7_2`) to `0x1800` instead of `0x7FFF`.
 - The movies are 15 fps, and the CD streams 150 sectors a second, about 10 per frame. In most `.MOV`s the frames
   arrive a little late (0.6 s by the end of `ENDING2E`); in `SMK.STR` and `LSLMV.STR` they arrive early. The
   converter shows each frame at the next 15 fps tick or when its data has arrived, whichever is later.
@@ -86,6 +100,7 @@ recovered C. Details in §7.
 | `bitops.c` | `0x80014A00`–`0x80014A84` | 3 functions in C |
 | AKAO sound driver (`sound_init.c`, `sound.c`) | `0x800293D0`–`0x80033A90` | 231 of 232 functions in C |
 | CD layer (`cd.c`) | `0x80033A90`–`0x80034CF0` | all 38 functions in C |
+| Movie player (`movie.c`) | `0x80034F3C`–`0x8003623C` | all 14 functions in C |
 | PsyQ library block | `0x80036E84`–`0x80048D18` | 267 of 454 functions named (§8) |
 
 Not recovered yet: the rest of the exe's game code (still asm) and every overlay: battle, field, world, menus,
@@ -766,10 +781,10 @@ same set). They give the original module and file split, and the staff folders b
   audio. `-l` lists LBA, size and SHA1 without writing anything.
 - `tools/unpack.py`: detects and decompresses gzip overlays, plain gzip, BIN-GZ archives and LZS.
   `tools/test_unpack.py` is the LZS self-check.
-- `tools/movie.py`: each movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per frame). The
-  JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
+- `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
+  frame); each in-memory one a silent 30 fps AVI, found by matching file sizes against `MOVIE_ID.BIN`. The JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
   exactly, so nothing is re-encoded. Checked on `MK8.STR` against ffmpeg's MDEC decoder: the planes agree to ±1
-  (decoder rounding). Audio on `BRGNVL.MOV` is bit-identical to ffmpeg's XA decoder. Emphasized sectors go through a
+  (decoder rounding), and on `FSHIP2.BIN` and `OPENMV.BIN` too. Audio on `BRGNVL.MOV` is bit-identical to ffmpeg's XA decoder. Emphasized sectors go through a
   50/15 µs de-emphasis (bilinear, within 1 dB of the analog curve to 10 kHz), which brings those movies within about
   1 dB of their PC versions (up to 8 dB brighter before). `tools/test_movie.py` checks the coefficient code table
   and the 16-bit Huffman limit.
@@ -799,6 +814,7 @@ same set). They give the original module and file split, and the staff folders b
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
+| `movie.c` | `0x80034F3C`–`0x8003623C` | 2.6.3 | 2.21 | 0 | `--expand-div` |
 
 - **How the versions show:**
   - GCC 2.6.3 over 2.7.2: `func_800135C0` (2.7.2 keeps the quotient in another register); `seq_cmd_loop_point`
@@ -1006,7 +1022,18 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   game's table runs to 18.
 - `case -1: case 0:` compiles to a range check (`bgtz`, then `slti -1`): `cd_read_disc_number`'s `CdSearchFile` test.
 - Code that falls into a function's final `return 0` must not end in its own return: `cd_check_disc` uses
-  `break`-style switches and lets the success path fall out of the `if`.
+  `break`-style switches and lets the success path fall out of the `if`. Likewise `movie_open`'s in-memory case ends
+  in `break` and the function's `return buf`.
+- Three cases in a row with no jump table compile to two `sltiu`s, upper bound first: `movie_stop`'s states 8–10.
+  `x >= 8 && x < 11` instead folds to one range check.
+- Identical stores ending both arms of an `if` are merged after them: `movie_next_frame` sets the frame's bottom edge
+  in each arm, so the height loads twice.
+
+**Inlining.** A non-static `inline` function is emitted and also expanded into later callers in the file, each copy
+with its own locals: `movie_stop`, twice in `movie_play_frame` (its `RECT` sits above the caller's `CdlLOC`). To test
+a caller alone, give the callee as `extern inline` in the prelude.
+
+**Rounding up.** `(n + 3) / 4 * 4` on an unsigned gives `srl`/`sll`; `(n + 3) & ~3` gives a `li -4` and `and`.
 
 **`.rodata` packing.** The link packs each file's `.rodata` back to back (`SUBALIGN(2)`), so a file whose last string
 ends off a word boundary shifts everything after it. Size the string to the game's padded length:
@@ -1081,8 +1108,8 @@ the current one, then queues the new one in `cd_request` (`0x80071A60`); `cd_ste
   `cd_sector_buf` and unpacks them as they arrive), and `_wait` versions that poll with `VSync(0)`. `cd_init` runs at
   boot, `cd_shutdown` on every way out of `main`'s loop.
 - **States:** each request goes seek (`CdControlF(CdlSetloc)`), wait for `CdSync`, read, wait for `CdReadSync`, then
-  17 (done) and 16 (go idle and call the callback). 19–20 pause the drive. 8–10 and 18 belong to the movie player
-  (the stopping path calls `0x80035658`).
+  17 (done) and 16 (go idle and call the callback). 19–20 pause the drive. 8–10 belong to the movie player (below);
+  18 idles, but the next request pauses the drive first.
 - **Errors:** a `CdlDiskError` retries the step; 16 in a row stop the drive (`cd_stop`, state 7) and loop
   `cd_error_sound(3)` (sound command 30, then a second's wait) until `cd_check_disc` returns 0. A step that waits
   3600 frames retries with the same sound.
@@ -1093,9 +1120,31 @@ the current one, then queues the new one in `cd_request` (`0x80071A60`); `cd_ste
 - **`lzs_decode(src, dst)`:** the in-memory LZS decoder (`u32` packed size, flag bytes, 12-bit offsets into a 4 KiB
   window, lengths 3–18; window positions before the output read as zeros).
 - **After it:** `0x80034CF0`–`0x80034F3C` is hand-written assembly (data words in `.text`, registers kept across
-  calls): `lzs_stream_start`/`lzs_stream_resume`, the decoder `cd_read_lzs` feeds. From `0x80034F3C` comes the movie
-  player (`func_80034F5C` reads `\MINT\MOVIE_ID.BIN`), still assembly.
+  calls): `lzs_stream_start`/`lzs_stream_resume`, the decoder `cd_read_lzs` feeds, and `offset_table_entry`
+  (`table + table[i]`), which the movie player uses.
 - `func_80033A90` sits here but isn't CD code: it clears the 0x500 bytes up to `0x8009D787` and resets play time.
+
+### Movie player (`0x80034F3C`–`0x8003623C`, 14 functions, all C)
+
+`src/main/movie.c`, built on libpress and libcd's streaming (`St*`). Its state is `movie` (`0x80095D88`).
+- **Opening:** `movie_open(buf, id)` (called from outside the exe) refuses while the CD layer is busy, fades the XA
+  audio up, and looks `id` up in `movie_table` (`MOVIE_ID.BIN`, loaded at boot by `movie_load_table`). It carves two
+  run-level buffers, a column buffer and (type 0) a 36-sector ring out of `buf` and returns the end of them. Type 0
+  seeks to the movie, types 2 and 3 read it whole; `movie_on_ready` then sets CD state 9.
+- **Starting:** in state 9 `movie_poll_start` waits for 8 buffered sectors, then sets 10. The caller then runs
+  `movie_start`, which decodes the first frame and sets 8.
+- **Playing:** in state 8 every `cd_step` runs `movie_play_frame`. It sends the decoded frame to the MDEC into the
+  buffer being drawn (`movie_target`), one 16-pixel column at a time (`movie_slice_done` copies each to VRAM and asks
+  for the next). Meanwhile `movie_decode_next` takes the next frame, copies its camera block and colour flag, and
+  VLC-decodes it into the other buffer. Then it waits for the last column. A stream that stalls is sought back and
+  restarted (`movie_reread`).
+- **Ending:** a frame number at or past the table's last frame, or one that doesn't advance, ends a streamed movie;
+  type 3 ends after its last frame and type 2 loops. `movie_stop` pauses the drive, drops the callbacks and returns the
+  CD layer to idle. If the screen was in 24-bit colour, it clears the 480 lines it used.
+- **Colour depth:** a change in the frame's flag is held for one frame (`movie_depth_pending`), then applies to both
+  the MDEC and the display (`isrgb24`); a 24-bit frame's columns are 24 halfwords wide.
+- **Timeouts:** the waits count down from `0x800000` (splat shows it as `D_7FFFFF`, from `lui 0x80`; `addiu -1`).
+- From `0x8003623C`: two data words and an unreferenced hand-written helper, then libspu (its `SPU:T/O` strings).
 
 ### Sound driver (`sound_init.c` `0x800293D0`–`0x80029A4C`, `sound.c` `0x80029A50`–`0x80033A90`)
 

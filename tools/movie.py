@@ -2,11 +2,14 @@
 
 usage: python tools/movie.py <assets> [-o assets/movies]
 
-Converts every STR/MOV movie under <assets>/*/MOVIE (tools/extract_disc.py output). A movie on several discs is the
-same file on each, so it's converted once. For each movie:
+Converts every movie under <assets>/*/MOVIE (tools/extract_disc.py output). A movie on several discs is the same
+file on each, so it's converted once. For each streamed movie (STR/MOV):
   <name>.avi  MJPEG video at 15 fps, plus the XA audio as 16-bit PCM when the movie has sound
   <name>.cam  the 40 bytes of camera data that open each frame, in frame order; frame N's camera goes with the
-              AVI's Nth non-empty video chunk
+              AVI's Nth non-empty video chunk. The last u16 is the game's 24-bit colour flag
+The movies MINT/MOVIE_ID.BIN marks as read into memory (FSHIP2.BIN, OPENMV.BIN, ...) are silent and have no camera
+data: just <name>.avi, at 30 fps, the field's frame rate, which advances them one frame per pass. Whether one loops
+is in MOVIE_ID.BIN (type 2 loops, 3 plays once).
 
 The video isn't re-encoded. Each frame's coefficients are dequantized the way the MDEC does it, with the tables read
 from SCUS_941.63, and stored in a baseline JPEG whose quantization table divides them exactly, so a JPEG decoder
@@ -33,6 +36,7 @@ STR_MAGIC = b"\x60\x01\x01\x80"
 CAMERA_BYTES = 40
 FPS = 15
 SECTORS_PER_FRAME = 150 // FPS
+MEMORY_FPS = 30
 XA_HZ = 37800
 XA_FILTERS = ((0, 0), (60, 0), (115, -52), (98, -55))
 
@@ -248,23 +252,23 @@ def xa_pcm(sectors: list[bytes]) -> bytes:
     return out.tobytes()
 
 
-def write_avi(path: Path, width: int, height: int, slots: int, video, pcm: bytes):
-    """MJPEG at FPS, plus 16-bit stereo PCM at XA_HZ when pcm isn't empty. video yields a JPEG per slot, b"" to repeat."""
+def write_avi(path: Path, width: int, height: int, fps: int, slots: int, video, pcm: bytes):
+    """MJPEG, plus 16-bit stereo PCM at XA_HZ when pcm isn't empty. video yields a JPEG per slot, b"" to repeat."""
     def chunk(tag, data):
         return tag + struct.pack("<I", len(data)) + data + b"\0" * (len(data) & 1)
 
     def strl(strh, strf):
         return chunk(b"LIST", b"strl" + chunk(b"strh", strh) + chunk(b"strf", strf))
 
-    streams = strl(struct.pack("<4s4sIHHIIIIIIIIhhhh", b"vids", b"MJPG", 0, 0, 0, 0, 1, FPS, 0, slots, 0,
+    streams = strl(struct.pack("<4s4sIHHIIIIIIIIhhhh", b"vids", b"MJPG", 0, 0, 0, 0, 1, fps, 0, slots, 0,
                                0xFFFFFFFF, 0, 0, 0, width, height),
                    struct.pack("<IiiHH4sIiiII", 40, width, height, 1, 24, b"MJPG", width * height * 3, 0, 0, 0, 0))
     if pcm:
         streams += strl(struct.pack("<4s4sIHHIIIIIIIIhhhh", b"auds", b"\0" * 4, 0, 0, 0, 0, 4, XA_HZ * 4, 0,
                                     len(pcm) // 4, 0, 0xFFFFFFFF, 4, 0, 0, 0, 0),
                         struct.pack("<HHIIHHH", 1, 2, XA_HZ, XA_HZ * 4, 4, 16, 0))
-    avih = struct.pack("<14I", round(1e6 / FPS), 0, 0, 0x10, slots, 0, 2 if pcm else 1, 0, width, height, 0, 0, 0, 0)
-    audio_per_slot = XA_HZ // FPS * 4
+    avih = struct.pack("<14I", round(1e6 / fps), 0, 0, 0x10, slots, 0, 2 if pcm else 1, 0, width, height, 0, 0, 0, 0)
+    audio_per_slot = XA_HZ // fps * 4
     with path.open("wb") as f:
         f.write(b"RIFF\0\0\0\0AVI " + chunk(b"LIST", b"hdrl" + chunk(b"avih", avih) + streams) + b"LIST\0\0\0\0movi")
         movi = f.tell() - 4
@@ -288,10 +292,21 @@ def write_avi(path: Path, width: int, height: int, slots: int, video, pcm: bytes
         f.write(struct.pack("<I", end - movi))
 
 
-def convert(job: tuple[Path, Path, tuple[bytes, bytes]]) -> str | None:
-    """Write <out>/<name>.avi and .cam for one movie file; None if it isn't a movie."""
-    path, out, tables = job
+def convert(job: tuple[Path, Path, tuple[bytes, bytes], tuple[int, int] | None]) -> str | None:
+    """Write <out>/<name>.avi (and .cam) for one movie file; None if it isn't a movie.
+
+    in_memory is the frame size of a movie read into memory whole, None for a streamed one."""
+    path, out, tables, in_memory = job
     data = path.read_bytes()
+    if in_memory:
+        # A table of frame offsets, then one bare MDEC frame at each
+        width, height = in_memory
+        offsets = struct.unpack_from(f"<{struct.unpack_from('<I', data)[0] // 4}I", data)
+        frames = [data[a:b] for a, b in zip(offsets, offsets[1:] + (len(data),))]
+        blocks = width // 16 * (height // 16) * 6
+        write_avi(out / f"{path.stem}.avi", width, height, MEMORY_FPS, len(frames),
+                  (jpeg_frame(mdec_blocks(f, blocks, tables), width, height) for f in frames), b"")
+        return f"{path.stem}: {len(frames)} frames in memory, {len(frames) / MEMORY_FPS:.1f} s"
     size = 2352 if data.startswith(SYNC) else 2048  # video-only movies extract as plain 2048-byte sectors
     first, parts, audio = {}, {}, []
     for n in range(len(data) // size):
@@ -321,7 +336,7 @@ def convert(job: tuple[Path, Path, tuple[bytes, bytes]]) -> str | None:
     video = (jpeg_frame(mdec_blocks(payloads[frame_at[s]][CAMERA_BYTES:], blocks, tables), width, height)
              if s in frame_at else b"" for s in range(slot + 1))
     pcm = xa_pcm(audio)
-    write_avi(out / f"{path.stem}.avi", width, height, slot + 1, video, pcm)
+    write_avi(out / f"{path.stem}.avi", width, height, FPS, slot + 1, video, pcm)
     return (f"{path.stem}: {len(numbers)} frames over {(slot + 1) / FPS:.1f} s"
             + (f", audio {len(pcm) / 4 / XA_HZ:.1f} s" if pcm else ""))
 
@@ -334,11 +349,20 @@ def main():
     exe = next(args.assets.glob("*/SCUS_941.63")).read_bytes()
     at = MDEC_TABLES - EXE_BASE
     tables = (exe[at:at + 64], exe[at + 64:at + 128])
-    movies = {}
+    movies, in_memory = {}, {}
     for path in sorted(args.assets.glob("*/MOVIE/*")):
         movies.setdefault(path.name, path)
+    # MOVIE_ID.BIN gives each in-memory movie's frame size; its entry's size is the file's
+    for table in args.assets.glob("*/MINT/MOVIE_ID.BIN"):
+        raw = table.read_bytes()
+        sizes = {size: (w, h) for _, size, _, _, w, h, _, kind in struct.iter_unpack("<II6H", raw[:len(raw) // 20 * 20])
+                 if kind in (2, 3)}
+        for path in (table.parent.parent / "MOVIE").iterdir():
+            if path.stat().st_size in sizes:
+                in_memory[path.name] = sizes[path.stat().st_size]
     args.out.mkdir(parents=True, exist_ok=True)
-    jobs = [(p, args.out, tables) for p in sorted(movies.values(), key=lambda p: -p.stat().st_size)]  # longest first
+    jobs = [(p, args.out, tables, in_memory.get(p.name))
+            for p in sorted(movies.values(), key=lambda p: -p.stat().st_size)]  # longest first
     with Pool() as pool:
         for line in pool.imap_unordered(convert, jobs):
             if line:

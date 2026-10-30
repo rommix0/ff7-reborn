@@ -77,8 +77,8 @@ Convert the instrument samples to WAV (with loop points) and a CSV of their sett
 python tools/instruments.py "assets/Final Fantasy VII (USA) (Disc 1)/SOUND"
 ```
 
-Rewrap the movies for the PC port: an AVI per movie (MJPEG video, PCM audio) plus a `.cam` file with each
-frame's camera data, in `assets/movies`. The video keeps the PS1's own DCT coefficients, so nothing is re-encoded:
+Rewrap the movies for the PC port: an AVI per movie (MJPEG video, PCM audio), plus a `.cam` file with each
+frame's camera data for the streamed ones, in `assets/movies`. The video keeps the PS1's own DCT coefficients, so nothing is re-encoded:
 
 ```bash
 python tools/movie.py assets

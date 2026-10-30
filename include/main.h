@@ -44,5 +44,6 @@ void wait_disc_read(void (*idle)(void));
 void func_80015CA0(void *src, void *dest); /* unpacks a module */
 void func_800140F4(void);
 int DrawSync(int mode);
+void ClearImage(RECT *rect, int r, int g, int b);
 
 #endif
