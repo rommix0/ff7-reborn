@@ -396,10 +396,10 @@ void func_80011BB4(void)
     D_8009D274.unk_12 = 0;
 }
 
-#ifdef NON_MATCHING
 /* The game's main: boots, then runs modules by game_mode until D_8009ABF5 asks for 5, 0x0A or 0x1A, and starts over.
- * Same instructions as the game, but GCC also keeps &D_8009AC32 in a register for the whole function where the game
- * rebuilds it each pass, which costs one more saved register. */
+ * Each way out shuts the drivers down itself; GCC merges the copies. Most callees have no prototype, as in the game's
+ * source: GCC 2.6.3 puts an implicit declaration in the block that makes the call, which keeps that block's notes,
+ * and the loop optimizer counts them when it decides which addresses to keep in registers. */
 extern DiscFile D_80048D34, D_80048D3C, D_80048D44, D_80048D4C, D_80048D54;
 extern DiscFile D_80048D5C, D_80048D64, D_80048D6C, D_80048D74;
 extern volatile unsigned char D_8009D5E5[3];
@@ -409,58 +409,12 @@ extern unsigned char D_8007EBC8, D_8009C6D8;
 extern short D_8007173C;
 extern int D_800722C8, D_80071744, D_80095DD8;
 extern int D_800E48E0;
-void SetMem(int megabytes);
 void ClearImage(RECT *rect, int r, int g, int b);
-void func_80033B70(void);
-void func_80033BE0(void);
-void func_80033F40(unsigned int lba, unsigned int size, void *dest, void (*callback)(void));
-void func_800A0030(void);
-void load_boot_files(void);
-void func_800148A0(void);
-void load_sound_files(void);
-void func_8001C434(void);
-void func_800A04C4(int n);
-void func_80026258(void);
-void func_80011920(void);
-void func_80033A90(void);
 int func_80024E5C(void);
-void func_80014934(void);
-void func_80011BB4(void);
-void func_80026090(void);
-void func_800260DC(void);
 int func_800343F0(void);
 int func_800A0000(int n);
-void init_display(void);
-void func_80011AEC(void);
-void func_80011860(void);
-void func_800119E4(void);
-void func_800112E8(void);
-void func_800111E4(void);
-void snd_load_bank2(void);
-void func_80024D88(int n);
-void func_80024DD4(int n);
-void func_80024E18(int n);
-void func_80024A3C(int n);
-void func_80024E94(void);
-void func_80024FC4(int n);
-void func_80024F80(int n);
-void func_80024ECC(void);
-void func_80024F04(void);
-void func_80024F3C(int n);
-void func_800250B4(void);
-void func_800250EC(int n);
-void func_80025130(int n);
-void func_80025040(void);
-void func_800CF60C(void);
-void func_800A00D0(void);
-void func_800A02D0(void);
-void func_800A0390(void);
-void func_800A0448(void);
-void func_800B6B58(void);
 unsigned short func_800A0450(void);
 unsigned short func_800A00BC(int n);
-void func_800A0C58(void);
-void snd_quit(void);
 /* Globals main reaches from one base: GCC derives &D_8009ABF5 and &D_8009ABF6 from &D_8009AC32. */
 typedef struct MainGlobals {
     unsigned char pad_00;
@@ -477,13 +431,11 @@ typedef struct MainGlobals {
     int ac38;
 } MainGlobals;
 extern MainGlobals D_8009ABF4;
-extern long D_8009A004;
 int main(void)
 {
     char name[] = "battle.x";
     RECT rect = {0, 0, 480, 472};
     unsigned short flags;
-    unsigned char *mode;
     unsigned short result;
 
     SetMem(8);
@@ -492,7 +444,7 @@ int main(void)
     func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
     func_800A0030();
     load_boot_files();
-    for (;;) {
+    while (1) {
         *(volatile short *)&D_8009ABF4.ac32 = 0;
         D_8009ABF4.ac2f = 0;
         func_800148A0();
@@ -500,9 +452,13 @@ int main(void)
         func_8001C434();
         func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
         func_800A04C4(0);
-        snd_request.id = 0xC0;
-        D_8009A004 = 0x7F;
-        snd_submit_request();
+        {
+            SoundCommand *cmd = &snd_request;
+
+            cmd->id = 0xC0;
+            cmd->arg[0] = 0x7F;
+            snd_submit_request();
+        }
         ClearImage(&rect, 0, 0, 0);
         func_80026258();
         func_80011920();
@@ -514,13 +470,15 @@ int main(void)
             func_80011BB4();
         }
         func_80026090();
-        /* Through a pointer: the game keeps this address in a register across the loop. */
-        mode = &D_8009ABF4.abf5;
-        do {
+        while (1) {
             if (D_8009D274.disc != func_800343F0()) {
                 func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
-                if (func_800A0000(D_8009D274.disc) == 1)
-                    goto fail;
+                if (func_800A0000(D_8009D274.disc) == 1) {
+                    D_8009ABF4.abf5 = 0;
+                    func_80033BE0();
+                    snd_quit();
+                    break;
+                }
             }
             init_display();
             D_8007EBC8 = 0;
@@ -545,9 +503,13 @@ int main(void)
                     if (D_800965EC == 1) {
                         if (!D_80071E30) {
                             if (D_8009ABF4.ac38) {
-                                snd_request.id = 0x14;
-                                D_8009A004 = D_8009ABF4.ac38;
-                                snd_submit_request();
+                                {
+                                    SoundCommand *cmd = &snd_request;
+
+                                    cmd->id = 0x14;
+                                    cmd->arg[0] = D_8009ABF4.ac38;
+                                    snd_submit_request();
+                                }
                             }
                             D_800722C8 = 0x801C0000;
                             D_80071744 = D_80048D24.lba;
@@ -688,9 +650,9 @@ int main(void)
                         func_80025040();
                         break;
                     }
-                    if (*mode != 0x19)
+                    if (D_8009ABF4.abf5 != 0x19)
                         func_800CF60C();
-                    *(short *)(mode + 0x25) = 2; /* D_8009ABF4.ac1a, relative to the same register */
+                    D_8009ABF4.ac1a = 2;
                     D_800965EC = 0xD;
                     game_mode = 1;
                     break;
@@ -782,35 +744,39 @@ int main(void)
                     D_8009ABF4.abf5 = 1;
                     break;
                 }
-            } while (*mode != 5 && *mode != 0x1A && *mode != 0xA);
-            if (*mode == 5) {
+            } while (D_8009ABF4.abf5 != 5 && D_8009ABF4.abf5 != 0x1A && D_8009ABF4.abf5 != 0xA);
+            if (D_8009ABF4.abf5 == 5) {
                 func_80033F40(D_80048D54.lba, D_80048D54.size, (void *)0x800A0000, 0);
                 func_800A04C4(1);
-                goto quit;
+                func_80033BE0();
+                snd_quit();
+                break;
             }
-        } while (*mode != 0x1A && *mode != 0xA);
-        if (*mode == 0x1A) {
-            *mode = 0;
-            snd_submit_request();
-            func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
-            func_800A0C58();
-            snd_request.id = 0xC0;
-            D_8009A004 = 0x7F;
-            snd_submit_request();
-        } else {
-            *mode = 0;
+            if (D_8009ABF4.abf5 == 0x1A) {
+                D_8009ABF4.abf5 = 0;
+                snd_submit_request();
+                func_80033F40(D_80048D4C.lba, D_80048D4C.size, (void *)0x800A0000, 0);
+                func_800A0C58();
+                {
+                    SoundCommand *cmd = &snd_request;
+
+                    cmd->id = 0xC0;
+                    cmd->arg[0] = 0x7F;
+                    snd_submit_request();
+                }
+                func_80033BE0();
+                snd_quit();
+                break;
+            }
+            if (D_8009ABF4.abf5 == 0xA) {
+                D_8009ABF4.abf5 = 0;
+                func_80033BE0();
+                snd_quit();
+                break;
+            }
         }
-        goto quit;
-    fail:
-        D_8009ABF4.abf5 = 0;
-    quit:
-        func_80033BE0();
-        snd_quit();
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/main/main", main);
-#endif
 
 void func_80012840(int abr)
 {

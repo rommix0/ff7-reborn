@@ -949,9 +949,9 @@ Lessons from getting it to match:
   `#include` from a Windows drive under WSL (it can't `stat` the large inode numbers). The build preprocesses with the
   host `cpp -P -undef -nostdinc` instead, which doesn't change the generated code.
 
-**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, 46 in C so far), three files by toolchain:
-- **`src/main/main.c`** (`0x8001117C`–`0x80013C9C`, 26 of 27 in C): boots the sound driver, sets up the display and
-  has the game's `main` (`0x80011C1C`, 3 KB, drafted). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed
+**The boot code** (`0x8001117C`–`0x80014A00`, 47 functions, all in C), three files by toolchain:
+- **`src/main/main.c`** (`0x8001117C`–`0x80013C9C`, all 27 in C): boots the sound driver, sets up the display and
+  has the game's `main` (`0x80011C1C`, 3 KB). **GCC 2.6.3 and ASPSX 2.21**, like the sound driver: an indexed
   load goes through `addiu $at` (`lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`). Its divides carry
   ASPSX's checks.
 - **`src/main/transition.c`** (`0x80013C9C`–`0x800144D8`, all 3 in C): a screen transition. **GCC 2.7.2 and ASPSX
@@ -1026,20 +1026,25 @@ Lessons from getting it to match:
   a register.
 - **`main`:** sets up memory, the display and the boot files, then loops forever: load the sound files and the first
   module, then run modules by `game_mode` (a 16-case switch, most cases read a file to `0x80180000`, unpack it to
-  `0x800A0000` and call into it) until `D_8009ABF5` asks for 5, `0x0A` or `0x1A`, then shut the sound down and start
-  over. It has an unused local `"battle.x"`. Its C is in `main.c` behind `NON_MATCHING`: the same instructions as the
-  game, with about 83% of the words identical. What's left is one register: GCC keeps `&D_8009AC32` in a saved
-  register for the whole function, where the game rebuilds it at the top of each pass and derives `&D_8009ABF5` and
-  `&D_8009ABF6` from it before the middle loop. Getting this far took: the save-data struct and a struct for
-  `D_8009ABF4`..`D_8009AC38` (GCC derives one address from another within one object), an `int` pad word `D_80095DDC`,
-  `D_8009A004` as its own `long`, the failure path as a `goto` to a label after the mode-5 block, `*(volatile T *)&x`
-  exactly where the game uses a register-held address, and a local pointer to `D_8009ABF5` set just before the middle
-  loop. Where that pointer is set decides which addresses GCC hoists out of which loop; every other position tried is
-  worse.
+  `0x800A0000` and call into it) until `D_8009ABF5` asks for 5, `0x0A` or `0x1A`. It has an unused local
+  `"battle.x"`. It matches, and what decided it was **GCC 2.6.3's loop optimizer**, not the statements:
+  - **Which addresses get hoisted.** The game rebuilds `&D_8009AC32` at the top of each pass and keeps `&D_8009ABF5`
+    and `&D_8009ABF6` in registers set before the middle loop. GCC moves a loop-invariant register out of a loop when
+    `threshold × savings × lifetime ≥ insn_count`: `threshold` is 26 here (measured), drops by 3 for every register
+    already moved, and `insn_count` doubles for each register that was already moved out of an inner loop; `savings`
+    counts the temporaries holding the same value, `lifetime` is measured in luids, and **every note that isn't a line
+    number takes a luid** (deleted insns, loop and block notes). `-dL` prints each decision.
+  - **So the shape matters:** no `mode` pointer (a user variable deriving from `&D_8009AC32` made that address
+    live long enough to be hoisted); the middle loop is a `while (1)` whose four ways out (disc refused, ending, game
+    over, title) each set the state, shut the drivers down and `break`, with GCC cross-jumping the copies and parking
+    the blocks after the loop; the sound requests go through a block-scoped `SoundCommand *`; and **most callees have
+    no prototype**. GCC 2.6.3 puts an implicit declaration in the block that makes the call, so those blocks keep their
+    notes, which lengthens the right lifetimes. With prototypes the same code is 5 luids short and the `&D_8009ABF5`
+    temporary isn't moved.
 - **Register-held addresses:** GCC 2.6.3 reaches a plain scalar global with `lui`/`%lo`, but loads the address of a
   struct field or a pointer expression (`*(T *)&x`) into a register, then folds later accesses to the same object back
-  to `lui`/`%lo`: within a function, the first one touched is the one in a register. In a loop those registers are
-  hoisted out, which is why `main`'s draft needs its casts exactly where the game has them. Many of `main.c`'s older
+  to `lui`/`%lo`: within a function, the first one touched is the one in a register. In a loop those registers can be
+  hoisted out (see `main` above). Many of `main.c`'s older
   `*(volatile T *)&x` casts are probably this rule in disguise.
 
 **The sound driver as C** (`src/main/sound.c`, `0x800293D0`–`0x80033A90`):
