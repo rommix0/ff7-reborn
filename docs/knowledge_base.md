@@ -29,7 +29,7 @@ and outside sources are named where a fact comes from them.
 | `MINI/` | 38 | Mini-games: `CHOCOBO`, `JET` (coaster), `CONDOR`, `HIGHWAY` (bike), `SNOBO`/`SNOBO2` (snowboard), `SUBMAR` (submarine) |
 | `WORLD/` | 43 | `WORLD.BIN` (world map overlay), `WM*.MAP/BOT/TXZ/EV` world data |
 | `SOUND/` | 5 | AKAO sound banks, see §4 |
-| `MOVIE/` | 72 | 28 are MDEC `.STR`/`.MOV` with interleaved XA audio (Form 2 sectors); the rest are camera/sound data |
+| `MOVIE/` | 72 | 51 MDEC movies: 28 `.MOV` with interleaved XA audio (Form 2 sectors), 23 silent `.STR`; the rest are camera/sound data |
 | `MINT/` | 2 | `DISKINFO.CNF`, `MOVIE_ID.BIN` |
 
 Compression (all checked on disc 1 with `tools/unpack.py`):
@@ -53,6 +53,27 @@ on each. The rest:
 - `SNOVA/` (17 files, sectors 127,101–127,660): disc 3 only; discs 1 and 2 have nothing there.
 - `FIELD/TUNNEL_6.MIM`: same place and size, but disc 1's contents differ.
 - `MINT/DISKINFO.CNF` starts `DISK0001`/`2`/`3` (the game's disc check, §7); `MINT/MOVIE_ID.BIN` differs too.
+
+A movie name found on several discs has the same contents on each, so the PC port needs one copy of each movie.
+
+**Movies** (`tools/movie.py` rewraps them for the PC port):
+- Each video sector starts with the standard 32-byte STR header (`u16` `0x0160`, `u16` `0x8001`, sector index and
+  count within the frame, `u32` frame number from 1, `u32` frame size, `u16` width and height); 2,016 bytes of frame
+  data follow. A frame's data opens with 40 bytes of camera data, then the MDEC frame: `u16` code count, `0x3800`,
+  `u16` qscale, version 1, then the libpress bitstream. All are 320×224 except `ENDING2E`/`ENDING3E` (640×192).
+- `.MOV` files put an XA audio sector (stereo, 37.8 kHz, 4-bit) every 8th sector. `.STR` files are video only, all
+  Form 1, so `tools/extract_disc.py` writes them as 2,048-byte sectors.
+- 15 `.MOV`s set the emphasis bit in every audio sector (`CANON`, `FALLPL`, `GELNICA`, `HWINDJET`, `JAIROFAL`,
+  `MAINPLR`, `NORTHMK`, `NRCRL`, `ONTRAIN`, `PARASHOT`, `PLREXP`, `RCKTFAIL`, `SOUTHMK`, `U_ROPEGO`, `U_ROPEIN`). Their
+  audio was mastered with the CD's 50/15 µs pre-emphasis (IEC 60908): against the same movies on the PC release,
+  their spectrum rises by that curve to within 1 dB, while unflagged movies match flat. The PS1 de-emphasizes them on
+  playback (psx-spx; its exact filter is undocumented).
+- The movie player calls libpress (`DecDCTvlc`, `DecDCTin`) and its reset loads the default quantization tables at
+  `0x80051A50` (luma) and `0x80051A90` (chroma). Both tables are the same.
+- The movies are 15 fps, and the CD streams 150 sectors a second, about 10 per frame. In most `.MOV`s the frames
+  arrive a little late (0.6 s by the end of `ENDING2E`); in `SMK.STR` and `LSLMV.STR` they arrive early. The
+  converter shows each frame at the next 15 fps tick or when its data has arrived, whichever is later.
+- Audio usually runs past the last frame (median 3.2 s).
 
 ## 3. Code: what is recovered and what isn't
 
@@ -745,6 +766,13 @@ same set). They give the original module and file split, and the staff folders b
   audio. `-l` lists LBA, size and SHA1 without writing anything.
 - `tools/unpack.py`: detects and decompresses gzip overlays, plain gzip, BIN-GZ archives and LZS.
   `tools/test_unpack.py` is the LZS self-check.
+- `tools/movie.py`: each movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per frame). The
+  JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
+  exactly, so nothing is re-encoded. Checked on `MK8.STR` against ffmpeg's MDEC decoder: the planes agree to ±1
+  (decoder rounding). Audio on `BRGNVL.MOV` is bit-identical to ffmpeg's XA decoder. Emphasized sectors go through a
+  50/15 µs de-emphasis (bilinear, within 1 dB of the analog curve to 10 kHz), which brings those movies within about
+  1 dB of their PC versions (up to 8 dB brighter before). `tools/test_movie.py` checks the coefficient code table
+  and the 16-bit Huffman limit.
 - Matching needs the original compiler era: PsyQ's gcc 2.x for mipsel. The open-source matching tools (splat,
   maspsx, m2c, asm-differ) are separate projects; check each license before vendoring. rabbitizer (MIPS/GTE
   disassembler) is MIT.
