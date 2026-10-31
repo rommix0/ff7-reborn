@@ -270,6 +270,7 @@ PC_TESTS := memory recomp bridge bios modules hw mdec spu gpu gte display cd lab
 pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_EXE)
 	$(PYTHON) tools/test_recomp.py
 	$(PYTHON) tools/test_module_yaml.py
+	$(PYTHON) tools/test_lab_diff.py
 	$(PYTHON) tools/test_bios_coverage.py "$(PC_EXE_FILE)"
 	build/pc/test_memory$(PC_EXE) "$(PC_EXE_FILE)"
 	build/pc/test_recomp$(PC_EXE) assets

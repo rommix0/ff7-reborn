@@ -1060,6 +1060,33 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     and `FIELD.TDB`. The opening field `MD1STIN` loads `CLOUD.BCX` and `BALLET.BCX`; the debug room (`STARTMAP`)
     `CLOUD.BCX`, `TIFA.BCX` and `CID.BCX`, then `BLACKBG3`, `5` and `1.MIM` as it runs. The opening movie is
     request 3 while asked for and 4 while it plays.
+  - The PC build is deterministic: two runs with one script, dumped at one frame, differ only in two words
+    (`0x8005141C`, `0x8005143C`, host addresses). So runs that differ by one button press, diffed with
+    `tools/lab_diff.py` (`--noise` takes a second dump of the same script), show what that press did.
+- **Pad input** (exe):
+  - `func_8001C434` gives the BIOS the pad buffers `D_800696AC` (port 1) and `D_800696CE` (port 2).
+    `func_8001C808` reads both as one word, active high, in Psy-Q's order: L2 `0x1`, R2 `0x2`, L1 `0x4`, R1 `0x8`,
+    △ `0x10`, ○ `0x20`, ✕ `0x40`, □ `0x80`, Select `0x100`, Start `0x800`, Up `0x1000`, Right `0x2000`,
+    Down `0x4000`, Left `0x8000`; port 2 in the high half. A pad that isn't a digital pad (`0x41`) reads as nothing.
+  - `func_8001CB48`, once a frame, keeps port 1 as held `D_80062D78`, last frame's `D_80062D7A`, pressed
+    `D_80062D7C`, and pressed-or-repeating `D_80062D7E` (repeats after 16 frames held, every 4); port 2 in
+    `D_80062D80`–`D_80062D86`. With the Config menu's custom layout on (`(D_8009D7BE >> 2) & 3`), port 1's bits
+    go through the table `D_8009D7C0` first (bit n becomes bit `table[n]`).
+  - `func_8001C980`, which the battle calls, keeps a second set from those: `D_80062D88` held, `D_80062D8C`
+    pressed, `D_80062D8E` pressed-or-repeating (after 8 frames, every 2); port 2 in `D_80062D90`–`D_80062D96`.
+- **Battle controls**, each one press (or hold) on Cloud's command menu in the first battle, diffed in the lab:
+  - Start (`D_80062D7C & 0x800`, battle state `D_80163C7C` = 4): toggles the pause flag `D_80062D99` and plays
+    sound 0x99 (paused) or 0x98.
+  - Select: toggles the help window, which is a setting: bit 14 of the config word `D_8009D7BE`. The help line goes
+    to `0x80063560` in the game's text code (ASCII − 0x20), "Attack…" for the Attack command.
+  - R2 (`func_800DE618`): toggles bit `0x40` of `0x8009D302`, the target cursor.
+  - □ held (`D_80062D78 & 0x80`, `func_800E0E34`, `func_800E2098`): `0x800F99E4` goes to 1 and the command window
+    gives way to the Barrier gauges.
+  - L1+R1 held (`D_80062D7E & 0xC`, `func_800E7170`): tries to run; the first battle can't be fled, and the
+    message buffer gets "Can't escape!".
+  - △ (`func_800E0E34`, newly pressed `0x10`) and R1 changed nothing here: going by the US manual, △ passes the
+    turn to the next ready member and R1 switches single and all targets while one is chosen, and only Cloud is on
+    the menu. R2's flag is the manual's target cursor by the same reading; neither is checked further yet.
 - **Battle** (`BATTLE.X`, `BATINI.X`, `BATRES.X` in `PC_MODULES`):
   - A module file's 8-byte header is its unpacked size and a BSS size, which `func_80015CA0` zeroes after the image.
     `BATRES.X` ends on a `jr $ra` whose delay slot is that BSS.
