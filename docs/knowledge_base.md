@@ -1072,8 +1072,15 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   - `BATTLE.X`'s hand-written renderer (`func_800D29D4`) keeps a resume address in `$at` (`lui`/`ori` of its own
     label) and calls helpers (`func_800D32B4`, `func_800D3354`) that leave by `jr $at` into it. `recomp.py` makes
     such addresses labels; a `jr` to no function leaves it in `ctx.pending`, which the caller takes after the call.
-  - Not yet running: that renderer's polygon pointer (`$a0`) runs 64 KB past the end of RAM on the first battle's
-    stage, so a count or the data it reads is wrong upstream.
+  - That renderer saves its registers below `$sp` without moving it. The BIOS runs root-counter callbacks on its own
+    stack, so `irq_check` does too (`KERNEL_STACK`, in the kernel's untouched 64 KB): run on the game's stack, one
+    clobbered the stage switch's `$s1` and the next model drawn was the stage's texture.
+  - A stage file (`STAGE09.LZS`, at `0x801590E4`) is a count, then offsets: section 0 is a type byte and a model
+    count, the models follow, and the last section is the stage's TIM. `func_800B9568` switches on the type.
+  - Spells and attacks are effect files in `MAGIC/` (318), loaded at `0x801B0000` when used. About 145 are raw code
+    from their first byte, others start with a `lui` or a table of `0x801Bxxxx` pointers (the summons), and a few
+    point higher (`FROG.BIN`, `KAMA.BIN`, `THUNDG1.BIN`). Not in `PC_MODULES` yet: the first battle runs to Cloud's
+    first spell (`BRIZAD.BIN`, Ice) and stops at "no module for 801B037C".
 - **Not yet:** waiting for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
   bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display and the CD layer.

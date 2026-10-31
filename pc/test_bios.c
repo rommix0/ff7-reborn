@@ -25,10 +25,11 @@ void irq_raise(unsigned int bit);
 extern unsigned int i_stat, i_mask;
 
 static int event_calls, handler_ran;
-static unsigned int handler_sp, handler_v0;
+static unsigned int handler_sp, handler_v0, event_sp;
 
 static int on_event(void)
 {
+    event_sp = ctx.r[29];
     return ++event_calls;
 }
 
@@ -105,6 +106,15 @@ int main(void)
     ctx.r[4] = 2;
     recomp_syscall(0);
     assert(handler_ran == 2);
+
+    /* root_counter_callback_has_its_own_stack: the words below the interrupted code's $sp stay as they were, as
+     * BATTLE.X's renderer needs (it saves registers there without moving $sp) */
+    ev = call(0xB0, 0x08, 0xF2000000, 0x0002, 0x1000, (unsigned int)on_event);
+    call(0xB0, 0x0C, ev, 0, 0, 0);
+    i_mask = 0x11;
+    ctx.r[29] = 0x801FFF00;
+    irq_raise(0x10);
+    assert(event_calls == 2 && (event_sp > 0x801FFF00 || event_sp < 0x801FF000));
 
     /* printf_formats: the libraries' messages come out formatted (stderr goes to a file, so this test is last) */
     {

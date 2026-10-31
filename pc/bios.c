@@ -18,6 +18,9 @@
 #define EV_TIMEOUT 0x0100u   /* EvSpTIMOUT: no card answered */
 #define EV_MODE_CALLBACK 0x1000u /* EvMdINTR: DeliverEvent calls the function; EvMdNOINTR marks the event ready */
 #define EVENT_COUNT 32
+/* The exception path's own stack, in the kernel's 64 KB that the game leaves alone. Hand-written game code saves
+ * registers below its $sp without moving it, so handlers must never run on the interrupted code's stack. */
+#define KERNEL_STACK 0x8000F000u
 
 unsigned int i_stat, i_mask;
 unsigned short pad_buttons = 0xFFFF;
@@ -88,6 +91,7 @@ void irq_check(void)
     if (!pending || (sr & SR_INTERRUPTS) != SR_INTERRUPTS || in_exception)
         return;
     saved = ctx;
+    ctx.r[29] = KERNEL_STACK;
     in_exception = 1;
     cop0[12] = (sr & ~0x3Fu) | (sr << 2 & 0x3Fu); /* the mode stack pushes: interrupts off in the handler */
     if (pending & IRQ_VBLANK)
