@@ -4,7 +4,7 @@ usage: python tools/module_yaml.py FILE NAME VRAM
 
 FILE is the module as the game loads it (raw, at VRAM). Modules lay out as read-only data, code, then data: the code
 runs from the first function (its stack-frame setup, and any instructions GCC put before it) to the last `jr $ra`'s
-delay slot. Its asm goes to asm/NAME, and calls
+delay slot, with data between where objects were linked (WORLD.BIN). Its asm goes to asm/NAME, and calls
 into the exe take their names from the exe's symbol files.
 """
 import argparse
@@ -34,15 +34,28 @@ def is_code(word: int, before: int) -> bool:
         and not ins.outputsToGprZero() and not shifts_zero and not jumps_out
 
 
-def code_bounds(image: bytes) -> tuple[int, int]:
-    """Where the code starts and ends in a module."""
+def code_ranges(image: bytes) -> list[tuple[int, int]]:
+    """Where the code runs in a module, as (start, end) offsets: one run, or more where data was linked between two
+    objects' code (WORLD.BIN). A word no R3000 runs means such data, from the last return before it."""
     words = [int.from_bytes(image[i:i + 4], "little") for i in range(0, len(image) & ~3, 4)]
-    start = next(i for i, w in enumerate(words) if w >> 16 == PROLOGUE and w & 0x8000)
-    while start and is_code(words[start - 1], words[start - 2] if start > 1 else 0):
-        start -= 1
+    prologues = [i for i, w in enumerate(words) if w >> 16 == PROLOGUE and w & 0x8000]
+    returns = [i for i, w in enumerate(words) if w == JR_RA]
+
+    def function_start(i):
+        while i and is_code(words[i - 1], words[i - 2] if i > 1 else 0):
+            i -= 1
+        return i
+
     # BATRES.X ends on a jr $ra whose delay slot is its zeroed BSS, past the file
-    end = min(max(i for i, w in enumerate(words) if w == JR_RA) + 2, len(words))
-    return start * 4, end * 4
+    end = min(returns[-1] + 2, len(words))
+    ranges, start, i = [], function_start(prologues[0]), 0
+    for i in range(start, end):
+        if i < start or words[i] >> 26 in R3000_OPCODES and \
+                rabbitizer.Instruction(words[i], category=rabbitizer.InstrCategory.R3000GTE).isValid():
+            continue
+        ranges.append((start * 4, (max(r for r in returns if r < i) + 2) * 4))
+        start = function_start(next(p for p in prologues if p > i))
+    return ranges + [(start * 4, end * 4)]
 
 
 def main():
@@ -52,9 +65,10 @@ def main():
     ap.add_argument("vram", type=lambda s: int(s, 16))
     args = ap.parse_args()
     image = args.file.read_bytes()
-    start, end = code_bounds(image)
-    rodata = "      - [0, rodata]\n" if start else ""
-    data = f"      - [{end:#x}, data]\n" if end < len(image) else ""
+    ranges = code_ranges(image)
+    rodata = "      - [0, rodata]\n" if ranges[0][0] else ""
+    code = "".join(f"      - [{start:#x}, asm]\n" + (f"      - [{end:#x}, data]\n" if end < len(image) else "")
+                   for start, end in ranges)
     print(f"""name: {args.file.name}
 sha1: {hashlib.sha1(image).hexdigest()}
 options:
@@ -91,8 +105,7 @@ segments:
     start: 0
     vram: 0x{args.vram:X}
     subsegments:
-{rodata}      - [{start:#x}, asm]
-{data}  - [0x{len(image):X}]""")
+{rodata}{code}  - [0x{len(image):X}]""")
 
 
 if __name__ == "__main__":

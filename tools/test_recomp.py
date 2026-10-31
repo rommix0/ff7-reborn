@@ -205,6 +205,14 @@ def jr_ra_at_the_image_end_has_a_nop_slot():
     assert run([addiu(V0, ZERO, 7), JR_RA], call({}) + '    printf("%u", ctx.r[2]);\n') == ["7"]
 
 
+def function_ends_where_its_code_does():
+    # WORLD.BIN has data linked between two objects' code: the function before it ends with its asm file's code
+    words = [addiu(V0, ZERO, 7), JR_RA, NOP, 0x582C4001, JR_RA, NOP]  # f, a word no R3000 runs (blezl), g
+    image = b"".join(w.to_bytes(4, "little") for w in words)
+    c = recompile(image, BASE, {BASE: "f", BASE + 16: "g"}, set(), {}, code_ends={BASE + 12, BASE + 24})
+    assert "static void r_80100000(void)" in c and "static void r_80100010(void)" in c
+
+
 def module_calls_exe_and_keeps_its_names_private():
     # A module at 0x800A0000 calls exe function e (recompiled elsewhere: only declared here) and records its signature
     m, e = 0x800A0000, 0x80020000
@@ -241,6 +249,7 @@ if __name__ == "__main__":
                  stored_function_address_becomes_native, module_calls_exe_and_keeps_its_names_private,
                  setjmp_return_is_an_entry, address_stored_in_return_slot_becomes_native,
                  code_pointers_found_whatever_splat_typed, jr_ra_at_the_image_end_has_a_nop_slot,
-                 jr_to_an_address_built_inside_the_function, callee_jr_lands_in_its_caller):
+                 jr_to_an_address_built_inside_the_function, callee_jr_lands_in_its_caller,
+                 function_ends_where_its_code_does):
         test()
     print("ok")

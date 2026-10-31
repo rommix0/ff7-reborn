@@ -48,14 +48,17 @@ def put(n, expr):
 
 
 def recompile(image: bytes, base: int, funcs: dict[int, str], native: set[str], jtbls: dict[int, list[int]],
-              emit: set[int] | None = None, tag: str | None = None, data_words=(), prefix: str = "") -> str:
+              emit: set[int] | None = None, tag: str | None = None, data_words=(), prefix: str = "",
+              code_ends=()) -> str:
     """C for every function in funcs (address -> name) that isn't native, or only those in emit.
 
     Each gets r_<ADDR> for recompiled callers and a thunk under its own name for C. With a tag, also dispatch.c's
     tables: <tag>_code (address -> native function) and <tag>_patches (from data_words, (RAM address, function
-    name) pairs: the game's data words that hold code addresses)."""
+    name) pairs: the game's data words that hold code addresses). A function also ends at any of code_ends, where a
+    run of code stops for data."""
     starts = sorted(funcs)
-    end_of = {a: (starts[i + 1] if i + 1 < len(starts) else base + len(image)) for i, a in enumerate(starts)}
+    end_of = {a: min([starts[i + 1] if i + 1 < len(starts) else base + len(image)] + [e for e in code_ends if e > a])
+              for i, a in enumerate(starts)}
     native_at = {a for a in starts if funcs[a] in native}
     own = [a for a in starts if base <= a < base + len(image)]  # the rest (a module's calls into the exe) are linked
     chosen = [a for a in own if a not in native_at and (emit is None or a in emit)]
@@ -446,6 +449,7 @@ def main():
               if len(parts) == 3}
     lo, hi = bounds["main_TEXT_START"], bounds["main_TEXT_END"]
     funcs = read_symbols(args.symbols, lo, hi)
+    code_ends = ()
     if data.startswith(b"PS-X EXE"):
         base, size = int.from_bytes(data[0x18:0x1C], "little"), int.from_bytes(data[0x1C:0x20], "little")
         image, image_base = data[0x800:], base
@@ -453,10 +457,13 @@ def main():
     else:
         # A module, which has no ELF: its functions are splat's glabels and its code ends at the last instruction.
         # It calls the exe's functions by the exe's symbols.
-        code = "".join(p.read_text() for p in args.asm.rglob("*.s") if "data" not in p.parts)
+        # Each asm file is one run of code (WORLD.BIN has data between two).
+        runs = [p.read_text() for p in args.asm.rglob("*.s") if "data" not in p.parts]
+        code = "".join(runs)
         funcs.update((int(m[2], 16), m[1]) for m in re.finditer(r"^glabel (\w+)\n\s*/\* \w+ ([0-9A-F]{8}) ", code, re.M))
-        end = max(int(a, 16) for a in re.findall(r"/\* \w+ ([0-9A-F]{8}) [0-9A-F]{8} \*/ ", code)) + 4
-        data = data[:end - base]
+        code_ends = {max(int(a, 16) for a in re.findall(r"/\* \w+ ([0-9A-F]{8}) [0-9A-F]{8} \*/ ", run)) + 4
+                     for run in runs}
+        data = data[:max(code_ends) - base]
     renames = dict(r.split("=") for r in args.rename)
     funcs = {a: renames.get(n, n) for a, n in funcs.items()}
     # Anything the PC build defines, code or data, isn't recompiled.
@@ -476,7 +483,8 @@ def main():
         data_words = [(a, n) for a, n in code_pointers(image, image_base, data_asm, funcs)
                       if (a >= MODULES) == (base >= MODULES)]
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(recompile(data, base, funcs, native, jtbls, emit, args.tag, data_words, args.thunk_prefix))
+    args.out.write_text(recompile(data, base, funcs, native, jtbls, emit, args.tag, data_words, args.thunk_prefix,
+                                  code_ends))
 
 
 if __name__ == "__main__":

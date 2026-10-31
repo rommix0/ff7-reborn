@@ -102,8 +102,9 @@ which loads its data from your `SCUS_941.63`. `python tools/native_check.py <dis
 plays each song on it and checks every channel's notes against `tools/akao.py` (`gcc` is the only extra package).
 
 **The PC build (work in progress):** the whole boot exe runs as a 32-bit Windows program: the recovered C, plus the
-rest of your `SCUS_941.63` and the field, ending and menu modules recompiled to C at build time (never committed). So
-far it boots through the title menu into NEW GAME's opening movie and the first field, with sound. It needs
+rest of your `SCUS_941.63` and the game's modules (field, battle, world map, menus, spell effects, ...) recompiled to C
+at build time (never committed). So far it boots through the title menu into NEW GAME's opening movie and the first
+field, with sound, and runs the menus, saving, battles and the world map. It needs
 [winlibs](https://winlibs.com/)' 32-bit MinGW GCC at `C:\winlibs\mingw32` (or set `PC_CC` and `PC_NM`) and your three
 extracted discs in `assets/`:
 

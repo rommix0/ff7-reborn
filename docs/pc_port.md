@@ -64,7 +64,9 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
 3. **Field complete:** dialogue, menus, saving to files. *So far: the field menu and all ten of its screens work, and saving and loading
    (Continue) go through the game's own save menu to `memcard1.mcd`.*
 4. **Battle, world map, mini-games:** with the magic effects. *So far: the battle modules and all 289 effect files
-   are recompiled, and the first battle plays through to its results and back to the field.*
+   are recompiled, and the first battle plays through to its results and back to the field. The world map runs:
+   walking, the map display, the camera, its menu, random battles (escaped, or lost through the game over screen and
+   back to the title), and walking into a field.*
 5. **The whole game,** across all three discs' content with no swaps.
 
 Each stage is checked against the PS1: the PS1 build stays byte-identical, recompiled code is compared with decompiled

@@ -950,7 +950,8 @@ The PC build (`make pc`, below) compiles `cd.c` over `pc/cd_native.c`, a libcd t
   (`INIT/YAMADA.BIN`, 80 bytes, read as a whole sector). `files.txt` maps each sector to a file; past a file's end and
   outside every file a sector reads as zeros. Raw movie files give each sector's 2048 data bytes.
 - **No disc swapping:** the drive always holds the disc the save is on (`0x8009D588`, disc 1 before there's a save),
-  so `\MINT\DISKINFO.CNF` always matches it and `main` never loads `FIELD/DSCHANGE.X`. `cd.c` and `main.c` are
+  so `\MINT\DISKINFO.CNF` always matches it and `main` never loads `FIELD/DSCHANGE.X` for a disc change (it still
+  does for the game over screen, which lives there too). `cd.c` and `main.c` are
   unchanged; the PS1 build keeps its disc check.
 - Reads finish at once and the drive is always ready, so `cd.c`'s retry paths don't run. The hand-written streaming
   decoder (`lzs_stream_start`/`lzs_stream_resume`) has a C version there: 9 sectors of `lzs_stream_src` per call,
@@ -1119,7 +1120,8 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     back to `MD1STIN` in the field, driven by a lab `--input` script that walks north tapping circle.
 - **Field menu** (exe, `func_80023xxx`): `0x8009D2A4` is which of its ten entries show (bit n for Item, Magic,
   Materia, Equip, Status, Order, Limit, Config, PHS, Save) and `0x8009D2A6` which are **locked** (a set bit greys the
-  entry and ○ skips it); Save is bit 9, which a save point presumably clears (not traced yet). The labels are at
+  entry and ○ skips it); PHS is bit 8 and Save bit 9, which the world map clears as it starts (under a condition not
+  traced yet) and sets again as it leaves (`func_800B7620`); save points are not traced yet. The labels are at
   `0x80049248`, 12 bytes each.
   - Opening it ran the main loop's `while (D_80095DD4) ;` (mode 5), a wait for the VSync callback: in C on the PC
     nothing let the interrupt in, so it hung. Both such waits in `main.c` now poll (`HW_WAIT()`, empty on the PS1).
@@ -1132,6 +1134,26 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   - Config's controller Customize writes the remap table `D_8009D7C0` (16 bytes, one per pad bit, each the bit it
     stands for; ○ and ✕ swapped is `05`↔`06` at entries 5 and 6), and the pad reader applies it at once: after the
     swap, ○ backs out of Config and ✕ opens it. The game won't leave Customize while a function has no button.
+- **World map** (`WORLD/WORLD.BIN`, packed; runs at `0x800A0000`, entered at `func_800A460C`): a field ID below
+  `STARTMAP` (`--field 1`) asks for it. It reads `WM0.TXZ`, `WM0.BOT` and `WM0.BSZ`, then streams `WM0.MAP` in blocks
+  as the party walks.
+  - It was linked from two or more objects: data sits between their code (`0x800BD130`-`0x800BFBF0`), so
+    `module_yaml.py` ends a run of code at a word no R3000 runs (from the last return before it), and `recomp.py` ends
+    a function where its asm file's code ends.
+  - Its loop runs while `D_800E566C` is below 6; `func_800B7620` then hands the main loop the exit (`D_8011626C`: 1 is
+    a battle, read by `func_800112E8`), the battle and the field asked for.
+  - Random battles (`func_800B832C`, each frame): none while `D_8009AC2F` is set (the field reads it the same way; a
+    field script sets it, and the opening field leaves it set, so the lab holds `--code "3009AC2F 0000"` after a warp
+    from there). Otherwise every 16 frames of walking `func_800B7C7C` picks a formation or -1, and `func_800A3F4C`
+    starts it. Near Midgar it's two wolves on stage 02 (`ENEMY074`/`075`).
+  - Its menu (`func_80024A3C`, called by the world itself) reloads the portraits only when `D_80071E34` is set, as the
+    main loop does; after a warp the slot still holds Continue's last preload (Barret's face over Cloud's stats).
+  - After a lost battle, `DSCHANGE.X` shows the game over screen (`MOVIE/OVER.LZS`, 640x480, `MOVIE/OVER2.SND`), then
+    the title.
+  - Checked in the lab against the manual: START cycles the map (small, large, none), L1/R1 turn, L2/R2 change the
+    view, △ opens the menu ("Midgar Area"); escaping (L1+R1) returns to the same spot; walking north at Midgar enters
+    field 0xAA (`MDS5_5`). Swinging to the low view, a dark polygon crosses the screen for a few frames (unconfirmed:
+    likely a hill between camera and party, no reference to compare yet).
 - **Field numbers:** the `.DAT` files of `FIELD/` lie on the disc in field order: by sector, `STARTMAP` (the debug
   room) is 0x41 and the rest follow (`MD1STIN` 0x74, `MD1_1` 0x75, ...; `WM*` before it are the world map's). The
   debug room's side rooms are `BLACKBG1`-`BLACKBGK` (0x5D-0x70); Takashi Tokita's, with the save point, is
