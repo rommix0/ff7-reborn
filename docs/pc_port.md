@@ -62,7 +62,8 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
 2. **New game:** title, the opening movie, the first field with walking, music and sound. *So far: the boot runs
    through the credits and the title menu, and NEW GAME plays the opening movie, with its sound, into the first field; music and effects play.*
 3. **Field complete:** dialogue, menus, saving to files.
-4. **Battle, world map, mini-games:** with the magic effects.
+4. **Battle, world map, mini-games:** with the magic effects. *So far: the battle modules and all 289 effect files
+   are recompiled, and the first battle plays through to its results and back to the field.*
 5. **The whole game,** across all three discs' content with no swaps.
 
 Each stage is checked against the PS1: the PS1 build stays byte-identical, recompiled code is compared with decompiled

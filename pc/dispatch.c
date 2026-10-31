@@ -71,14 +71,31 @@ static void *code_at(unsigned int addr)
     return f;
 }
 
-static const Module *modules[64];
+static const Module *modules[512];
+static char ambiguous[512]; /* another module at its address opens with the same bytes */
 static int module_count;
+
+unsigned int code_hash(const void *code, unsigned int size)
+{
+    const unsigned char *p = code;
+    unsigned int h = 2166136261u;
+
+    for (; size; size--)
+        h = (h ^ *p++) * 16777619u;
+    return h;
+}
 
 void module_register(const Module *m)
 {
-    if (module_count == 64) {
+    int i;
+
+    if (module_count == 512) {
         fputs("too many modules\n", stderr);
         exit(1);
+    }
+    for (i = 0; i < module_count; i++) {
+        if (modules[i]->start == m->start && !memcmp(modules[i]->signature, m->signature, sizeof m->signature))
+            ambiguous[i] = ambiguous[module_count] = 1;
     }
     modules[module_count++] = m;
 }
@@ -86,7 +103,8 @@ void module_register(const Module *m)
 /* The game loads a module by reading it over whatever was there, so which one is loaded is read off RAM each time;
  * modules at other addresses (the menus' 0x801D0000) stay loaded beside it. Its data comes in with game code
  * addresses: a word still holding the one it was loaded with gets the native function, while anything the game has
- * put there since stays. ponytail: a signature compare and a patch pass per call; cache the last match if it shows. */
+ * put there since stays. Modules that open with the same bytes (effect files) are told apart by hashing their code.
+ * ponytail: a signature compare (a hash for those) and a patch pass per call; cache the last match if it shows. */
 void *module_function(unsigned int addr)
 {
     const Module *m;
@@ -97,6 +115,8 @@ void *module_function(unsigned int addr)
     for (i = 0; i < module_count; i++) {
         m = modules[i];
         if (memcmp((const void *)m->start, m->signature, sizeof m->signature))
+            continue;
+        if (ambiguous[i] && code_hash((const void *)m->start, m->size) != m->hash)
             continue;
         if (!(f = find(m->code, m->code_count, addr)))
             continue;

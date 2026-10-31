@@ -1067,6 +1067,8 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     entry by `D_` names, which the PC link took as plain addresses, so they're `func_` names now, given to the PS1 link
     by `config/module_entries.ld` (the module splits read `symbols.main.txt`, and would cut their code there).
   - `BATINI.X` runs at `0x801B0000`, read straight after `BATTLE.X`: a table of pointers, then code from `0x50`.
+  - `BATRES.X` (the results screen) runs at `0x801B0000` too: when the battle ends `BATTLE.X` reads it to
+    `0x801C0000`, unpacks it to `0x801B0000` and calls `func_801B0000` (at `0x800A1700`).
   - The first battle (`0x12C`, the guards on the opening platform) reads `BATTLE.X`, `BATINI.X`, `SCENE.BIN` from
     sector 36, `STAGE1/CAMDAT0.LZS` (the battle cameras) and `STAGE1/STAGE09.LZS` (the stage).
   - `BATTLE.X`'s hand-written renderer (`func_800D29D4`) keeps a resume address in `$at` (`lui`/`ori` of its own
@@ -1077,10 +1079,17 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     clobbered the stage switch's `$s1` and the next model drawn was the stage's texture.
   - A stage file (`STAGE09.LZS`, at `0x801590E4`) is a count, then offsets: section 0 is a type byte and a model
     count, the models follow, and the last section is the stage's TIM. `func_800B9568` switches on the type.
-  - Spells and attacks are effect files in `MAGIC/` (318), loaded at `0x801B0000` when used. About 145 are raw code
-    from their first byte, others start with a `lui` or a table of `0x801Bxxxx` pointers (the summons), and a few
-    point higher (`FROG.BIN`, `KAMA.BIN`, `THUNDG1.BIN`). Not in `PC_MODULES` yet: the first battle runs to Cloud's
-    first spell (`BRIZAD.BIN`, Ice) and stops at "no module for 801B037C".
+  - Spells and attacks are effect files: `MAGIC/*.BIN` (289, the same on all three discs; the 29 `.LZS` beside them
+    are summon data), each loaded at `0x801B0000` when used. A header of 0 to 0x8C bytes (pointers into the file,
+    sizes, colours) comes first, then the code (0x300 to 0xEB00 bytes, 1.8 MB in all), then models and textures.
+    `BATTLE.X` enters one through its table `D_800EFAF0` (54 entries: `0x801B0054`, `0x801B037C` for Ice, ...), and
+    an entry can be a leaf with no stack frame (`AQUA.BIN`'s at 0), so `module_yaml.py` walks back from the first
+    stack-frame setup over anything GCC could have emitted.
+  - All of them are in `PC_MODULES` as `magic_<name>`. Eight groups open with the same 64 bytes (a call to a shared
+    `BATTLE.X` helper) and differ later, so modules at one address with one signature are told apart by an FNV-1a
+    hash of their code (`code_hash`).
+  - With those, the first battle plays through: Cloud's Ice twice (`BRIZAD.BIN`), the results (`BATRES.X`), then
+    back to `MD1STIN` in the field, driven by a lab `--input` script that walks north tapping circle.
 - **Not yet:** waiting for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
   bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display and the CD layer.

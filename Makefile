@@ -22,11 +22,13 @@ disks/SCUS_941.63:
 
 # The modules the PC port recompiles, as name:file on disc 1:load address (each the same on all three discs; a .dec
 # is a packed one as the game unpacks it). `make split` splits each into asm/<name> with the splat config
-# tools/module_yaml.py writes for it.
+# tools/module_yaml.py writes for it. The battle's effect files (MAGIC/*.BIN) all load at 0x801B0000.
 PC_MODULES := ending:FIELD/ENDING.X:800A0000 field:FIELD/FIELD.BIN.dec:800A0000 \
-	battle:BATTLE/BATTLE.X.dec:800A0000 batini:BATTLE/BATINI.X.dec:801B0000 batres:BATTLE/BATRES.X.dec:800A0000 \
+	battle:BATTLE/BATTLE.X.dec:800A0000 batini:BATTLE/BATINI.X.dec:801B0000 batres:BATTLE/BATRES.X.dec:801B0000 \
 	$(foreach m,BGIN CHNG CNFG EQIP FORM ITEM LIMT MGIC NAME PATY SAVE SHOP STAT,\
-		$(shell echo $(m) | tr A-Z a-z)menu:MENU/$(m)MENU.MNU:801D0000)
+		$(shell echo $(m) | tr A-Z a-z)menu:MENU/$(m)MENU.MNU:801D0000) \
+	$(shell ls "$(DISC1)/MAGIC" 2>/dev/null | awk '/\.BIN$$/ { sub(/\.BIN$$/, ""); \
+		print "magic_" tolower($$0) ":MAGIC/" $$0 ".BIN:801B0000" }')
 module = $(word $(2),$(subst :, ,$(filter $(1):%,$(PC_MODULES))))
 PC_MODULE_NAMES := $(foreach m,$(PC_MODULES),$(firstword $(subst :, ,$(m))))
 
@@ -267,6 +269,7 @@ pc: build/pc/ff7$(PC_EXE)
 PC_TESTS := memory recomp bridge bios modules hw mdec spu gpu gte display cd lab
 pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_EXE)
 	$(PYTHON) tools/test_recomp.py
+	$(PYTHON) tools/test_module_yaml.py
 	$(PYTHON) tools/test_bios_coverage.py "$(PC_EXE_FILE)"
 	build/pc/test_memory$(PC_EXE) "$(PC_EXE_FILE)"
 	build/pc/test_recomp$(PC_EXE) assets

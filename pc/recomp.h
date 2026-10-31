@@ -27,14 +27,17 @@ void code_register(const CodePatch *table, int n); /* sorted by addr */
 void *code_lookup(unsigned int addr);
 void patch_code_pointers(const CodePatch *p, int n);
 /* A module (an overlay loaded at 0x800A0000 or above, several to an address) as tools/recomp.py writes it: the one in
- * RAM is the one whose first function's opening bytes match its signature. */
+ * RAM is the one whose first function's opening bytes match its signature, or, where modules at an address share a
+ * signature (the battle's effect files), whose code also matches its hash. */
 typedef struct Module {
     unsigned int start; /* its first function */
     unsigned char signature[64];
     const CodePatch *code, *patches;
     int code_count, patch_count;
+    unsigned int size, hash; /* its code's bytes from start, and their code_hash */
 } Module;
 
+unsigned int code_hash(const void *code, unsigned int size); /* FNV-1a */
 void module_register(const Module *m);
 void *module_function(unsigned int addr); /* the loaded module's function at addr, or 0 */
 int module_call(unsigned int addr, int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7);

@@ -26,6 +26,13 @@ static int c_entry(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a
 static const CodePatch c_code[] = {{MENU, (void *)c_entry}};
 static Module c = {MENU, {0}, c_code, 0, 1, 0};
 
+#define EFFECT 0x801B0000u /* two effect files open with the same 64 bytes; their code's hash tells them apart */
+static int d_entry(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7) { return 0xD + a0 + a7; }
+static int e_entry(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7) { return 0xE + a0 + a7; }
+static const CodePatch d_code[] = {{EFFECT, (void *)d_entry}}, e_code[] = {{EFFECT, (void *)e_entry}};
+static unsigned char d_image[128], e_image[128];
+static Module d = {EFFECT, {0}, d_code, 0, 1, 0, sizeof d_image}, e = {EFFECT, {0}, e_code, 0, 1, 0, sizeof e_image};
+
 /* What cd_read leaves in RAM: the module's code, and its data with the game's code addresses. */
 static void load(const Module *m)
 {
@@ -67,6 +74,18 @@ int main(void)
     memcpy((void *)MENU, c.signature, sizeof c.signature);
     assert(module_call(MENU, 1, 0, 0, 0, 0, 0, 0, 2) == 0xC + 3);
     assert(module_call(START, 1, 0, 0, 0, 0, 0, 0, 2) == 0xB + 3);
+
+    /* same_signature_told_apart_by_hash */
+    d_image[100] = 1;
+    e_image[100] = 2;
+    d.hash = code_hash(d_image, sizeof d_image);
+    e.hash = code_hash(e_image, sizeof e_image);
+    module_register(&d);
+    module_register(&e);
+    memcpy((void *)EFFECT, e_image, sizeof e_image);
+    assert(module_call(EFFECT, 1, 0, 0, 0, 0, 0, 0, 2) == 0xE + 3);
+    memcpy((void *)EFFECT, d_image, sizeof d_image);
+    assert(module_call(EFFECT, 1, 0, 0, 0, 0, 0, 0, 2) == 0xD + 3);
     puts("ok");
     return 0;
 }

@@ -110,8 +110,11 @@ def recompile(image: bytes, base: int, funcs: dict[int, str], native: set[str], 
         if base >= MODULES:
             first = own[0] - base
             signature = ", ".join(str(b) for b in image[first:first + 64])
+            fnv = 2166136261  # dispatch.c's code_hash
+            for b in image[first:]:
+                fnv = (fnv ^ b) * 16777619 & 0xFFFFFFFF
             out.append(f"\nconst Module {tag}_module = {{{own[0]:#010x}u, {{{signature}}}, {tag}_code, {tag}_patches, "
-                       f"{len(code)}, {len(patches)}}};\n")
+                       f"{len(code)}, {len(patches)}, {len(image) - first}u, {fnv:#010x}u}};\n")
     return "".join(out)
 
 

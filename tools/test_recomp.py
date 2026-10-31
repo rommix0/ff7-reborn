@@ -214,6 +214,11 @@ def module_calls_exe_and_keeps_its_names_private():
     assert "static void r_800A0000(void)" in c and "\nvoid r_80020000(void);" in c
     assert "void r_80020000(void)\n{" not in c and "static int func_800A0000(" in c
     assert f"const Module mod_module = {{{m:#010x}u, {{{', '.join(str(b) for b in image[:64])}}}" in c
+    # and its code's size and FNV-1a hash, which tell apart modules that open with the same bytes
+    h = 2166136261
+    for b in image:
+        h = (h ^ b) * 16777619 & 0xFFFFFFFF
+    assert f", {len(image)}u, {h:#010x}u}};" in c
 
 
 def code_pointers_found_whatever_splat_typed():
