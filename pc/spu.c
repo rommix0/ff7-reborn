@@ -384,6 +384,12 @@ int spu_mix(short *lr, int frames)
     return raised;
 }
 
+/* Its 512 KiB, for the lab's dumps. */
+const unsigned short *spu_memory(void)
+{
+    return spu_ram;
+}
+
 /* CD audio (a movie's XA sound) at its own rate; what doesn't fit is dropped. */
 void spu_cd_input(const short *lr, int frames, int rate)
 {

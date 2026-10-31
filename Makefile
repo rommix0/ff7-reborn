@@ -24,6 +24,7 @@ disks/SCUS_941.63:
 # is a packed one as the game unpacks it). `make split` splits each into asm/<name> with the splat config
 # tools/module_yaml.py writes for it.
 PC_MODULES := ending:FIELD/ENDING.X:800A0000 field:FIELD/FIELD.BIN.dec:800A0000 \
+	battle:BATTLE/BATTLE.X.dec:800A0000 batini:BATTLE/BATINI.X.dec:801B0000 batres:BATTLE/BATRES.X.dec:800A0000 \
 	$(foreach m,BGIN CHNG CNFG EQIP FORM ITEM LIMT MGIC NAME PATY SAVE SHOP STAT,\
 		$(shell echo $(m) | tr A-Z a-z)menu:MENU/$(m)MENU.MNU:801D0000)
 module = $(word $(2),$(subst :, ,$(filter $(1):%,$(PC_MODULES))))
@@ -47,9 +48,9 @@ split: disks/SCUS_941.63 $(foreach m,$(PC_MODULE_NAMES),disks/$(call module,$(m)
 build/SCUS_941.63: build/main.elf
 	$(CROSS)objcopy -O binary $< $@
 
-build/main.elf: $(OBJS) build/main.ld build/absolute_syms.ld
+build/main.elf: $(OBJS) build/main.ld build/absolute_syms.ld config/module_entries.ld
 	$(CROSS)ld -EL -T build/main.ld -T build/undefined_syms_auto.txt -T build/undefined_funcs_auto.txt \
-		-T build/absolute_syms.ld --no-check-sections -Map build/main.map -o $@
+		-T build/absolute_syms.ld -T config/module_entries.ld --no-check-sections -Map build/main.map -o $@
 
 # splat leaves `absolute:True` symbols (BSS past the end of the file) for us to define.
 build/absolute_syms.ld: config/symbols.main.txt
@@ -209,6 +210,10 @@ PC_TEST_MDEC := build/pc/obj/test_mdec.o build/pc/obj/mdec.o
 build/pc/test_mdec$(PC_EXE): $(PC_TEST_MDEC)
 	$(PC_CC) $(PC_TEST_MDEC) $(PC_LDFLAGS) -o $@
 
+PC_TEST_LAB := build/pc/obj/test_lab.o build/pc/obj/lab.o build/pc/obj/memory.o
+build/pc/test_lab$(PC_EXE): $(PC_TEST_LAB)
+	$(PC_CC) $(PC_TEST_LAB) $(PC_LDFLAGS) -o $@
+
 PC_TEST_GTE := build/pc/obj/test_gte.o build/pc/obj/gte.o
 build/pc/test_gte$(PC_EXE): $(PC_TEST_GTE)
 	$(PC_CC) $(PC_TEST_GTE) $(PC_LDFLAGS) -o $@
@@ -231,7 +236,7 @@ build/pc/test_cd$(PC_EXE): $(PC_TEST_CD) build/pc/test_cd.ld
 
 # The game: its C, the PC runtime, and the rest of the exe recompiled from the user's copy.
 PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o sound_init.o sound.o cd.o movie.o)
-PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o gte.o display.o cd_native.o sdl.o)
+PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o gte.o display.o cd_native.o sdl.o lab.o)
 build/pc/obj/sdl.o: PC_CFLAGS += $(PC_SDL_CFLAGS)
 build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)
 	$(PC_NM) $^ > $@
@@ -252,14 +257,14 @@ PC_GEN := build/pc/obj/gen/exe.o build/pc/obj/gen/module_list.o \
 	$(foreach m,$(PC_MODULE_NAMES),build/pc/obj/gen/mod/$(m).o)
 build/pc/ff7.ld: $(PC_GAME) $(PC_RUNTIME) $(PC_GEN) tools/pc_syms.py
 	$(PYTHON) tools/pc_syms.py $@ "$(PC_CC) $(PC_LDFLAGS)" $(PC_GAME) $(PC_RUNTIME) $(PC_GEN) 		--nm $(PC_NM) --stubs build/pc/gen/modules.c
-build/pc/gen/modules.c: build/pc/ff7.ld
+build/pc/gen/modules.c: build/pc/ff7.ld ; @: # an empty recipe: written with ff7.ld, so modules.o follows it
 build/pc/ff7$(PC_EXE): $(PC_GAME) $(PC_RUNTIME) $(PC_GEN) build/pc/obj/gen/modules.o build/pc/ff7.ld | build/pc/SDL2.dll
 	$(PC_CC) $^ $(PC_LDFLAGS) $(PC_SDL_LIBS) -o $@
 build/pc/SDL2.dll: $(SDL2_DIR)/bin/SDL2.dll
 	cp $< $@
 pc: build/pc/ff7$(PC_EXE)
 
-PC_TESTS := memory recomp bridge bios modules hw mdec spu gpu gte display cd
+PC_TESTS := memory recomp bridge bios modules hw mdec spu gpu gte display cd lab
 pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_EXE)
 	$(PYTHON) tools/test_recomp.py
 	$(PYTHON) tools/test_bios_coverage.py "$(PC_EXE_FILE)"
@@ -275,6 +280,7 @@ pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_E
 	build/pc/test_gte$(PC_EXE)
 	build/pc/test_display$(PC_EXE)
 	build/pc/test_cd$(PC_EXE) "$(PC_EXE_FILE)" assets
+	cd build/pc && ./test_lab$(PC_EXE)
 	@# boots past the second sound load (frame ~680), which waits on an SPU transfer in C; 900 frames take 15 s
 	timeout 60 build/pc/ff7$(PC_EXE) assets --frames 900 --shot build/pc/boot.bmp > /dev/null 2>&1
 

@@ -19,10 +19,11 @@ JR_RA = 0x03E00008
 
 def is_lead_in(word: int) -> bool:
     """Whether a word before the first stack-frame setup can be the start of that function: GCC may schedule a load
-    or two ahead of it. A pointer, a zero word, a branch or a non-instruction is the data before the code."""
+    or two ahead of it (or the lui of its address). Anything else is the data before the code: BATINI.X's last data
+    word reads as daddi, which the R3000 doesn't have."""
     ins = rabbitizer.Instruction(word)
-    return bool(word) and not 0x80000000 <= word < 0x80200000 and ins.isValid() and not ins.isBranch() \
-        and not ins.isJump()
+    return bool(word) and not 0x80000000 <= word < 0x80200000 and ins.isValid() \
+        and (ins.doesLoad() or ins.getOpcodeName() == "lui")
 
 
 def code_bounds(image: bytes) -> tuple[int, int]:
@@ -31,7 +32,8 @@ def code_bounds(image: bytes) -> tuple[int, int]:
     start = next(i for i, w in enumerate(words) if w >> 16 == PROLOGUE and w & 0x8000)
     while start and is_lead_in(words[start - 1]):
         start -= 1
-    end = max(i for i, w in enumerate(words) if w == JR_RA) + 2
+    # BATRES.X ends on a jr $ra whose delay slot is its zeroed BSS, past the file
+    end = min(max(i for i, w in enumerate(words) if w == JR_RA) + 2, len(words))
     return start * 4, end * 4
 
 
@@ -44,6 +46,7 @@ def main():
     image = args.file.read_bytes()
     start, end = code_bounds(image)
     rodata = "      - [0, rodata]\n" if start else ""
+    data = f"      - [{end:#x}, data]\n" if end < len(image) else ""
     print(f"""name: {args.file.name}
 sha1: {hashlib.sha1(image).hexdigest()}
 options:
@@ -81,8 +84,7 @@ segments:
     vram: 0x{args.vram:X}
     subsegments:
 {rodata}      - [{start:#x}, asm]
-      - [{end:#x}, data]
-  - [0x{len(image):X}]""")
+{data}  - [0x{len(image):X}]""")
 
 
 if __name__ == "__main__":

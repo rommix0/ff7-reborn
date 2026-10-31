@@ -41,6 +41,7 @@ int polls;
 void hw_poll(void) {{ polls++; }}
 unsigned int indirect;
 void call_indirect(unsigned int addr) {{ indirect = addr; }}
+void jump_indirect(unsigned int addr) {{ ctx.pending = addr; }} /* no function at any address here */
 void recomp_missing(unsigned int addr) {{ (void)addr; }}
 void recomp_syscall(unsigned int code) {{ (void)code; }}
 void recomp_break(unsigned int code) {{ (void)code; }}
@@ -182,6 +183,28 @@ def setjmp_return_is_an_entry():
     assert run(words, body, {BASE: "f", s: "setjmp"}) == ["5", "6"]
 
 
+def jr_to_an_address_built_inside_the_function():
+    # BATTLE.X's hand-written code builds one of its own labels' address in $at and jumps there later
+    target = BASE + 0x14
+    words = [i_type(0x0F, 0, 1, target >> 16), i_type(0x0D, 1, 1, target & 0xFFFF), r_type(8, rs=1), NOP,
+             addiu(V0, ZERO, 1), addiu(V0, ZERO, 7), JR_RA, NOP]
+    assert run(words, call({}) + '    printf("%u %u", ctx.r[2], indirect);\n') == ["7", "0"]
+
+
+def callee_jr_lands_in_its_caller():
+    # BATTLE.X's helpers bail out with jr $at to a label their caller put there (func_800D32B4 into func_800D29D4)
+    target, g = BASE + 0x1C, BASE + 0x40
+    words = [i_type(0x0F, 0, 1, target >> 16), i_type(0x0D, 1, 1, target & 0xFFFF), 0x0C000000 | (g & 0x3FFFFFF) >> 2,
+             NOP, addiu(V0, ZERO, 1), JR_RA, NOP, addiu(V0, ZERO, 7), JR_RA, NOP] + [NOP] * 6 + [r_type(8, rs=1), NOP]
+    out = run(words, call({}) + '    printf("%u %u", ctx.r[2], ctx.pending);\n', {BASE: "f", g: "g"})
+    assert out == ["7", "0"]
+
+
+def jr_ra_at_the_image_end_has_a_nop_slot():
+    # BATRES.X ends on jr $ra: its delay slot is the module's BSS, which the loader zeroes
+    assert run([addiu(V0, ZERO, 7), JR_RA], call({}) + '    printf("%u", ctx.r[2]);\n') == ["7"]
+
+
 def module_calls_exe_and_keeps_its_names_private():
     # A module at 0x800A0000 calls exe function e (recompiled elsewhere: only declared here) and records its signature
     m, e = 0x800A0000, 0x80020000
@@ -212,6 +235,7 @@ if __name__ == "__main__":
                  module_call_goes_indirect, function_address_kept_for_compares,
                  stored_function_address_becomes_native, module_calls_exe_and_keeps_its_names_private,
                  setjmp_return_is_an_entry, address_stored_in_return_slot_becomes_native,
-                 code_pointers_found_whatever_splat_typed):
+                 code_pointers_found_whatever_splat_typed, jr_ra_at_the_image_end_has_a_nop_slot,
+                 jr_to_an_address_built_inside_the_function, callee_jr_lands_in_its_caller):
         test()
     print("ok")

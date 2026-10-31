@@ -17,6 +17,8 @@
 #define SAVE_DISC ((unsigned char *)0x8009D588) /* the save's disc number (main.c's D_8009D274.disc) */
 #define SECTOR 2048
 
+void lab_file(const char *path, unsigned int sector); /* lab.c: a read starts */
+
 /* The hand-written decoder's state block (0x80034CF0) is replaced below, so its first word, the input pointer
  * cd.c sets, is a plain variable here. */
 void *lzs_stream_src;
@@ -129,12 +131,19 @@ static const PcFile *file_at(int disc, unsigned int lba)
  * that; elsewhere, past a file's end and outside every file it reads zeros, as the disc's padding does. */
 static void read_part(unsigned int lba, unsigned char *dst, int at, size_t size)
 {
+    static unsigned int last_lba;
+    static const PcFile *last_file;
     int disc = inserted_disc();
     const PcFile *f = file_at(disc, lba);
     char path[600];
     size_t got = 0;
     long n;
 
+    /* a read starts where it jumps, or runs on into the next file (BATTLE.X into BATINI.X) */
+    if (f && (f != last_file || (lba != last_lba && lba != last_lba + 1)))
+        lab_file(f->path, lba - f->lba);
+    last_lba = lba;
+    last_file = f;
     if (f && f != open_entry) {
         if (open_file)
             fclose(open_file);

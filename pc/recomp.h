@@ -7,6 +7,8 @@
 
 typedef struct Ctx {
     unsigned int r[32], hi, lo;
+    unsigned int pending; /* where a jr out of a function went, if no function is there: a caller's label, which
+                             that caller takes when the call returns (jump_indirect) */
 } Ctx;
 
 extern Ctx ctx;
@@ -52,7 +54,8 @@ extern unsigned int i_stat, i_mask;
 extern unsigned short pad_buttons; /* active low, in the PS1's bit order */
 
 void hw_poll(void);                       /* at every backward branch: lets interrupts in */
-void call_indirect(unsigned int addr);    /* jalr, and jr through a register that isn't a jump table */
+void call_indirect(unsigned int addr);    /* jalr */
+void jump_indirect(unsigned int addr);    /* jr through a register that isn't a jump table: a function, or pending */
 void recomp_missing(unsigned int addr);   /* a jal whose target wasn't recompiled */
 void recomp_syscall(unsigned int code);
 void recomp_break(unsigned int code);

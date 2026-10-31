@@ -141,14 +141,12 @@ def function(image, base, start, end, funcs, native_at, names, table, entry=None
             target = ins.getBranchVramGeneric() if ins.isBranch() else ins.getInstrIndexAsVram()
             if target in inside:
                 labels.add(target)
-    # A delay slot that is itself a branch target is emitted twice: once with its branch and once on its own.
-    for i, ins in enumerate(instrs):
-        if ins.hasDelaySlot() and start + 4 * (i + 1) in labels:
-            labels.add(start + 4 * (i + 2))
 
     # A lui/addiu (or ori) pair that builds a function's address gives its native address instead: the PC build's
-    # code pointers are all native, so C can call what the game stores.
+    # code pointers are all native, so C can call what the game stores. One that builds an address inside this
+    # function is where a jr through a register goes (BATTLE.X's hand-written code): a label, and a case of its switch.
     function_at = {}
+    built = set()
     luis = {}
     for i, (ins, raw) in enumerate(zip(instrs, words)):
         if start + 4 * i in labels:
@@ -159,10 +157,25 @@ def function(image, base, start, end, funcs, native_at, names, table, entry=None
                 if op == 0x09 else luis[rs] | raw & 0xFFFF
             if value in funcs:
                 function_at[i] = value
+            elif value in inside:
+                built.add(value)
         for written in ([raw >> 11 & 31] if ins.modifiesRd() else []) + ([rt] if ins.modifiesRt() else []):
             luis.pop(written, None)
         if op == 0x0F:
             luis[rt] = (raw & 0xFFFF) << 16
+    labels |= built
+    table = list(table) + sorted(built)
+    # Such an address may come back from a call (a helper's jr $at): the call returns with it pending, and this function
+    # goes there; one of somebody else's goes on up. ponytail: only functions that build one check, so a jump through
+    # a caller that builds none goes past it; check after every call if that turns up.
+    after_call = ""
+    if built:
+        cases = "".join(f"case {t:#010x}u: ctx.pending = 0; goto L_{t:08X}; " for t in sorted(built))
+        after_call = f" if (ctx.pending) {{ switch (ctx.pending) {{ {cases}default: return; }} }}"
+    # A delay slot that is itself a branch target is emitted twice: once with its branch and once on its own.
+    for i, ins in enumerate(instrs):
+        if ins.hasDelaySlot() and start + 4 * (i + 1) in labels:
+            labels.add(start + 4 * (i + 2))
 
     def escapes(i, reg):
         """Whether the address built into reg leaves as a code pointer: stored, passed to a call, returned or called.
@@ -219,7 +232,7 @@ def function(image, base, start, end, funcs, native_at, names, table, entry=None
         if i + 1 < len(instrs):
             slot = (put(words[i + 1] >> 16 & 31, f"(unsigned int){names[function_at[i + 1]]}") if i + 1 in function_at
                     else simple(instrs[i + 1], words[i + 1], pc + 4))
-        lines.append(f"    {{ {control(ins, words[i], pc, slot, jump, call, table, inside)} }}\n")
+        lines.append(f"    {{ {control(ins, words[i], pc, slot, jump, call, table, inside, after_call)} }}\n")
         if pc + 4 in labels:
             lines.append(f"    goto L_{pc + 8:08X};\nL_{pc + 4:08X}:;\n    {slot}\n")
         i += 2
@@ -227,8 +240,8 @@ def function(image, base, start, end, funcs, native_at, names, table, entry=None
     return "".join(lines)
 
 
-def control(ins, raw, pc, slot, jump, call, table, inside):
-    """A branch or jump with its delay slot already translated."""
+def control(ins, raw, pc, slot, jump, call, table, inside, after_call=""):
+    """A branch or jump with its delay slot already translated; after_call follows a call."""
     name, rs, rt = ins.getOpcodeName(), raw >> 21 & 31, raw >> 16 & 31
     link = f"ctx.r[31] = {pc + 8:#010x}u; " if name in ("bltzal", "bgezal", "jal") else ""
     cond = {
@@ -242,15 +255,16 @@ def control(ins, raw, pc, slot, jump, call, table, inside):
     if name == "j":
         return f"{slot} {jump(ins.getInstrIndexAsVram(), pc)}"
     if name == "jal":
-        return f"{link}{slot} {call(ins.getInstrIndexAsVram())}"
+        return f"{link}{slot} {call(ins.getInstrIndexAsVram())}{after_call}"
     if name == "jalr":
         rd = raw >> 11 & 31
-        return f"unsigned int t = {reg(rs)}; {put(rd, f'{pc + 8:#010x}u') if rd else ''} {slot} call_indirect(t);"
+        return (f"unsigned int t = {reg(rs)}; {put(rd, f'{pc + 8:#010x}u') if rd else ''} {slot} call_indirect(t);"
+                f"{after_call}")
     if name == "jr" and rs == 31:
         return f"{slot} return;"
     if name == "jr":
         cases = "".join(f"case {t:#010x}u: goto L_{t:08X}; " for t in sorted(set(table)) if t in inside)
-        return f"unsigned int t = {reg(rs)}; {slot} switch (t) {{ {cases}default: call_indirect(t); return; }}"
+        return f"unsigned int t = {reg(rs)}; {slot} switch (t) {{ {cases}default: jump_indirect(t); return; }}"
     raise ValueError(f"{pc:08X}: no translation for {name}")
 
 

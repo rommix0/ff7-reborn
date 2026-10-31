@@ -129,3 +129,14 @@ void call_indirect(unsigned int addr)
     ctx.r[2] = ((NativeCall)f)(ctx.r[4], ctx.r[5], ctx.r[6], ctx.r[7], mem_r32(sp + 0x10), mem_r32(sp + 0x14),
                                mem_r32(sp + 0x18), mem_r32(sp + 0x1C));
 }
+
+/* A jr through a register: a tail call when a function is there; otherwise a jump back into a caller's code (BATTLE.X's
+ * helpers leave by jr $at to a label their caller set), left in ctx.pending for that caller to take. */
+void jump_indirect(unsigned int addr)
+{
+    if (addr >= RAM_START && addr < RAM_START + RAM_SIZE && !code_lookup(addr) && !module_function(addr)) {
+        ctx.pending = addr;
+        return;
+    }
+    call_indirect(addr);
+}

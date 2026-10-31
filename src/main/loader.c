@@ -30,8 +30,8 @@ void load_tim(unsigned int *tim);
 void func_800149E0(void);
 void func_80044000(void *rect, unsigned int *data); /* VRAM upload */
 /* Entry points of the modules run_overlay starts. */
-void D_800A00CC(void);
-void D_800A1158(void);
+void func_800A00CC(void);
+void func_800A1158(void);
 
 unsigned int disc_file_lba(int i)
 {
@@ -95,11 +95,11 @@ void func_800146A4(void)
         switch (game_mode) {
         case 4:
             wait_disc_read(0);
-            run_overlay(3, D_800A00CC);
+            run_overlay(3, func_800A00CC);
             break;
         case 2:
             func_800140F4();
-            run_overlay(5, D_800A1158);
+            run_overlay(5, func_800A1158);
             break;
         default:
             running = 0;

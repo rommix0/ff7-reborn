@@ -1,7 +1,9 @@
 /* The PC build's entry: maps the PS1's RAM, loads the user's own exe into it, and runs the game from the exe's entry
- * point, recompiled. usage: ff7 [ASSETS] [--frames N] [--shot FILE.bmp]
+ * point, recompiled. usage: ff7 [ASSETS] [--frames N] [--shot FILE.bmp] [--trace FILE] [--input FILE] [--field N]
+ * [--dump-at N]
  *
- * With --frames, it saves what's on screen after N frames (to --shot, or screenshot.bmp) and exits. */
+ * With --frames, it saves what's on screen after N frames (to --shot, or screenshot.bmp) and exits. The rest is the
+ * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +24,8 @@ extern const int pc_module_count;
 /* sdl.c: the window, unless --frames asks for a run without one. */
 int sdl_open(void);
 int sdl_frame(void);
+int lab_open(const char *trace_path, const char *input_path, int warp_field, int dump_frame);
+void lab_frame(void);
 
 Ctx ctx;
 unsigned int cop0[32];
@@ -45,12 +49,10 @@ void pc_vblank(void)
     static unsigned int rgba[640 * 512];
     Display d;
 
-    if (frames_left < 0) {
-        if (!sdl_frame())
-            exit(0);
-        return;
-    }
-    if (--frames_left)
+    if (frames_left < 0 && !sdl_frame())
+        exit(0);
+    lab_frame();
+    if (frames_left < 0 || --frames_left)
         return;
     d = gpu_display();
     display_to_rgba(&d, rgba);
@@ -59,18 +61,28 @@ void pc_vblank(void)
 
 int main(int argc, char **argv)
 {
-    const char *assets = "assets";
+    const char *assets = "assets", *trace = 0, *input = 0;
     char exe[600];
-    int i;
+    int i, field = -1, dump_at = -1;
 
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc)
             frames_left = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--shot") && i + 1 < argc)
             shot = argv[++i];
+        else if (!strcmp(argv[i], "--trace") && i + 1 < argc)
+            trace = argv[++i];
+        else if (!strcmp(argv[i], "--input") && i + 1 < argc)
+            input = argv[++i];
+        else if (!strcmp(argv[i], "--field") && i + 1 < argc)
+            field = strtol(argv[++i], 0, 0);
+        else if (!strcmp(argv[i], "--dump-at") && i + 1 < argc)
+            dump_at = atoi(argv[++i]);
         else
             assets = argv[i];
     }
+    if (lab_open(trace, input, field, dump_at))
+        return 1;
     if (pc_cd_open(assets) != 3) {
         fprintf(stderr, "%s: expected the three discs extracted with tools/extract_disc.py\n", assets);
         return 1;

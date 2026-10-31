@@ -76,4 +76,4 @@ in the repo.
 ## Open
 
 - SDL2 (zlib licence) is the port's one outside dependency, chosen over DirectX 9 so the build can go cross-platform:
-  the window and sound are in; controllers go through it next.
+  the window, sound and controllers are in.

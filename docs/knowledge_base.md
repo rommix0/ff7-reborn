@@ -1050,7 +1050,31 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   - Left out: the capture buffers (the SPU writing the CD input and voices 1 and 3 into RAM `0x000`–`0xFFF`, with
     their interrupt). The exe has no libspu reader for them. If streamed sound (XA, or the sample streams) ever
     misbehaves, check first whether a module reads that RAM or sets the IRQ address below `0x1000`.
-- **Not yet:** game controllers, L1/R1/L2/R2 keys. Waiting for the host's clock spins a core.
+- **Reversing lab** (`pc/lab.c`; the options are in the README): a trace of the game frame by frame, the pad from a
+  script, a warp to a field, and dumps of RAM, VRAM and SPU RAM.
+  - The warp asks as a gateway does (`D_8009ABF5` = 1, `D_8009ABF6` = the field) whenever `game_mode` is 1 (in a
+    field) and nothing is asked for, until the field is the one wanted: a field setting up clears what's asked.
+    `--field 0x41` from NEW GAME lands in the debug room 21 frames after the first field loads, before the
+    opening movie is asked for.
+  - What the traces showed: a field loads its `.MIM` (background), `.DAT` and `.BSX`, then each character's `.BCX`
+    and `FIELD.TDB`. The opening field `MD1STIN` loads `CLOUD.BCX` and `BALLET.BCX`; the debug room (`STARTMAP`)
+    `CLOUD.BCX`, `TIFA.BCX` and `CID.BCX`, then `BLACKBG3`, `5` and `1.MIM` as it runs. The opening movie is
+    request 3 while asked for and 4 while it plays.
+- **Battle** (`BATTLE.X`, `BATINI.X`, `BATRES.X` in `PC_MODULES`):
+  - A module file's 8-byte header is its unpacked size and a BSS size, which `func_80015CA0` zeroes after the image.
+    `BATRES.X` ends on a `jr $ra` whose delay slot is that BSS.
+  - `BATTLE.X` runs at `0x800A0000` from `func_800A1158` (`run_overlay(5, …)`); `loader.c` called it and the file-3
+    entry by `D_` names, which the PC link took as plain addresses, so they're `func_` names now, given to the PS1 link
+    by `config/module_entries.ld` (the module splits read `symbols.main.txt`, and would cut their code there).
+  - `BATINI.X` runs at `0x801B0000`, read straight after `BATTLE.X`: a table of pointers, then code from `0x50`.
+  - The first battle (`0x12C`, the guards on the opening platform) reads `BATTLE.X`, `BATINI.X`, `SCENE.BIN` from
+    sector 36, `STAGE1/CAMDAT0.LZS` (the battle cameras) and `STAGE1/STAGE09.LZS` (the stage).
+  - `BATTLE.X`'s hand-written renderer (`func_800D29D4`) keeps a resume address in `$at` (`lui`/`ori` of its own
+    label) and calls helpers (`func_800D32B4`, `func_800D3354`) that leave by `jr $at` into it. `recomp.py` makes
+    such addresses labels; a `jr` to no function leaves it in `ctx.pending`, which the caller takes after the call.
+  - Not yet running: that renderer's polygon pointer (`$a0`) runs 64 KB past the end of RAM on the first battle's
+    stage, so a count or the data it reads is wrong upstream.
+- **Not yet:** waiting for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
   bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display and the CD layer.
 

@@ -56,6 +56,7 @@ void spu_cd_input(const short *lr, int frames, int rate)
     xa_last[0] = lr[2 * frames - 2], xa_last[1] = lr[2 * frames - 1];
 }
 int bios_call(int table, int n) { (void)table; (void)n; return 0; }
+void lab_file(const char *path, unsigned int sector) { (void)path, (void)sector; }
 unsigned int io_read(unsigned int addr, int size) { (void)addr; (void)size; return 0; }
 void io_write(unsigned int addr, unsigned int v, int size) { (void)addr; (void)v; (void)size; }
 Ctx ctx;

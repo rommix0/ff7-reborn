@@ -1,4 +1,5 @@
-/* The window: the PS1's display scaled to 640x480 at 4:3, the keyboard as pad 1, and the SPU's sound. */
+/* The window: the PS1's display scaled to 640x480 at 4:3, the keyboard and the first game controller as pad 1, and
+ * the SPU's sound. */
 #include <stdio.h>
 #define SDL_MAIN_HANDLED /* main.c keeps its own main */
 #include <SDL.h>
@@ -13,6 +14,9 @@ static SDL_Renderer *renderer;
 static SDL_Texture *texture;
 static short audio_ring[AUDIO_RING][2];
 static SDL_atomic_t audio_in, audio_out; /* frames written and played, counted on from 0 */
+static SDL_GameController *controller;
+
+void lab_dump(void);
 
 /* Keys for the pad's bits, in the PS1's order (bit 0 Select ... bit 15 Square). */
 static const struct {
@@ -20,8 +24,22 @@ static const struct {
     int bit;
 } keys[] = {
     {SDL_SCANCODE_BACKSPACE, 0}, {SDL_SCANCODE_RETURN, 3}, {SDL_SCANCODE_UP, 4}, {SDL_SCANCODE_RIGHT, 5},
-    {SDL_SCANCODE_DOWN, 6}, {SDL_SCANCODE_LEFT, 7}, {SDL_SCANCODE_S, 12}, {SDL_SCANCODE_X, 13},
+    {SDL_SCANCODE_DOWN, 6}, {SDL_SCANCODE_LEFT, 7}, {SDL_SCANCODE_1, 8}, {SDL_SCANCODE_2, 9},
+    {SDL_SCANCODE_Q, 10}, {SDL_SCANCODE_W, 11}, {SDL_SCANCODE_S, 12}, {SDL_SCANCODE_X, 13},
     {SDL_SCANCODE_Z, 14}, {SDL_SCANCODE_A, 15},
+};
+
+/* A controller's buttons by where they sit: the bottom face button is ×, the right one ○. */
+static const struct {
+    SDL_GameControllerButton button;
+    int bit;
+} buttons[] = {
+    {SDL_CONTROLLER_BUTTON_BACK, 0}, {SDL_CONTROLLER_BUTTON_LEFTSTICK, 1}, {SDL_CONTROLLER_BUTTON_RIGHTSTICK, 2},
+    {SDL_CONTROLLER_BUTTON_START, 3}, {SDL_CONTROLLER_BUTTON_DPAD_UP, 4}, {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 5},
+    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, 6}, {SDL_CONTROLLER_BUTTON_DPAD_LEFT, 7},
+    {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, 10}, {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 11},
+    {SDL_CONTROLLER_BUTTON_Y, 12}, {SDL_CONTROLLER_BUTTON_B, 13}, {SDL_CONTROLLER_BUTTON_A, 14},
+    {SDL_CONTROLLER_BUTTON_X, 15},
 };
 
 /* On SDL's audio thread: the SPU's frames, or silence until enough have come. */
@@ -89,6 +107,7 @@ int sdl_open(void)
     want.channels = 2;
     want.samples = 1024;
     want.callback = play;
+    SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER); /* controllers come in as events, those plugged in already too */
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
         device = SDL_OpenAudioDevice(0, 0, &want, 0, 0);
     if (device)
@@ -98,7 +117,8 @@ int sdl_open(void)
     return 0;
 }
 
-/* Once a vblank: show the display area, read the keyboard. 0 when the player closes the window. */
+/* Once a vblank: show the display area, read the keyboard and controller. 0 when the player closes the window. F12
+ * saves a screenshot, F11 dumps memory for the lab. */
 int sdl_frame(void)
 {
     static unsigned int rgba[640 * 512];
@@ -106,7 +126,7 @@ int sdl_frame(void)
     SDL_Rect area;
     SDL_Event e;
     Display d = gpu_display();
-    unsigned short buttons = 0xFFFF;
+    unsigned short pad_buttons_held = 0xFFFF;
     unsigned int i;
 
     display_to_rgba(&d, rgba);
@@ -122,12 +142,40 @@ int sdl_frame(void)
             return 0;
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F12 && !e.key.repeat)
             save_bmp("screenshot.bmp", rgba, d.w, d.h);
+        if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F11 && !e.key.repeat)
+            lab_dump();
+        if (e.type == SDL_CONTROLLERDEVICEADDED && !controller)
+            controller = SDL_GameControllerOpen(e.cdevice.which);
+        if (e.type == SDL_CONTROLLERDEVICEREMOVED && controller
+            && e.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller))) {
+            SDL_GameControllerClose(controller);
+            controller = 0;
+        }
     }
     down = SDL_GetKeyboardState(0);
     for (i = 0; i < sizeof keys / sizeof keys[0]; i++) {
         if (down[keys[i].key])
-            buttons &= ~(1u << keys[i].bit);
+            pad_buttons_held &= ~(1u << keys[i].bit);
     }
-    pad_buttons = buttons;
+    if (controller) {
+        for (i = 0; i < sizeof buttons / sizeof buttons[0]; i++) {
+            if (SDL_GameControllerGetButton(controller, buttons[i].button))
+                pad_buttons_held &= ~(1u << buttons[i].bit);
+        }
+        /* the triggers as L2 and R2, the left stick as the d-pad: past half way */
+        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 0x4000)
+            pad_buttons_held &= ~(1u << 8);
+        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 0x4000)
+            pad_buttons_held &= ~(1u << 9);
+        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY) < -0x4000)
+            pad_buttons_held &= ~(1u << 4);
+        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX) > 0x4000)
+            pad_buttons_held &= ~(1u << 5);
+        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY) > 0x4000)
+            pad_buttons_held &= ~(1u << 6);
+        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX) < -0x4000)
+            pad_buttons_held &= ~(1u << 7);
+    }
+    pad_buttons = pad_buttons_held;
     return 1;
 }
