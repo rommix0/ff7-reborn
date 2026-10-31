@@ -39,7 +39,7 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
 3. **Hardware where the PS1's behaviour is the point, libraries where the PC should differ.**
    - Emulated, so Sony's library code runs as compiled: the **GPU** (GP0/GP1 commands and DMA into 1024×512 VRAM),
      the **GTE** (COP2, for libgte and inline use alike), the **MDEC** (done: the in-memory movies run through libpress
-     unchanged), the **SPU** (done but reverb: 24 ADPCM voices, ADSR, noise, CD input), root counters and the VSync interrupt. Behaviour
+     unchanged), the **SPU** (done: 24 ADPCM voices, ADSR, sweeps, noise, reverb, its interrupt, CD input), root counters and the VSync interrupt. Behaviour
      comes from psx-spx; no emulator code is copied (most are GPL).
    - Replaced at the library: **libcd** (done: extracted files, the save's disc always inserted), **libcd's streaming**
      (the STR sectors read from the extracted files, so movies run through libpress, the MDEC and `movie.c` as they
@@ -53,7 +53,7 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
    upscaling later.
 
 5. **Audio:** the SPU mixed at 44.1 kHz into a fixed ring buffer read by the audio callback (no allocation or locking
-   there); movie audio decoded from the STR's XA sectors, at each movie's `MOVIE_ID.BIN` volume. *Done but reverb.*
+   there); movie audio decoded from the STR's XA sectors, at each movie's `MOVIE_ID.BIN` volume. *Done.*
 
 ## Milestones
 

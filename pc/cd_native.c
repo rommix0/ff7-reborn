@@ -325,38 +325,39 @@ static short clamp16(double s)
     return s < -0x8000 ? -0x8000 : s > 0x7FFF ? 0x7FFF : (short)s;
 }
 
-/* An XA audio sector (psx-spx, "CDROM XA Audio ADPCM Compression"): 4-bit ADPCM, each group 8 units of 28 samples
- * (alternately left and right in stereo), at 37.8 or 18.9 kHz; through CdMix's matrix to the SPU. A sector flagged
- * for emphasis is undone with the CD's 50/15 us shelf (tools/movie.py works it the same way). ponytail: 8-bit XA is
- * passed over; FF7's movies are all 4-bit. */
-static void xa_sector(unsigned int lba)
+/* An XA audio sector from its subheader on (psx-spx, "CDROM XA Audio ADPCM Compression"): each group 8 units of 28
+ * 4-bit samples, or 4 of 8-bit ones (alternately left and right in stereo), at 37.8 or 18.9 kHz; through CdMix's
+ * matrix to the SPU. A sector flagged for emphasis is undone with the CD's 50/15 us shelf (tools/movie.py works it the
+ * same way). FF7's movies are all 4-bit. */
+void xa_decode(const unsigned char *sector)
 {
     static const int forward[4] = {0, 60, 115, 98}, back[4] = {0, 0, -52, -55};
     static short pcm[XA_GROUPS * 8 * 28][2];
-    unsigned char sector[8 + XA_GROUPS * 128], *group;
-    int stereo, rate, frames, g, unit, j, shift, filter, s, side, i, l, r;
+    const unsigned char *group;
+    int stereo, rate, units, frames, g, unit, j, shift, filter, s, side, i, l, r;
     int *h;
 
-    read_part(lba, sector, 16, sizeof sector);
-    if (!(sector[2] & 4) || sector[3] & 0x30) /* the subheader: audio, 4-bit */
+    if (!(sector[2] & 4) || (sector[3] >> 4 & 3) > 1) /* audio, 4- or 8-bit */
         return;
     stereo = sector[3] & 1;
     rate = sector[3] & 4 ? 18900 : 37800;
-    frames = XA_GROUPS * 28 * (stereo ? 4 : 8);
+    units = sector[3] & 0x10 ? 4 : 8;
+    frames = XA_GROUPS * 28 * units / (stereo ? 2 : 1);
     for (g = 0; g < XA_GROUPS; g++) {
         group = sector + 8 + g * 128;
-        for (unit = 0; unit < 8; unit++) {
+        for (unit = 0; unit < units; unit++) {
             shift = group[4 + unit] & 0xF;
             shift = shift > 12 ? 9 : shift;
             filter = group[4 + unit] >> 4 & 3;
             side = stereo ? unit & 1 : 0;
             h = xa_history[side];
             for (j = 0; j < 28; j++) {
-                s = ((short)((group[16 + j * 4 + unit / 2] >> (unit & 1) * 4 & 0xF) << 12) >> shift)
-                    + ((h[0] * forward[filter] + h[1] * back[filter] + 32) >> 6);
+                s = units == 4 ? (short)(group[16 + j * 4 + unit] << 8)
+                               : (short)((group[16 + j * 4 + unit / 2] >> (unit & 1) * 4 & 0xF) << 12);
+                s = (s >> shift) + ((h[0] * forward[filter] + h[1] * back[filter] + 32) >> 6);
                 h[1] = h[0];
                 h[0] = clamp16(s);
-                i = stereo ? (g * 4 + unit / 2) * 28 + j : (g * 8 + unit) * 28 + j;
+                i = stereo ? (g * units / 2 + unit / 2) * 28 + j : (g * units + unit) * 28 + j;
                 pcm[i][side] = h[0];
                 if (!stereo)
                     pcm[i][1] = h[0];
@@ -381,6 +382,14 @@ static void xa_sector(unsigned int lba)
         pcm[i][1] = clamp16((r * cd_mix.val2 + l * cd_mix.val1) >> 7);
     }
     spu_cd_input(pcm[0], frames, rate);
+}
+
+static void xa_sector(unsigned int lba)
+{
+    unsigned char sector[8 + XA_GROUPS * 128];
+
+    read_part(lba, sector, 16, sizeof sector);
+    xa_decode(sector);
 }
 
 static double sectors_in(void)

@@ -39,6 +39,7 @@ int StGetNext(unsigned int **addr, unsigned int **header);
 void StFreeRing(unsigned int *base);
 void StUnSetRing(void);
 int func_8003E100(int com, void *param, void *result);
+void xa_decode(const unsigned char *sector);
 
 int snd_submit_request(void) { return 0; }
 int VSync(int mode) { (void)mode; return 0; }
@@ -46,7 +47,12 @@ static double ps1_now;
 void hw_poll(void) { ps1_now += 1e-4; } /* the streaming waits on PS1 time, which polls advance */
 double ps1_seconds(void) { return ps1_now; }
 static int xa_frames, xa_rate;
-void spu_cd_input(const short *lr, int frames, int rate) { (void)lr, xa_frames += frames, xa_rate = rate; }
+static short xa_last[2];
+void spu_cd_input(const short *lr, int frames, int rate)
+{
+    xa_frames += frames, xa_rate = rate;
+    xa_last[0] = lr[2 * frames - 2], xa_last[1] = lr[2 * frames - 1];
+}
 int bios_call(int table, int n) { (void)table; (void)n; return 0; }
 unsigned int io_read(unsigned int addr, int size) { (void)addr; (void)size; return 0; }
 void io_write(unsigned int addr, unsigned int v, int size) { (void)addr; (void)v; (void)size; }
@@ -91,7 +97,7 @@ int main(int argc, char **argv)
     const PcFile *files;
     char path[700];
     long size;
-    int disc, count, i, failed = 0, read = 0, unpacked = 0;
+    int disc, count, i, j, failed = 0, read = 0, unpacked = 0;
 
     if (argc != 3) {
         fprintf(stderr, "usage: test_cd SCUS_941.63 ASSETS\n");
@@ -179,6 +185,19 @@ int main(int argc, char **argv)
         failed++;
     }
     StUnSetRing();
+
+    /* eight_bit_xa_decodes: a made-up stereo sector of left bytes 0x40 and right 0xC0, shift 0, filter 0 */
+    memset(got, 0, 8 + 18 * 128);
+    got[2] = 4, got[3] = 0x11; /* the subheader: audio; 8-bit stereo */
+    for (i = 0; i < 18; i++)
+        for (j = 16; j < 128; j++)
+            got[8 + i * 128 + j] = j & 1 ? 0xC0 : 0x40;
+    xa_frames = 0;
+    xa_decode(got);
+    if (xa_frames != 18 * 28 * 2 || xa_last[0] != 0x4000 || xa_last[1] != -0x4000) {
+        printf("8-bit XA gave %d frames ending %d, %d\n", xa_frames, xa_last[0], xa_last[1]);
+        failed++;
+    }
     printf("%d files read, %d unpacked while streaming, %d failures\n", read, unpacked, failed);
     return failed != 0;
 }

@@ -39,7 +39,7 @@ unsigned int mdec_status(void);
 unsigned short spu_read(unsigned int addr);
 void spu_write(unsigned int addr, unsigned short v);
 void spu_dma(unsigned int *words, unsigned int count, int to_spu);
-void spu_mix(short *lr, int frames);
+int spu_mix(short *lr, int frames);
 
 #define I_STAT 0x1F801070u
 #define I_MASK 0x1F801074u
@@ -56,6 +56,7 @@ void spu_mix(short *lr, int frames);
 #define IRQ_VBLANK 0x01u
 #define IRQ_DMA 0x08u
 #define IRQ_TIMER0 0x10u
+#define IRQ_SPU 0x200u
 #define CPU_HZ 33868800.0
 #define VBLANK_SECONDS (1 / 59.94)
 /* The PS1's time is counted in polls, one per pass of a loop: the libraries' spin timeouts count passes (libetc's
@@ -188,7 +189,8 @@ void hw_poll(void)
     timers_advance(stride);
     for (due = (unsigned int)(ps1_time * SPU_HZ) - spu_frames; due; due -= n, spu_frames += n) {
         n = due < 32 ? due : 32;
-        spu_mix(audio[0], n);
+        if (spu_mix(audio[0], n))
+            irq_raise(IRQ_SPU);
         pc_audio(audio[0], n);
     }
     if (ps1_time < next_vblank)

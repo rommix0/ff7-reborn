@@ -1011,13 +1011,27 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
 - **Streamed movies:** libcd's streaming is C in `pc/cd_native.c`. `CdRead2` starts reading the STR sectors from the
   drive's position at 150 a second of PS1 time; `StGetNext` waits for a frame's last sector and hands out its video
   sectors' data joined after the first one's header, in the ring `movie.c` gave `StSetRing`. libpress, the MDEC and
-  `movie.c` run as they are, camera data included. The XA audio sectors among them are decoded there (stereo 37.8 kHz
-  4-bit, through `CdMix`'s matrix) into the SPU's CD input.
-- **Sound:** the SPU is `pc/spu.c`: 24 voices of ADPCM from its RAM with ADSR, pitch modulation and noise, the CD
-  input, mixed at 44.1 kHz of PS1 time as `hw_poll` advances it, then a ring that SDL's audio thread reads. The
-  opening movie's sound comes out as `tools/movie.py` decodes it, with no drift; from about 50 s in, the field's own
-  sound plays along with it. Not yet: reverb, the SPU interrupt, volume sweeps (the game writes none up to the first
-  field; one would hold the last fixed volume), Gaussian interpolation (straight lines here).
+  `movie.c` run as they are, camera data included. The XA audio sectors among them are decoded there (FF7's are stereo
+  37.8 kHz 4-bit; mono, 18.9 kHz and 8-bit decode too), through `CdMix`'s matrix, into the SPU's CD input.
+- **Sound:** the SPU is `pc/spu.c`: 24 voices of ADPCM from its RAM with ADSR, volume sweeps, pitch modulation and
+  noise, the 4-point interpolation, the interrupt at an address, the reverb on its work area, and the CD input, mixed
+  at 44.1 kHz of PS1 time as `hw_poll` advances it, then a ring that SDL's audio thread reads. The opening movie's
+  sound comes out as `tools/movie.py` decodes it, with no drift; from about 50 s in, the field's own sound plays
+  along with it.
+  - The interpolation's weights and the low-pass around the reverb are the player's curves ("Interpolation", and
+    "In the player" under "Reverb"), not the hardware's tables. The reverb runs psx-spx's formula a sample at a time
+    at 22.05 kHz, writing its work area only while SPUCNT's bit 7 is on. A click through each of the game's nine
+    presets matches the player's reverb (correlation 0.9997 or better, peaks within 0.2%). The credits play with
+    Studio B at output volume `0x2800`, the first field at `0x3200`.
+  - The interrupt goes off when a voice decodes, or a transfer writes, the block holding the IRQ address, or the
+    reverb reads or writes it (psx-spx doesn't know which of its accesses count, so all do); and again only after
+    SPUCNT's bit 6 goes off and on. The driver streams samples through it (`snd_stream_start`): each half of the
+    buffer at `0x77000` is refilled when the voice reaches the other.
+  - A sweep's negative phase heads for `-0x7FFF`, except in an exponential decrease, which it leaves alone. psx-spx
+    marks both as untested guesses; the game writes no sweeps up to the first field.
+  - Left out: the capture buffers (the SPU writing the CD input and voices 1 and 3 into RAM `0x000`–`0xFFF`, with
+    their interrupt). The exe has no libspu reader for them. If streamed sound (XA, or the sample streams) ever
+    misbehaves, check first whether a module reads that RAM or sets the IRQ address below `0x1000`.
 - **Not yet:** game controllers, L1/R1/L2/R2 keys. Waiting for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
   bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display and the CD layer.
