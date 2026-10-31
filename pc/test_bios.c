@@ -116,6 +116,43 @@ int main(void)
     irq_raise(0x10);
     assert(event_calls == 2 && (event_sp > 0x801FFF00 || event_sp < 0x801FF000));
 
+    /* card_answers_through_events: _card_info and _card_load report a formatted card in slot 1 as done, and
+     * write_card_sector (_card_clear) as done on the hardware-level event */
+    remove("memcard1.mcd");
+    {
+        unsigned int done = call(0xB0, 0x08, 0xF4000001, 0x0004, 0x2000, 0);
+        unsigned int hw_done = call(0xB0, 0x08, 0xF0000011, 0x0004, 0x2000, 0);
+        static unsigned char sector[0x80], entry[40], data[0x2000];
+        int fd;
+
+        call(0xB0, 0x0C, done, 0, 0, 0);
+        call(0xB0, 0x0C, hw_done, 0, 0, 0);
+        call(0xA0, 0xAB, 0x00, 0, 0, 0);
+        assert(call(0xB0, 0x0B, done, 0, 0, 0) == 1);
+        call(0xA0, 0xAC, 0x00, 0, 0, 0);
+        assert(call(0xB0, 0x0B, done, 0, 0, 0) == 1);
+        assert(call(0xB0, 0x4E, 0x00, 0x3F, (unsigned int)sector, 0) == 1);
+        assert(call(0xB0, 0x0B, hw_done, 0, 0, 0) == 1);
+
+        /* card_files: the save menu's create, write, list, read and delete through the BIOS */
+        fd = call(0xB0, 0x32, (unsigned int)"bu00:BASCUS-94163FF7-S01", 0x10200, 0, 0);
+        assert(fd >= 2 && call(0xB0, 0x36, fd, 0, 0, 0) == fd);
+        fd = call(0xB0, 0x32, (unsigned int)"bu00:BASCUS-94163FF7-S01", 2, 0, 0);
+        data[5] = 0x5A;
+        assert(call(0xB0, 0x35, fd, (unsigned int)data, sizeof data, 0) == sizeof data);
+        call(0xB0, 0x36, fd, 0, 0, 0);
+        assert(call(0xB0, 0x42, (unsigned int)"bu00:*", (unsigned int)entry, 0, 0) == (int)(unsigned int)entry);
+        assert(!strcmp((char *)entry, "BASCUS-94163FF7-S01"));
+        assert(!call(0xB0, 0x43, (unsigned int)entry, 0, 0, 0));
+        fd = call(0xB0, 0x32, (unsigned int)"bu00:BASCUS-94163FF7-S01", 1, 0, 0);
+        memset(data, 0, sizeof data);
+        assert(call(0xB0, 0x34, fd, (unsigned int)data, 0x80, 0) == 0x80 && data[5] == 0x5A);
+        call(0xB0, 0x36, fd, 0, 0, 0);
+        assert(call(0xB0, 0x45, (unsigned int)"bu00:BASCUS-94163FF7-S01", 0, 0, 0) == 1);
+        assert(!call(0xB0, 0x42, (unsigned int)"bu00:*", (unsigned int)entry, 0, 0));
+    }
+    remove("memcard1.mcd");
+
     /* printf_formats: the libraries' messages come out formatted (stderr goes to a file, so this test is last) */
     {
         char out[64] = {0};

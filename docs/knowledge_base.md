@@ -1117,9 +1117,37 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     hash of their code (`code_hash`).
   - With those, the first battle plays through: Cloud's Ice twice (`BRIZAD.BIN`), the results (`BATRES.X`), then
     back to `MD1STIN` in the field, driven by a lab `--input` script that walks north tapping circle.
+- **Field menu** (exe, `func_80023xxx`): `0x8009D2A4` is which of its ten entries show (bit n for Item, Magic,
+  Materia, Equip, Status, Order, Limit, Config, PHS, Save) and `0x8009D2A6` which are **locked** (a set bit greys the
+  entry and ○ skips it); Save is bit 9, which a save point presumably clears (not traced yet). The labels are at
+  `0x80049248`, 12 bytes each.
+  - Opening it ran the main loop's `while (D_80095DD4) ;` (mode 5), a wait for the VSync callback: in C on the PC
+    nothing let the interrupt in, so it hung. Both such waits in `main.c` now poll (`HW_WAIT()`, empty on the PS1).
+- **Field numbers:** the `.DAT` files of `FIELD/` lie on the disc in field order: by sector, `STARTMAP` (the debug
+  room) is 0x41 and the rest follow (`MD1STIN` 0x74, `MD1_1` 0x75, ...; `WM*` before it are the world map's). The
+  debug room's side rooms are `BLACKBG1`-`BLACKBGK` (0x5D-0x70); Takashi Tokita's, with the save point, is
+  `BLACKBGI` (0x6E). Warped into directly, the side rooms leave Cloud unable to move, and the woman by the door
+  reopens her warp list while he touches her.
+- **Memory cards** (`pc/card.c`): `memcard1.mcd` and `memcard2.mcd` in the working directory, raw 128 KB images as
+  emulators keep them; a missing one is a formatted empty card. The BIOS's file functions on `bu00:`/`bu10:` work
+  on them in whole sectors, `_card_info` and `_card_load` answer at once (`F4000001h`: 4 done, 2000h unformatted),
+  and every change goes to a temporary file that then replaces the image.
+  - The save menu (`SAVEMENU.MNU`) keeps all card access: `func_801D19C4` opens four software and four hardware card
+    events and calls `_bu_init` and `_card_auto`; a check is `_card_info` then a wait on the four (a new card gets
+    `_card_clear` and `_card_load`); `func_801D1C2C` lists `bu00:*` for `BASCUS-94163FF7-S01`-`S15`; `func_801D1D40` opens one with
+    mode 1 and reads 0x280 bytes, `func_801D1F40` the same way, each retrying a short read like the write below.
+  - Saving (`func_801D2408`): if the file opens it's deleted; then created (mode `0x200` with the block count in
+    bits 16-31), closed, reopened for writing (mode 2) and written at once, 0x2000 bytes. It retries each open up to
+    30 times, and a short write by writing the remaining length again **from the start of its buffer**, not from
+    where the write stopped. A card that took a partial write would get the save's opening bytes where its end
+    belongs, and since the old file is deleted first, a failed save loses the old one too: candidates for the
+    corrupted saves reported on real cards. Here writes never come up short.
+  - Checked in the lab: Save from the opening field (`--code "8009D2A4 03FF" --code "8009D2A6 0000"`), slot 1, file
+    01 makes a one-block `BASCUS-94163FF7-S01` (title frame `SC`, icon flag 11h, "ＦＦ７／ＳＡＶＥ０１"); Continue
+    on the title loads it back into `MD1STIN`.
 - **Not yet:** waiting for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
-  bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display and the CD layer.
+  bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display, the CD layer and the memory cards.
 
 ### Matching rules for GCC 2.6.3/2.7.2 + maspsx
 

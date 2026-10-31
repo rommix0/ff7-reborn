@@ -117,10 +117,15 @@ Run `build/pc/ff7.exe assets` from the project folder. Keys: arrows, Z/X/A/S (×
 R2), Enter (Start), Backspace (Select), F12 saves `screenshot.bmp`, Esc quits; a game controller works too.
 `--frames N --shot FILE.bmp` runs without a window and saves frame N.
 
+**Saves** go to memory card images in the working directory, `memcard1.mcd` (slot 1) and `memcard2.mcd` (slot 2):
+raw 128 KB cards, the format PS1 emulators use, so saves move between them. A missing image is an empty formatted
+card.
+
 **Reversing lab** (`pc/lab.c`): `--trace FILE` logs what the game does frame by frame (its mode, the field, what the
 field module asks for, the pad, and each file a CD read starts); `--input FILE` plays the pad from a script (lines of
 a frame and the buttons held from it); `--field N` warps to field N once the first field is up (`0x41` is the debug
-room); `--dump-at N` or F11 dumps RAM, VRAM and SPU RAM to `dump_*.bin`. The build is deterministic, so
+room); `--code "80AAAAAA VVVV"` holds a GameShark code every frame (16-bit `80`, 8-bit `30`; repeatable);
+`--dump-at N` or F11 dumps RAM, VRAM and SPU RAM to `dump_*.bin`. The build is deterministic, so
 `python tools/lab_diff.py A_ram.bin B_ram.bin --noise A2_ram.bin` shows what two scripts did differently (A2 is a
 second run of A's script).
 

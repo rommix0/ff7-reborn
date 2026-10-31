@@ -547,7 +547,7 @@ int main(void)
                         D_8009ABF4.abf5 = 0x1A;
                     } else if (D_80095DDC & 0x40000000) {
                         while (D_80095DD4)
-                            ;
+                            HW_WAIT();
                         D_800965EC = 1;
                         game_mode = 1;
                         break;
@@ -580,7 +580,7 @@ int main(void)
                     break;
                 case 5:
                     while (D_80095DD4)
-                        ;
+                        HW_WAIT();
                     while (DrawSync(1))
                         ;
                     func_800119E4();

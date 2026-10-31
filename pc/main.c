@@ -1,9 +1,10 @@
 /* The PC build's entry: maps the PS1's RAM, loads the user's own exe into it, and runs the game from the exe's entry
  * point, recompiled. usage: ff7 [ASSETS] [--frames N] [--shot FILE.bmp] [--trace FILE] [--input FILE] [--field N]
- * [--dump-at N]
+ * [--dump-at N] [--code "AAAAAAAA VVVV"]...
  *
  * With --frames, it saves what's on screen after N frames (to --shot, or screenshot.bmp) and exits. The rest is the
- * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded. */
+ * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded, and
+ * --code holds a GameShark code every frame. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,7 @@ int sdl_open(void);
 int sdl_frame(void);
 int lab_open(const char *trace_path, const char *input_path, int warp_field, int dump_frame);
 void lab_frame(void);
+int lab_code(const char *code);
 
 Ctx ctx;
 unsigned int cop0[32];
@@ -78,6 +80,12 @@ int main(int argc, char **argv)
             field = strtol(argv[++i], 0, 0);
         else if (!strcmp(argv[i], "--dump-at") && i + 1 < argc)
             dump_at = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--code") && i + 1 < argc) {
+            if (lab_code(argv[++i])) {
+                fprintf(stderr, "%s: not a GameShark code the lab takes (80AAAAAA VVVV or 30AAAAAA 00VV)\n", argv[i]);
+                return 1;
+            }
+        }
         else
             assets = argv[i];
     }

@@ -4,6 +4,9 @@ disks/
 *.bin
 *.cue
 *.iso
+# Save files (the PC build's memory cards).
+*.mcd
+*.mcd.tmp
 build/
 __pycache__/
 toolchain/

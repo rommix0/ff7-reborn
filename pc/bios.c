@@ -1,9 +1,10 @@
 /* The PS1's BIOS in C: the 54 functions the exe calls, the two syscalls, and the interrupt path the game's libraries
- * build on. Behaviour per psx-spx's BIOS pages; the memory card answers "no card" until saves come to the PC build. */
+ * build on. Behaviour per psx-spx's BIOS pages; the memory cards are image files (card.c). */
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "card.h"
 #include "recomp.h"
 
 #define ARG(n) ctx.r[4 + (n)]
@@ -15,7 +16,10 @@
 #define EV_INTERRUPT 0x0002u /* EvSpINT */
 #define EV_ROOT_COUNTER 0xF2000000u
 #define EV_CARD 0xF4000001u  /* SwCARD */
+#define EV_CARD_HW 0xF0000011u /* HwCARD: the sector-level functions */
+#define EV_DONE 0x0004u      /* EvSpIOE */
 #define EV_TIMEOUT 0x0100u   /* EvSpTIMOUT: no card answered */
+#define EV_NEW_CARD 0x2000u  /* EvSpNEW: a new card, or one without the "MC" frame */
 #define EV_MODE_CALLBACK 0x1000u /* EvMdINTR: DeliverEvent calls the function; EvMdNOINTR marks the event ready */
 #define EVENT_COUNT 32
 /* The exception path's own stack, in the kernel's 64 KB that the game leaves alone. Hand-written game code saves
@@ -206,8 +210,34 @@ static int bios_boot_failure(void)
     fprintf(stderr, "BIOS: boot or disc failure %c %d\n", (char)ARG(0), (int)ARG(1));
     exit(1);
 }
-static int bios_card_no_answer(void) { deliver_event(EV_CARD, EV_TIMEOUT); return 1; }
-static int bios_fail(void) { return -1; }
+/* The memory cards are files (card.c), always in, and done as soon as asked: the port is 00h for slot 1, 10h for
+ * slot 2, and a multitap's extra cards (01h-03h, 11h-13h) never answer. */
+static int card_port(void) { return ARG(0) & 0xF ? -1 : ARG(0) >> 4 & 1; }
+static int bios_card_info(void)
+{
+    deliver_event(EV_CARD, card_port() < 0 ? EV_TIMEOUT : EV_DONE);
+    return 1;
+}
+static int bios_card_load_directory(void)
+{
+    deliver_event(EV_CARD, card_port() < 0 ? EV_TIMEOUT : card_formatted(card_port()) ? EV_DONE : EV_NEW_CARD);
+    return 1;
+}
+static int bios_card_write_sector(void)
+{
+    int ok = card_port() >= 0 && card_write_sector(card_port(), ARG(1), PTR(2));
+
+    deliver_event(EV_CARD_HW, ok ? EV_DONE : EV_TIMEOUT);
+    return ok;
+}
+static int bios_file_open(void) { return card_open(PTR(0), ARG(1)); }
+static int bios_file_read(void) { return card_read(ARG(0), PTR(1), ARG(2)); }
+static int bios_file_write(void) { return card_write(ARG(0), PTR(1), ARG(2)); }
+static int bios_file_close(void) { return card_close(ARG(0)); }
+static int bios_firstfile(void) { return card_find(PTR(0), 1, (unsigned char *)PTR(1)) ? ARG(1) : 0; }
+static int bios_nextfile(void) { return card_find(0, 0, (unsigned char *)PTR(0)) ? ARG(0) : 0; }
+static int bios_file_delete(void) { return card_delete(PTR(0)); }
+static int bios_format(void) { return card_format(PTR(0)); }
 
 static int bios_deliver_event(void) { deliver_event(ARG(0), ARG(1)); return 0; }
 static int bios_open_event(void)
@@ -334,8 +364,8 @@ static const struct {
     {0xA0, 0x72, bios_nothing},        /* CdRemove */
     {0xA0, 0x9F, bios_nothing},        /* SetMemSize */
     {0xA0, 0xA1, bios_boot_failure},
-    {0xA0, 0xAB, bios_card_no_answer}, /* _card_info */
-    {0xA0, 0xAC, bios_card_no_answer}, /* _card_async_load_directory */
+    {0xA0, 0xAB, bios_card_info},
+    {0xA0, 0xAC, bios_card_load_directory},
     {0xA0, 0xAD, bios_nothing},        /* set_card_auto_format */
     {0xB0, 0x07, bios_deliver_event},
     {0xB0, 0x08, bios_open_event},
@@ -353,20 +383,20 @@ static const struct {
     {0xB0, 0x18, bios_default_exit},
     {0xB0, 0x19, bios_custom_exit},
     {0xB0, 0x20, bios_undeliver_event},
-    {0xB0, 0x32, bios_fail},           /* FileOpen: no memory card files */
-    {0xB0, 0x34, bios_fail},           /* FileRead */
-    {0xB0, 0x35, bios_fail},           /* FileWrite */
-    {0xB0, 0x36, bios_nothing},        /* FileClose */
+    {0xB0, 0x32, bios_file_open},
+    {0xB0, 0x34, bios_file_read},
+    {0xB0, 0x35, bios_file_write},
+    {0xB0, 0x36, bios_file_close},
     {0xB0, 0x38, bios_exit},
     {0xB0, 0x3F, bios_puts},
-    {0xB0, 0x41, bios_nothing},        /* FormatDevice: fails */
-    {0xB0, 0x42, bios_nothing},        /* firstfile: none */
-    {0xB0, 0x43, bios_nothing},        /* nextfile: none */
-    {0xB0, 0x45, bios_nothing},        /* FileDelete: fails */
+    {0xB0, 0x41, bios_format},
+    {0xB0, 0x42, bios_firstfile},
+    {0xB0, 0x43, bios_nextfile},
+    {0xB0, 0x45, bios_file_delete},
     {0xB0, 0x4A, bios_nothing},        /* InitCard */
     {0xB0, 0x4B, bios_nothing},        /* StartCard */
     {0xB0, 0x4C, bios_nothing},        /* StopCard */
-    {0xB0, 0x4E, bios_nothing},        /* write_card_sector: fails */
+    {0xB0, 0x4E, bios_card_write_sector},
     {0xB0, 0x50, bios_nothing},        /* allow_new_card */
     {0xB0, 0x56, bios_c0_table},
     {0xB0, 0x57, bios_b0_table},

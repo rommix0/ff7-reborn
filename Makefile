@@ -188,7 +188,7 @@ build/pc/test_bridge.ld: $(PC_TEST_BRIDGE) tools/pc_syms.py
 build/pc/test_bridge$(PC_EXE): $(PC_TEST_BRIDGE) build/pc/test_bridge.ld
 	$(PC_CC) $(PC_TEST_BRIDGE) build/pc/test_bridge.ld $(PC_LDFLAGS) -o $@
 
-PC_TEST_BIOS := build/pc/obj/test_bios.o build/pc/obj/bios.o build/pc/obj/memory.o build/pc/obj/dispatch.o
+PC_TEST_BIOS := build/pc/obj/test_bios.o build/pc/obj/bios.o build/pc/obj/card.o build/pc/obj/memory.o build/pc/obj/dispatch.o
 build/pc/test_bios$(PC_EXE): $(PC_TEST_BIOS)
 	$(PC_CC) $(PC_TEST_BIOS) $(PC_LDFLAGS) -o $@
 
@@ -211,6 +211,10 @@ build/pc/test_spu$(PC_EXE): $(PC_TEST_SPU)
 PC_TEST_MDEC := build/pc/obj/test_mdec.o build/pc/obj/mdec.o
 build/pc/test_mdec$(PC_EXE): $(PC_TEST_MDEC)
 	$(PC_CC) $(PC_TEST_MDEC) $(PC_LDFLAGS) -o $@
+
+PC_TEST_CARD := build/pc/obj/test_card.o build/pc/obj/card.o
+build/pc/test_card$(PC_EXE): $(PC_TEST_CARD)
+	$(PC_CC) $(PC_TEST_CARD) $(PC_LDFLAGS) -o $@
 
 PC_TEST_LAB := build/pc/obj/test_lab.o build/pc/obj/lab.o build/pc/obj/memory.o
 build/pc/test_lab$(PC_EXE): $(PC_TEST_LAB)
@@ -238,7 +242,7 @@ build/pc/test_cd$(PC_EXE): $(PC_TEST_CD) build/pc/test_cd.ld
 
 # The game: its C, the PC runtime, and the rest of the exe recompiled from the user's copy.
 PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o sound_init.o sound.o cd.o movie.o)
-PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o gte.o display.o cd_native.o sdl.o lab.o)
+PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o gte.o display.o cd_native.o sdl.o lab.o card.o)
 build/pc/obj/sdl.o: PC_CFLAGS += $(PC_SDL_CFLAGS)
 build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)
 	$(PC_NM) $^ > $@
@@ -266,7 +270,7 @@ build/pc/SDL2.dll: $(SDL2_DIR)/bin/SDL2.dll
 	cp $< $@
 pc: build/pc/ff7$(PC_EXE)
 
-PC_TESTS := memory recomp bridge bios modules hw mdec spu gpu gte display cd lab
+PC_TESTS := memory recomp bridge bios modules hw mdec spu gpu gte display cd lab card
 pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_EXE)
 	$(PYTHON) tools/test_recomp.py
 	$(PYTHON) tools/test_module_yaml.py
@@ -285,6 +289,7 @@ pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_E
 	build/pc/test_display$(PC_EXE)
 	build/pc/test_cd$(PC_EXE) "$(PC_EXE_FILE)" assets
 	cd build/pc && ./test_lab$(PC_EXE)
+	cd build/pc && ./test_card$(PC_EXE)
 	@# boots past the second sound load (frame ~680), which waits on an SPU transfer in C; 900 frames take 15 s
 	timeout 60 build/pc/ff7$(PC_EXE) assets --frames 900 --shot build/pc/boot.bmp > /dev/null 2>&1
 

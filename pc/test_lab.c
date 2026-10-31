@@ -8,6 +8,7 @@
 int lab_open(const char *trace_path, const char *input_path, int warp_field, int dump_frame);
 void lab_frame(void);
 void lab_file(const char *path, unsigned int sector);
+int lab_code(const char *code);
 
 #define GAME_MODE ((volatile short *)0x8009C560)
 #define FIELD ((volatile unsigned short *)0x8009A05C)
@@ -67,6 +68,14 @@ int main(void)
     /* frame 5: released */
     lab_frame();
     assert(pad_buttons == 0xFFFF);
+
+    /* gameshark_codes: a 16-bit and an 8-bit constant write, held every frame; other code types aren't taken */
+    assert(!lab_code("8009D2A6 03FF") && !lab_code("30010001 0012") && lab_code("D009D2A6 0000"));
+    lab_frame();
+    assert(*(unsigned short *)0x8009D2A6 == 0x03FF && *(unsigned char *)0x80010001 == 0x12);
+    *(unsigned short *)0x8009D2A6 = 0;
+    lab_frame();
+    assert(*(unsigned short *)0x8009D2A6 == 0x03FF);
 
     f = fopen("lab_trace.txt", "r");
     n = fread(text, 1, sizeof text - 1, f);

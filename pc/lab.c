@@ -1,5 +1,6 @@
-/* The reversing lab (ff7 --trace FILE --input FILE --field N --dump-at N, and F11 in the window): a trace of what the
- * game does each frame, the pad played from a script, a warp to a field, and dumps of RAM, VRAM and SPU RAM.
+/* The reversing lab (ff7 --trace FILE --input FILE --field N --dump-at N --code "AAAAAAAA VVVV", and F11 in the window):
+ * a trace of what the game does each frame, the pad played from a script, a warp to a field, GameShark codes, and
+ * dumps of RAM, VRAM and SPU RAM.
  *
  * The trace has a line for each change: "FRAME state mode M field F request R ID" (the main loop's mode, the field
  * loaded, and the field module's request: 1 a field change, 2 a battle, 3 a movie, with its number), "FRAME pad
@@ -16,6 +17,7 @@
 #define REQUEST ((volatile unsigned char *)0x8009ABF5)
 #define REQUEST_ID ((volatile unsigned short *)0x8009ABF6)
 #define MAX_INPUTS 4096
+#define MAX_CODES 64
 
 const unsigned short *spu_memory(void);
 
@@ -26,7 +28,11 @@ static struct {
     int frame;
     unsigned short buttons; /* active low */
 } inputs[MAX_INPUTS];
-static int input_count, next_input, warp_field = -1, dump_frame = -1, frame;
+static struct {
+    unsigned int addr, value;
+    int bits;
+} codes[MAX_CODES];
+static int code_count, input_count, next_input, warp_field = -1, dump_frame = -1, frame;
 static int last_state[4] = {-1, -1, -1, -1}, last_pad = -1;
 
 static void write_file(const char *suffix, const void *data, size_t size)
@@ -92,6 +98,21 @@ int lab_open(const char *trace_path, const char *input_path, int field, int dump
     return 0;
 }
 
+/* A GameShark code held every frame, as the cartridge does: 80AAAAAA VVVV writes 16 bits, 30AAAAAA 00VV 8 bits. */
+int lab_code(const char *code)
+{
+    unsigned int word, value;
+
+    if (code_count == MAX_CODES || sscanf(code, "%x %x", &word, &value) != 2)
+        return -1;
+    if (word >> 24 != 0x80 && word >> 24 != 0x30)
+        return -1;
+    codes[code_count].addr = 0x80000000u | (word & 0x1FFFFF);
+    codes[code_count].value = value;
+    codes[code_count++].bits = word >> 24 == 0x80 ? 16 : 8;
+    return 0;
+}
+
 /* Where a CD read starts (cd_native.c). */
 void lab_file(const char *path, unsigned int sector)
 {
@@ -118,6 +139,12 @@ void lab_frame(void)
         *REQUEST_ID = warp_field;
         if (trace)
             fprintf(trace, "%d warp %04X\n", frame, warp_field);
+    }
+    for (i = 0; i < code_count; i++) {
+        if (codes[i].bits == 16)
+            *(volatile unsigned short *)codes[i].addr = codes[i].value;
+        else
+            *(volatile unsigned char *)codes[i].addr = codes[i].value;
     }
     if (frame == dump_frame)
         lab_dump();
