@@ -424,10 +424,30 @@ int CdRead2(int mode)
     return 1;
 }
 
+/* libcd's ring keeps only video sectors: whatever else has come in is passed over, its XA sound played. A stream with
+ * no movie in it (the debug room's code asks for one the disc lacks) leaves the ring empty, so movie.c waits for it
+ * to fill, the game running on, as on the PS1. */
+static void pass_non_video(void)
+{
+    unsigned char sector[SECTOR];
+    unsigned int id;
+
+    for (; stream_next < sectors_in(); stream_next++) {
+        read_sector(stream_next, sector);
+        memcpy(&id, sector, 4);
+        if (id == STR_VIDEO)
+            return;
+        xa_sector(stream_next);
+    }
+}
+
 void StRingStatus(short *free_sectors, short *over_sectors)
 {
-    double in = streaming ? sectors_in() - stream_next : 0;
+    double in;
 
+    if (streaming)
+        pass_non_video();
+    in = streaming ? sectors_in() - stream_next : 0;
     *over_sectors = in < 0 ? 0 : in < RING_SECTORS ? (short)in : RING_SECTORS;
     *free_sectors = RING_SECTORS - *over_sectors;
 }
@@ -438,7 +458,8 @@ int StGetBackloc(CdlLOC *loc)
     return 0;
 }
 
-/* 0 with the next frame, waiting for its sectors to come in; 1 when the stream has no more. */
+/* 0 with the next frame, waiting for its sectors to come in; 1 while none has started coming in, as libcd's says while
+ * its ring is empty, after a poll's worth of time (movie.c retries it in a loop). */
 int StGetNext(unsigned int **addr, unsigned int **header)
 {
     unsigned char sector[SECTOR], *slot;
@@ -447,6 +468,11 @@ int StGetNext(unsigned int **addr, unsigned int **header)
 
     if (!streaming)
         return 1;
+    pass_non_video();
+    if (stream_next >= sectors_in()) {
+        hw_poll();
+        return 1;
+    }
     slot = ring + (ring_half ^= 1) * FRAME_ROOM;
     for (lba = stream_next; !count || k < count; lba++) {
         if (lba - stream_next > 64)

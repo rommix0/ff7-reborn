@@ -753,6 +753,20 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
   points when tracing field code.
+  - The lobby is field `0x41`. The well-known US GameShark code `8009ABF6 0041` holds the field module's request
+    number at it. `D_8009ABF5` says what the request is: 1 a field change (the gateway code writes it with the
+    target), 2 a battle (`D_8009ABF6` is then the battle's number, which `func_800111E4` hands on), 3 a movie (its
+    number in `MOVIE_ID.BIN`). So the code turns every request into number `0x41`, and is only good for steering a
+    field change.
+  - Held on through NEW GAME, it turns the opening movie (`0x35`) into movie `0x41`, which disc 1's table leaves
+    empty (LBA 0). The field script asks for the movie and `VSync`s before the field module reads the number, so a
+    code applied at every vblank always gets in between. libcd's `StCdInterrupt` keeps only sectors with the `0x160`
+    id and the stream's channel, so the ring never fills: `movie_poll_start` never sees its 8 sectors, and the field
+    waits on the movie with the game still running.
+  - Checked on the PC build: with the code left off while `D_8009ABF5` is 3, the opening movie plays, and a field
+    change from the first field (`0x74`) lands in the lobby, which draws. Walking there instead starts the guards'
+    battle, which the PC build can't run yet. The lobby showed white bars above and below its picture; not yet
+    checked against the PS1.
 
 ### Original PC source tree
 
@@ -1013,6 +1027,10 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   sectors' data joined after the first one's header, in the ring `movie.c` gave `StSetRing`. libpress, the MDEC and
   `movie.c` run as they are, camera data included. The XA audio sectors among them are decoded there (FF7's are stereo
   37.8 kHz 4-bit; mono, 18.9 kHz and 8-bit decode too), through `CdMix`'s matrix, into the SPU's CD input.
+  As libcd's ring does, it counts only video sectors: whatever else comes in is passed over as it arrives, and a
+  `StGetNext` with no frame started lets a poll's time pass, since `movie.c` retries it up to 0x800000 times. A
+  stream with no movie in it then waits, as on the PS1, instead of reading ahead through the disc (see "Debug
+  rooms").
 - **Sound:** the SPU is `pc/spu.c`: 24 voices of ADPCM from its RAM with ADSR, volume sweeps, pitch modulation and
   noise, the 4-point interpolation, the interrupt at an address, the reverb on its work area, and the CD input, mixed
   at 44.1 kHz of PS1 time as `hw_poll` advances it, then a ring that SDL's audio thread reads. The opening movie's

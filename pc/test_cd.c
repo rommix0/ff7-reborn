@@ -38,6 +38,8 @@ int CdRead2(int mode);
 int StGetNext(unsigned int **addr, unsigned int **header);
 void StFreeRing(unsigned int *base);
 void StUnSetRing(void);
+int StGetBackloc(CdlLOC *loc);
+void StRingStatus(short *free_sectors, short *over_sectors);
 int func_8003E100(int com, void *param, void *result);
 void xa_decode(const unsigned char *sector);
 
@@ -98,6 +100,7 @@ int main(int argc, char **argv)
     char path[700];
     long size;
     int disc, count, i, j, failed = 0, read = 0, unpacked = 0;
+    short free_sectors, over_sectors;
 
     if (argc != 3) {
         fprintf(stderr, "usage: test_cd SCUS_941.63 ASSETS\n");
@@ -173,7 +176,9 @@ int main(int argc, char **argv)
     func_8003DBA0(got, 36);
     CdRead2(0x1E0);
     for (i = 1; i <= 3; i++) {
-        if (StGetNext(&frame, &header) || header[0] != 0x80010160 || header[2] != (unsigned int)i || frame[10] >> 16 != 0x3800) {
+        for (j = 0; StGetNext(&frame, &header) && j < 100000; j++) /* as movie.c asks: until a frame has come in */
+            ;
+        if (j == 100000 || header[0] != 0x80010160 || header[2] != (unsigned int)i || frame[10] >> 16 != 0x3800) {
             printf("disc 1: the opening movie's frame %d doesn't stream in\n", i);
             failed++;
         }
@@ -182,6 +187,31 @@ int main(int argc, char **argv)
     /* movie_sound_reaches_the_spu: the XA sectors among them, whole sectors of stereo 37.8 kHz */
     if (!xa_frames || xa_frames % 2016 || xa_rate != 37800) {
         printf("disc 1: the opening movie's sound gave %d frames at %d Hz\n", xa_frames, xa_rate);
+        failed++;
+    }
+    StUnSetRing();
+
+    /* stream_without_a_movie_lets_time_pass: from LBA 0 (the debug room's code asks for a movie the disc lacks), each
+     * call finds no frame, lets a poll's time pass, and has consumed only the sectors in by then: 150 a second */
+    CdIntToPos(0, &loc);
+    func_8003E100(CdlSetloc, &loc, 0);
+    func_8003DBA0(got, 36);
+    CdRead2(0x1E0);
+    for (i = j = 0; i < 1000; i++)
+        j += !StGetNext(&frame, &header);
+    StGetBackloc(&loc);
+    i = ((loc.minute >> 4) * 10 + (loc.minute & 15)) * 4500 + ((loc.second >> 4) * 10 + (loc.second & 15)) * 75
+        + (loc.sector >> 4) * 10 + (loc.sector & 15) - 150;
+    if (j || i < 14 || i > 16) {
+        printf("disc 1: a stream with no movie gave %d frames and reached sector %d\n", j, i);
+        failed++;
+    }
+    /* and its ring stays empty, as libcd's keeps only video sectors: the movie never gets past starting */
+    for (i = 0; i < 1000; i++)
+        hw_poll();
+    StRingStatus(&free_sectors, &over_sectors);
+    if (over_sectors) {
+        printf("disc 1: a stream with no movie filled %d sectors of the ring\n", over_sectors);
         failed++;
     }
     StUnSetRing();
