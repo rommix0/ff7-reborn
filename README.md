@@ -125,7 +125,8 @@ card.
 field module asks for, the pad, and each file a CD read starts); `--input FILE` plays the pad from a script (lines of
 a frame and the buttons held from it); `--field N` warps to field N once the first field is up (`0x41` is the debug
 room); `--code "80AAAAAA VVVV"` holds a GameShark code every frame (16-bit `80`, 8-bit `30`; repeatable);
-`--dump-at N` or F11 dumps RAM, VRAM and SPU RAM to `dump_*.bin`. The build is deterministic, so
+`--dump-at N` or F11 dumps RAM, VRAM and SPU RAM to `dump_*.bin`; `--fast` runs frames as fast as the PC can
+(about 7× real time without a window). The build is deterministic, so
 `python tools/lab_diff.py A_ram.bin B_ram.bin --noise A2_ram.bin` shows what two scripts did differently (A2 is a
 second run of A's script).
 

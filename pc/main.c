@@ -1,10 +1,10 @@
 /* The PC build's entry: maps the PS1's RAM, loads the user's own exe into it, and runs the game from the exe's entry
  * point, recompiled. usage: ff7 [ASSETS] [--frames N] [--shot FILE.bmp] [--trace FILE] [--input FILE] [--field N]
- * [--dump-at N] [--code "AAAAAAAA VVVV"]...
+ * [--dump-at N] [--code "AAAAAAAA VVVV"]... [--fast]
  *
  * With --frames, it saves what's on screen after N frames (to --shot, or screenshot.bmp) and exits. The rest is the
  * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded, and
- * --code holds a GameShark code every frame. */
+ * --code holds a GameShark code every frame; --fast runs frames as quickly as the host can instead of at 59.94 Hz. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +22,9 @@ int D_800110C0(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7); 
 /* build/pc/gen/module_list.c: the modules recompiled from the user's discs (the Makefile's PC_MODULES). */
 extern const Module *const pc_modules[];
 extern const int pc_module_count;
+/* hw.c: the clock frames wait for; --fast gives it the PS1's own time, which is always caught up. */
+void hw_set_clock(double (*now)(void));
+double ps1_seconds(void);
 /* sdl.c: the window, unless --frames asks for a run without one. */
 int sdl_open(void);
 int sdl_frame(void);
@@ -80,6 +83,8 @@ int main(int argc, char **argv)
             field = strtol(argv[++i], 0, 0);
         else if (!strcmp(argv[i], "--dump-at") && i + 1 < argc)
             dump_at = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--fast"))
+            hw_set_clock(ps1_seconds);
         else if (!strcmp(argv[i], "--code") && i + 1 < argc) {
             if (lab_code(argv[++i])) {
                 fprintf(stderr, "%s: not a GameShark code the lab takes (80AAAAAA VVVV or 30AAAAAA 00VV)\n", argv[i]);

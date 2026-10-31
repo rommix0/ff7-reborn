@@ -61,7 +61,7 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
    `ENDING.X`'s first screen in an SDL2 window. See the knowledge base, "PC build: the exe runs".*
 2. **New game:** title, the opening movie, the first field with walking, music and sound. *So far: the boot runs
    through the credits and the title menu, and NEW GAME plays the opening movie, with its sound, into the first field; music and effects play.*
-3. **Field complete:** dialogue, menus, saving to files. *So far: the field menu opens, and saving and loading
+3. **Field complete:** dialogue, menus, saving to files. *So far: the field menu and all ten of its screens work, and saving and loading
    (Continue) go through the game's own save menu to `memcard1.mcd`.*
 4. **Battle, world map, mini-games:** with the magic effects. *So far: the battle modules and all 289 effect files
    are recompiled, and the first battle plays through to its results and back to the field.*

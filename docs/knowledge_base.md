@@ -1123,6 +1123,15 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   `0x80049248`, 12 bytes each.
   - Opening it ran the main loop's `while (D_80095DD4) ;` (mode 5), a wait for the VSync callback: in C on the PC
     nothing let the interrupt in, so it hung. Both such waits in `main.c` now poll (`HW_WAIT()`, empty on the PS1).
+  - Opening it reads `LIMTMENU` to `0x801D0000`; each entry then reads its own module there (`ITEMMENU`,
+    `MGICMENU`, `EQIPMENU` for Materia and Equip, `STATMENU`, `LIMTMENU` again for Limit, `CNFGMENU`, `FORMMENU`
+    and every portrait for PHS, `SAVEMENU`); Order needs none. Checked in the lab, from
+    a save made on the opening platform, after the guard's first line (menu allowed from frame ~11200): all ten
+    open and draw; Ether on Cloud fills his MP and leaves the list; taking Lightning off undoes its MaxHP -2% and
+    MaxMP +2%; Item's Arrange list, Materia's Check, Limit's Set and the field after closing the menu all work.
+  - Config's controller Customize writes the remap table `D_8009D7C0` (16 bytes, one per pad bit, each the bit it
+    stands for; ○ and ✕ swapped is `05`↔`06` at entries 5 and 6), and the pad reader applies it at once: after the
+    swap, ○ backs out of Config and ✕ opens it. The game won't leave Customize while a function has no button.
 - **Field numbers:** the `.DAT` files of `FIELD/` lie on the disc in field order: by sector, `STARTMAP` (the debug
   room) is 0x41 and the rest follow (`MD1STIN` 0x74, `MD1_1` 0x75, ...; `WM*` before it are the world map's). The
   debug room's side rooms are `BLACKBG1`-`BLACKBGK` (0x5D-0x70); Takashi Tokita's, with the save point, is
