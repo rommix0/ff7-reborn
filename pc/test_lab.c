@@ -9,11 +9,13 @@ int lab_open(const char *trace_path, const char *input_path, int warp_field, int
 void lab_frame(void);
 void lab_file(const char *path, unsigned int sector);
 int lab_code(const char *code);
+void lab_minigame(int game);
 
 #define GAME_MODE ((volatile short *)0x8009C560)
 #define FIELD ((volatile unsigned short *)0x8009A05C)
 #define REQUEST ((volatile unsigned char *)0x8009ABF5)
 #define REQUEST_ID ((volatile unsigned short *)0x8009ABF6)
+#define MINIGAME ((volatile unsigned char *)0x8009ACE6)
 
 unsigned short pad_buttons = 0xFFFF;
 unsigned short vram[512][1024];
@@ -77,6 +79,21 @@ int main(void)
     lab_frame();
     assert(*(unsigned short *)0x8009D2A6 == 0x03FF);
 
+    /* a mini-game (frames 8-11), asked for as a field asks (request 0xC, back to this field, game 2), again if the
+     * field clears it, and not again once the main loop has left the field for it */
+    lab_minigame(2);
+    *GAME_MODE = 1, *FIELD = 0x41, *REQUEST = 0;
+    lab_frame();
+    assert(*REQUEST == 0xC && *REQUEST_ID == 0x41 && *MINIGAME == 2);
+    *REQUEST = 0;
+    lab_frame();
+    assert(*REQUEST == 0xC);
+    *GAME_MODE = 6, *REQUEST = 0;
+    lab_frame();
+    *GAME_MODE = 1;
+    lab_frame();
+    assert(!*REQUEST);
+
     f = fopen("lab_trace.txt", "r");
     n = fread(text, 1, sizeof text - 1, f);
     fclose(f);
@@ -89,6 +106,7 @@ int main(void)
     assert(strstr(text, "3 read FIELD/MD1STIN.DAT +2\n"));
     assert(strstr(text, "4 dump\n"));
     assert(strstr(text, "5 pad -\n"));
+    assert(strstr(text, "8 minigame 2\n") && strstr(text, "9 minigame 2\n") && !strstr(text, "10 minigame"));
     remove("lab_input.txt");
     remove("lab_trace.txt");
     remove("dump_00004_ram.bin");

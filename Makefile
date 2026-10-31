@@ -26,6 +26,8 @@ disks/SCUS_941.63:
 PC_MODULES := ending:FIELD/ENDING.X:800A0000 dschange:FIELD/DSCHANGE.X:800A0000 field:FIELD/FIELD.BIN.dec:800A0000 \
 	battle:BATTLE/BATTLE.X.dec:800A0000 batini:BATTLE/BATINI.X.dec:801B0000 batres:BATTLE/BATRES.X.dec:801B0000 \
 	world:WORLD/WORLD.BIN.dec:800A0000 \
+	$(foreach m,HIGHWAY CHOCOBO SNOBO CONDOR SUBMAR JET SNOBO2,\
+		$(shell echo $(m) | tr A-Z a-z):MINI/$(m).BIN.dec:800A0000) \
 	$(foreach m,BGIN CHNG CNFG EQIP FORM ITEM LIMT MGIC NAME PATY SAVE SHOP STAT,\
 		$(shell echo $(m) | tr A-Z a-z)menu:MENU/$(m)MENU.MNU:801D0000) \
 	$(shell ls "$(DISC1)/MAGIC" 2>/dev/null | awk '/\.BIN$$/ { sub(/\.BIN$$/, ""); \

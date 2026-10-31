@@ -1,10 +1,11 @@
 /* The PC build's entry: maps the PS1's RAM, loads the user's own exe into it, and runs the game from the exe's entry
  * point, recompiled. usage: ff7 [ASSETS] [--frames N] [--shot FILE.bmp] [--trace FILE] [--input FILE] [--field N]
- * [--dump-at N] [--code "AAAAAAAA VVVV"]... [--fast]
+ * [--minigame N] [--dump-at N] [--code "AAAAAAAA VVVV"]... [--fast]
  *
  * With --frames, it saves what's on screen after N frames (to --shot, or screenshot.bmp) and exits. The rest is the
- * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded, and
- * --code holds a GameShark code every frame; --fast runs frames as quickly as the host can instead of at 59.94 Hz. */
+ * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded,
+ * --minigame N then starts mini-game N (0-6) as a field would, --code holds a GameShark code every frame; --fast runs
+ * frames as quickly as the host can instead of at 59.94 Hz. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,7 @@ int sdl_frame(void);
 int lab_open(const char *trace_path, const char *input_path, int warp_field, int dump_frame);
 void lab_frame(void);
 int lab_code(const char *code);
+void lab_minigame(int game);
 
 Ctx ctx;
 unsigned int cop0[32];
@@ -81,6 +83,8 @@ int main(int argc, char **argv)
             input = argv[++i];
         else if (!strcmp(argv[i], "--field") && i + 1 < argc)
             field = strtol(argv[++i], 0, 0);
+        else if (!strcmp(argv[i], "--minigame") && i + 1 < argc)
+            lab_minigame(strtol(argv[++i], 0, 0));
         else if (!strcmp(argv[i], "--dump-at") && i + 1 < argc)
             dump_at = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--fast"))

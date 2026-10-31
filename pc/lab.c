@@ -1,11 +1,12 @@
-/* The reversing lab (ff7 --trace FILE --input FILE --field N --dump-at N --code "AAAAAAAA VVVV", and F11 in the window):
- * a trace of what the game does each frame, the pad played from a script, a warp to a field, GameShark codes, and
- * dumps of RAM, VRAM and SPU RAM.
+/* The reversing lab (ff7 --trace FILE --input FILE --field N --minigame N --dump-at N --code "AAAAAAAA VVVV", and F11
+ * in the window): a trace of what the game does each frame, the pad played from a script, a warp to a field, a
+ * mini-game, GameShark codes, and dumps of RAM, VRAM and SPU RAM.
  *
  * The trace has a line for each change: "FRAME state mode M field F request R ID" (the main loop's mode, the field
  * loaded, and the field module's request: 1 a field change, 2 a battle, 3 a movie, with its number), "FRAME pad
- * BUTTONS", "FRAME read PATH +SECTOR" where a CD read starts, "FRAME warp F" and "FRAME dump". An input script has a
- * line for each change too: a frame, then the buttons held from it on ("-" for none); '#' starts a comment. */
+ * BUTTONS", "FRAME read PATH +SECTOR" where a CD read starts, "FRAME warp F", "FRAME minigame N" and "FRAME dump".
+ * An input script has a line for each change too: a frame, then the buttons held from it on ("-" for none); '#' starts
+ * a comment. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,7 @@
 #define FIELD ((volatile unsigned short *)0x8009A05C)
 #define REQUEST ((volatile unsigned char *)0x8009ABF5)
 #define REQUEST_ID ((volatile unsigned short *)0x8009ABF6)
+#define MINIGAME ((volatile unsigned char *)0x8009ACE6) /* which, with request 0xC */
 #define MAX_INPUTS 4096
 #define MAX_CODES 64
 
@@ -33,6 +35,7 @@ static struct {
     int bits;
 } codes[MAX_CODES];
 static int code_count, input_count, next_input, warp_field = -1, dump_frame = -1, frame;
+static int minigame = -1, minigame_asked;
 static int last_state[4] = {-1, -1, -1, -1}, last_pad = -1;
 
 static void write_file(const char *suffix, const void *data, size_t size)
@@ -113,6 +116,13 @@ int lab_code(const char *code)
     return 0;
 }
 
+/* A mini-game, asked for from a field as its script does, after any warp: 0 the motorcycle, 1 the chocobo race, 2 the
+ * snowboard, 3 Fort Condor, 4 the submarine, 5 the Speed Square, 6 the Gold Saucer snowboard. */
+void lab_minigame(int game)
+{
+    minigame = game;
+}
+
 /* Where a CD read starts (cd_native.c). */
 void lab_file(const char *path, unsigned int sector)
 {
@@ -139,6 +149,17 @@ void lab_frame(void)
         *REQUEST_ID = warp_field;
         if (trace)
             fprintf(trace, "%d warp %04X\n", frame, warp_field);
+    }
+    /* the same for a mini-game (back to this field after it), until the main loop has left the field for it */
+    if (minigame_asked && *GAME_MODE != 1)
+        minigame = -1;
+    if (minigame >= 0 && warp_field < 0 && *GAME_MODE == 1 && *FIELD && !*REQUEST) {
+        *REQUEST = 0xC;
+        *REQUEST_ID = *FIELD;
+        *MINIGAME = minigame;
+        minigame_asked = 1;
+        if (trace)
+            fprintf(trace, "%d minigame %d\n", frame, minigame);
     }
     for (i = 0; i < code_count; i++) {
         if (codes[i].bits == 16)

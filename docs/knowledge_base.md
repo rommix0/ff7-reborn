@@ -976,9 +976,10 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
 `ff7 [ASSETS] --frames N [--shot FILE.bmp]` runs without one and saves frame N.
 - **Memory:** the PS1's RAM sits at its own address, `0x80000000` (with the 64 KB after it, for the stack words a
   call from the top of the stack reads), and the scratchpad at `0x1F800000`; the I/O window `0x1F801000`–`0x1F802FFF`
-  goes to `pc/hw.c`. Of RAM's mirrors, `0xA0000000` folds back, and so does the first 64 KB from 0 (the field reads
-  through a null pointer at the start of `MD1STIN`); the rest of KUSEG can't, as the host's own stack and heap may
-  sit there. Game pointers need no translation, and C and recompiled code share the game's data. The link is
+  goes to `pc/hw.c`. Of RAM's mirrors, `0xA0000000` folds back, and so does KUSEG's 2 MB from 0 (the field reads
+  through a null pointer at the start of `MD1STIN`; the bike and the Speed Square store through 24-bit addresses):
+  the host's stack and heap sit above its image, and `mem_map` keeps Windows from handing out what's free below 2 MB.
+  Game pointers need no translation, and C and recompiled code share the game's data. The link is
   `--large-address-aware --disable-dynamicbase`, and `tools/pc_syms.py` places each game symbol at its address.
 - **Recompiler rules:** one C function per game function over a register context (`pc/recomp.h`); delay slots
   folded; a backward branch polls the hardware. Each function has a C-callable thunk taking eight ints (the last four
@@ -1154,6 +1155,29 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     view, △ opens the menu ("Midgar Area"); escaping (L1+R1) returns to the same spot; walking north at Midgar enters
     field 0xAA (`MDS5_5`). Swinging to the low view, a dark polygon crosses the screen for a few frames (unconfirmed:
     likely a hill between camera and party, no reference to compare yet).
+- **Mini-games** (`MINI/*.BIN`, packed, each run at `0x800A0000`): a field asks for one with request `0xC`, the field
+  to come back to as the request's ID, and `0x8009ACE6` saying which (0-6). The field module turns that into a main
+  loop mode, and the main loop reads the file through its table at `0x80048D34` and calls the entry:
+
+  | # | Mode | File | Entry | Game |
+  |---|---|---|---|---|
+  | 0 | 6 | `HIGHWAY.BIN` | `func_800A00D0` | the motorcycle chase |
+  | 1 | 7 | `CHOCOBO.BIN` | `func_800A02D0` | the chocobo races |
+  | 2 | 8 | `SNOBO.BIN` | `func_800A0390` | the snowboard down to the Great Glacier |
+  | 3 | 9 | `CONDOR.BIN` | `func_800B6B58` | Fort Condor |
+  | 4 | 10 | `SUBMAR.BIN` | `func_800A00BC` | the submarine (its result to `0x8009D5E6`) |
+  | 5 | 11 | `JET.BIN` | `func_800A0450` | the Speed Square (its score to `0x8009D3EA`) |
+  | 6 | 14 | `SNOBO2.BIN` | `func_800A0448` | the Gold Saucer snowboard |
+
+  - In the lab, `--minigame N` asks for one from the field that's up. All seven start from the opening field and draw;
+    the chocobo bet (○, 100 gil), Fort Condor's unit placing, the submarine (dive, speed, the 10-minute timer), the
+    Speed Square (○ fires; a ride scores and hands back to the field) and the bike's swings answer the pad. The
+    snowboards wait at the top until Up.
+  - `JET.BIN` ends with data and then hand-written GTE routines with no stack frame, so after data with no stack-frame
+    setup behind it `module_yaml.py` resumes the code at the first word that can be code.
+  - `HIGHWAY.BIN` and `JET.BIN` build GPU lists through 24-bit addresses (`0x000C9D18`): KUSEG, which the PS1 maps onto
+    RAM over all 2 MB. `mem_ptr` folds all of it now, not just the first 64 KB, and `mem_map` reserves the free blocks
+    there on Windows (which hands out the lowest free addresses first) so no host pointer can ever be one.
 - **Field numbers:** the `.DAT` files of `FIELD/` lie on the disc in field order: by sector, `STARTMAP` (the debug
   room) is 0x41 and the rest follow (`MD1STIN` 0x74, `MD1_1` 0x75, ...; `WM*` before it are the world map's). The
   debug room's side rooms are `BLACKBG1`-`BLACKBGK` (0x5D-0x70); Takashi Tokita's, with the save point, is

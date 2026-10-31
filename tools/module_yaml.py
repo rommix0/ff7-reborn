@@ -54,7 +54,9 @@ def code_ranges(image: bytes) -> list[tuple[int, int]]:
                 rabbitizer.Instruction(words[i], category=rabbitizer.InstrCategory.R3000GTE).isValid():
             continue
         ranges.append((start * 4, (max(r for r in returns if r < i) + 2) * 4))
-        start = function_start(next(p for p in prologues if p > i))
+        later = [p for p in prologues if p > i]
+        start = function_start(later[0]) if later else \
+            next(j for j in range(i + 1, end) if words[j] and is_code(words[j], words[j - 1]))
     return ranges + [(start * 4, end * 4)]
 
 

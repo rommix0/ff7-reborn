@@ -45,6 +45,9 @@ int main(int argc, char **argv)
     assert(mem_r16(0x0000100A) == 7 >> 16 && mem_r32(0x00001000) == 7);
     mem_w8(0x0000FFFF, 9);
     assert(mem_r8(0x8000FFFF) == 9);
+    /* kuseg_is_ram: HIGHWAY.BIN stores through 24-bit addresses, all of KUSEG's 2 MB being RAM on the PS1 */
+    mem_w32(0x000C9D18, 5);
+    assert(mem_r32(0x800C9D18) == 5 && mem_r32(0x001FFFFC) == mem_r32(0x801FFFFC));
     /* A C call from code whose $sp is the top of RAM reads four words above it as stack arguments */
     assert(mem_r32(RAM_START + RAM_SIZE + 0x1C) == 0);
     mem_w8(0x1F800010, 0xAB); /* the scratchpad */

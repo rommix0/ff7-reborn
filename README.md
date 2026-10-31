@@ -104,7 +104,7 @@ plays each song on it and checks every channel's notes against `tools/akao.py` (
 **The PC build (work in progress):** the whole boot exe runs as a 32-bit Windows program: the recovered C, plus the
 rest of your `SCUS_941.63` and the game's modules (field, battle, world map, menus, spell effects, ...) recompiled to C
 at build time (never committed). So far it boots through the title menu into NEW GAME's opening movie and the first
-field, with sound, and runs the menus, saving, battles and the world map. It needs
+field, with sound, and runs the menus, saving, battles, the world map and the mini-games. It needs
 [winlibs](https://winlibs.com/)' 32-bit MinGW GCC at `C:\winlibs\mingw32` (or set `PC_CC` and `PC_NM`) and your three
 extracted discs in `assets/`:
 
@@ -125,7 +125,8 @@ card.
 **Reversing lab** (`pc/lab.c`): `--trace FILE` logs what the game does frame by frame (its mode, the field, what the
 field module asks for, the pad, and each file a CD read starts); `--input FILE` plays the pad from a script (lines of
 a frame and the buttons held from it); `--field N` warps to field N once the first field is up (`0x41` is the debug
-room); `--code "80AAAAAA VVVV"` holds a GameShark code every frame (16-bit `80`, 8-bit `30`; repeatable);
+room); `--minigame N` then starts mini-game N (0 bike, 1 chocobo race, 2 snowboard, 3 Fort Condor, 4 submarine,
+5 Speed Square, 6 Gold Saucer snowboard); `--code "80AAAAAA VVVV"` holds a GameShark code every frame (16-bit `80`, 8-bit `30`; repeatable);
 `--dump-at N` or F11 dumps RAM, VRAM and SPU RAM to `dump_*.bin`; `--fast` runs frames as fast as the PC can
 (about 7× real time without a window). The build is deterministic, so
 `python tools/lab_diff.py A_ram.bin B_ram.bin --noise A2_ram.bin` shows what two scripts did differently (A2 is a

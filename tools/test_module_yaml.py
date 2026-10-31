@@ -23,4 +23,7 @@ assert code_ranges(image(0x0821006D, *FRAME)) == [(4, 28)]
 # next function starts, a leaf included.
 assert code_ranges(image(*FRAME, NOP, 0x582C4001, 0x542E542D, *FRAME)) == [(0, 24), (36, 60)]
 assert code_ranges(image(*FRAME, 0x582C4001, *LEAF, *FRAME)) == [(0, 24), (28, 80)]
+# Data, then only leaves to the end (JET.BIN's hand-written GTE routines): the code resumes at the first word past the
+# data that can be code.
+assert code_ranges(image(*FRAME, 0x582C4001, NOP, *LEAF)) == [(0, 24), (32, 60)]
 print("ok")
