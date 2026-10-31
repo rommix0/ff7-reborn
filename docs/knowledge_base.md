@@ -1128,7 +1128,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   - Opening it reads `LIMTMENU` to `0x801D0000`; each entry then reads its own module there (`ITEMMENU`,
     `MGICMENU`, `EQIPMENU` for Materia and Equip, `STATMENU`, `LIMTMENU` again for Limit, `CNFGMENU`, `FORMMENU`
     and every portrait for PHS, `SAVEMENU`); Order needs none. Checked in the lab, from
-    a save made on the opening platform, after the guard's first line (menu allowed from frame ~11200): all ten
+    a new game, after the guard's first line (menu allowed from frame ~11200): all ten
     open and draw; Ether on Cloud fills his MP and leaves the list; taking Lightning off undoes its MaxHP -2% and
     MaxMP +2%; Item's Arrange list, Materia's Check, Limit's Set and the field after closing the menu all work.
   - Config's controller Customize writes the remap table `D_8009D7C0` (16 bytes, one per pad bit, each the bit it
@@ -1147,7 +1147,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     from there). Otherwise every 16 frames of walking `func_800B7C7C` picks a formation or -1, and `func_800A3F4C`
     starts it. Near Midgar it's two wolves on stage 02 (`ENEMY074`/`075`).
   - Its menu (`func_80024A3C`, called by the world itself) reloads the portraits only when `D_80071E34` is set, as the
-    main loop does; after a warp the slot still holds Continue's last preload (Barret's face over Cloud's stats).
+    main loop does; after a warp the slot still holds the new game's last preload (Barret's face over Cloud's stats).
   - After a lost battle, `DSCHANGE.X` shows the game over screen (`MOVIE/OVER.LZS`, 640x480, `MOVIE/OVER2.SND`), then
     the title.
   - Checked in the lab against the manual: START cycles the map (small, large, none), L1/R1 turn, L2/R2 change the
@@ -1176,6 +1176,13 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   - Checked in the lab: Save from the opening field (`--code "8009D2A4 03FF" --code "8009D2A6 0000"`), slot 1, file
     01 makes a one-block `BASCUS-94163FF7-S01` (title frame `SC`, icon flag 11h, "ＦＦ７／ＳＡＶＥ０１"); Continue
     on the title loads it back into `MD1STIN`.
+  - A save's block is the 0x200-byte title frame and icons, then the game's data, which is RAM from `0x8009C6E4`
+    (the menu masks at `+0xBC0`, the field at `+0xB96` = `0x8009D27A`, the disc at `+0xEA4` = `0x8009D588`). Its
+    opening bytes are what the file list shows: the leader's level at `+4`, the party's portraits at `+5`, the
+    leader's name at `+8`, HP and MP at `+0x18`, gil at `+0x20`, seconds played at `+0x24`, the place at `+0x28`.
+  - Cards from emulators (ePSXe's `.mcr`) are the same raw images and load as they are, renamed `memcard1.mcd`. In
+    the lab, Continue is: the credits skipped (up 2040, ○ 2100, START 2160), then ○ at 2390 (the title's cursor
+    starts on Continue when the card has a save), ○ at 2520 (slot 1), ○ at 2660 (file 01); the game is up by 2692.
 - **Not yet:** waiting for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
   bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display, the CD layer and the memory cards.
