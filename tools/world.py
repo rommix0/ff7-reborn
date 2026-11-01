@@ -193,31 +193,6 @@ def scripts_raw(table: dict) -> bytes:
     return head + bytes.fromhex("ffff0000") * (CODE // 4 - 1 - len(entries)) + code.ljust(SIZE - CODE, b"\0")
 
 
-def groups(packed: bytes) -> list[tuple[int, int]]:
-    """Where each flag byte of an LZS stream is, and how much it has unpacked by then."""
-    at, pos, out = 4, 0, []
-    while at < len(packed):
-        out.append((at, pos))
-        flags = packed[at]
-        at += 1
-        for bit in range(8):
-            if at >= len(packed):
-                break
-            if flags >> bit & 1:
-                at, pos = at + 1, pos + 1
-            else:
-                at, pos = at + 2, pos + (packed[at + 1] & 15) + 3
-    return out
-
-
-def repack(packed: bytes, data: bytes, start: int) -> bytes:
-    """data packed again from the last flag byte before start (what's before is unchanged), the rest kept as was:
-    the original packer did better than ours, and the containers have little room to grow."""
-    at, pos = max((g for g in groups(packed) if g[1] <= start), key=lambda g: g[1])
-    body = packed[4:at] + field.lzs_pack(data, pos)[4:]
-    return len(body).to_bytes(4, "little") + body
-
-
 def section_at(image: bytes) -> int:
     return 4 + int.from_bytes(image[4 + 4 * SECTION:8 + 4 * SECTION], "little")  # offsets count from byte 4
 
@@ -249,7 +224,7 @@ def build(folder: Path, assets: Path):
             at = section_at(data)
             if new is None or data[at:at + SIZE] == new:
                 continue
-            out = repack(packed, data[:at] + new + data[at + SIZE:], at)
+            out = field.repack(packed, data[:at] + new + data[at + SIZE:], at)
             lba = kernel.replace(disc, f"WORLD/{path.name}", out)
             entry = next(t + 8 * i for t in SIZES for i in range(13) if int.from_bytes(image[t + 8 * i:t + 8 * i + 4],
                                                                                         "little") == lba)

@@ -65,6 +65,17 @@ python tools/field.py dump "assets/Final Fantasy VII (USA) (Disc 1)" field
 python tools/field.py build field assets
 ```
 
+The field's 3D models (`FIELD/*.BCX`, the party, and each map's `.BSX`): bones, parts (vertices, polygons with their
+colours, UVs and texture words), animations, and per map each model's lights and textures, a JSON file per model file.
+A colour is `RRGGBBNN`, NN the normal the map's lights shine on (the GTE lights each colour once as the map loads):
+
+```bash
+python tools/model.py dump "assets/Final Fantasy VII (USA) (Disc 1)" models
+python tools/model.py build models assets
+```
+
+`docs/model_editor.md` plans an editor for them.
+
 The shops (`MENU/SHOPMENU.MNU`): what each of the 80 sells (by inventory number or materia, names shown), the price
 of every item and materia, the shops' titles and the clerks' lines, in one JSON file:
 

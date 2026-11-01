@@ -463,6 +463,31 @@ def lzs_pack(data: bytes, start: int = 0) -> bytes:
     return len(out).to_bytes(4, "little") + bytes(out)
 
 
+def groups(packed: bytes) -> list[tuple[int, int]]:
+    """Where each flag byte of an LZS stream is, and how much it has unpacked by then."""
+    at, pos, out = 4, 0, []
+    while at < len(packed):
+        out.append((at, pos))
+        flags = packed[at]
+        at += 1
+        for bit in range(8):
+            if at >= len(packed):
+                break
+            if flags >> bit & 1:
+                at, pos = at + 1, pos + 1
+            else:
+                at, pos = at + 2, pos + (packed[at + 1] & 15) + 3
+    return out
+
+
+def repack(packed: bytes, data: bytes, start: int) -> bytes:
+    """data packed again from the last flag byte before start (what's before it is unchanged), the stream up to it
+    kept as it was: the original packer did better than ours, and files on the disc have little room to grow."""
+    at, pos = max((g for g in groups(packed) if g[1] <= start), key=lambda g: g[1])
+    body = packed[4:at] + lzs_pack(data, pos)[4:]
+    return len(body).to_bytes(4, "little") + body
+
+
 def maps(disc: Path) -> list[Path]:
     return sorted(p for p in (disc / "FIELD").glob("*.DAT") if p.stat().st_size != 2048)  # 2 KB stubs aren't maps
 
@@ -483,8 +508,10 @@ def dump(disc: Path, out: Path):
 
 def build(folder: Path, assets: Path):
     for disc in kernel.discs(assets):
-        for original in sorted((disc / "FIELD").glob("*.orig")):  # start from the originals: a dump says it all
-            kernel.replace(disc, f"FIELD/{original.stem}", original.read_bytes())
+        changed = []
+        for original in sorted((disc / "FIELD").glob("*.DAT.orig")):  # start from the originals: a dump says it all
+            changed.append(f"FIELD/{original.stem}")
+            kernel.replace(disc, changed[-1], original.read_bytes())
         image = bytearray(module(disc))
         names = op_names(image)
         for path in sorted(folder.glob("*.json")):
@@ -500,18 +527,28 @@ def build(folder: Path, assets: Path):
             new = dat_raw(dat, sec1)
             if len(new) > ROOM:
                 raise SystemExit(f"{path}: the map unpacks to {len(new)} bytes; there's room for {ROOM}")
-            data = lzs_pack(new)
-            lba = kernel.replace(disc, name, data)
+            kernel.replace(disc, name, lzs_pack(new))
+            changed.append(name)
+        sizes = {r[3]: (int(r[0]), int(r[1])) for r in (line.split(maxsplit=3) for line in
+                                                       (disc / "files.txt").read_text().splitlines())}
+        for name in changed:
+            lba, size = sizes[name]
             entry = next(at for at in range(MAPS, len(image), 24) if u32(image, at) == lba)  # map: .DAT, .MIM, .BSX
-            image[entry + 4:entry + 8] = len(data).to_bytes(4, "little")
+            image[entry + 4:entry + 8] = size.to_bytes(4, "little")
         repack_module(disc, "FIELD/FIELD.BIN", bytes(image))
 
 
 def repack_module(disc: Path, name: str, image: bytes):
-    """A gzip module (8-byte header) with a new image, if it changed; padded to its old size, which the exe reads it
-    by (gzip stops at the end of its stream)."""
-    old = (disc / name).read_bytes()
+    """A gzip module (8-byte header) with a new image, if it changed: the original again if the image is the
+    original's, else packed and padded to the original's size, which the exe reads it by (gzip stops at the end of
+    its stream). Several tools patch FIELD.BIN, each only its own entries."""
+    original = disc / f"{name}.orig"
+    old = (original if original.exists() else disc / name).read_bytes()
     if image == gzip.decompress(old[8:]):
+        if old != (disc / name).read_bytes():
+            kernel.replace(disc, name, old)
+        return
+    if image == gzip.decompress((disc / name).read_bytes()[8:]):
         return
     packed = old[:8] + gzip.compress(image, 9, mtime=0)
     if len(packed) > len(old):

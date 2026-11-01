@@ -257,6 +257,65 @@ back):
   (the map 28 bytes bigger, `FIELD.BIN`'s entry moved with it), cut off by its window until the `wsize` before the
   `mes` was made wider in the script.
 
+**`FIELD/*.BCX` and `.BSX`, the field's models** (`tools/model.py` dumps them to JSON files and builds them back;
+decoded from the loader and the drawing code, every `.BCX` and real `.BSX`, 721 files the same on all three discs,
+dumps and builds back byte for byte):
+- **Loading** (`func_800AA930`): all LZS.
+  1. The map's `.DAT` section 6 lists its models, 8 bytes each: face id, bones, parts, animations, run-time slot and
+     flags, `.BCX` number (0: the model is in the `.BSX`).
+  2. The `.BSX` (the third pair in the map's `FIELD.BIN` entry) unpacks to `0x801B0000`.
+  3. `func_800ADC90` loads each `.BCX` once (table `D_800DF08C`: 1 `CLOUD`, 2 `EARITH`, 3 `BALLET`, 4 `TIFA`, 5 `RED`,
+     6 `CID`, 7 `YUFI`, 8 `KETCY`, 9 `VINCENT`) and `FIELD.TDB` to `0x80128000`.
+  4. `func_800AC35C` copies the `.BSX` to the free pointer (`D_800E0204`) and builds the GPU packets.
+- **`.BCX`:** `u32` size, `u32` header offset H; the data from 8; at H a `0x24`-byte model header (bones, parts,
+  animations, a scale, 512 in most), then the bones (4 bytes), parts (32) and animations (16), to the end.
+- **`.BSX`:** `u32` size, `u32` H; at H the model count and the texture block's offset, then a `0x30`-byte entry per
+  model: face id, `.BCX` number, scale, its block's offset, an ambient colour, and three lights (`func_800B1E40`: a
+  colour each, the columns of the GTE's light colour matrix, and an `s16` x, y, z each, turned by the bone into the
+  light matrix). For a `.BCX` model the entry only adds animations (`MD1STIN`: Cloud's 3).
+- **Bone:** `s16` length, `s8` parent (-1 for the root, else lower than its own index), a byte set when a part hangs on
+  it. A bone sits at its parent's matrix times (tx, ty, length + tz).
+- **Part** (32 bytes): its bone, vertex and UV counts, the count of each of the eight polygon kinds (GT4, GT3, FT4,
+  FT3, F3, F4, G3, G4), the texture words, offsets to its tables, and the packet size. Its data: a zero word, 8-byte
+  vertices (`s16` x, y, z, 0, in the bone's space), the polygons (4 vertex indices, then 4 or 3 or 1 colours, then the
+  UV indices for the textured ones), `u32` texture words, `u16` UVs, a flag byte per polygon (low nibble the texture
+  word, bit 4 semi-transparent, bits 5–6 the blend mode).
+- **Colours and shading:** a colour is RGB plus the index of a normal in `D_800DF520` (240 `s16` directions in
+  `FIELD.BIN`). As the map loads, `func_800B0A48` lights each one with `nccs` from that normal and the model's lights,
+  so the Gouraud colours drawn are the stored ones lit once, not each frame.
+- **Drawing** (`func_800AE4DC`): `rtpt`, back faces dropped by `nclip`, the depth for the ordering table from the
+  vertices' average (`avsz3` for triangles). The packets are the GPU's own: GT4 `3C`, GT3 `34`, FT4 `2C`, FT3 `24`,
+  F3 `20`, F4 `28`, G3 `30`, G4 `38`, `+2` when semi-transparent. On disc 1: 307,208 G4, 288,268 G3, 9,121 GT4, 4,448
+  GT3, 4,109 FT3, 779 FT4, 762 F3, 112 F4.
+- **Textures:**
+  - **Texture word:** its kind places the texture in a slot of VRAM per model, or keeps it where it is. It also holds
+    the colour depth, the texture page, and the palette's x/16 and y.
+  - **The `.BSX` texture block:** raw VRAM rectangles for `LoadImage`, palettes among them. Its patches can also
+    replace a `FIELD.TDB` image or palette, or copy bytes into RAM.
+  - **`FIELD.TDB`:** 127 images of 32×32 at 4 bits and 34 palettes. For a face id below 33 the model gets its palette
+    and three images in its slot (`func_800B1C7C`, called again at run time): textures it swaps, two side by side and
+    one apart.
+- **Animation** (16 bytes; `func_800AEE24`): frames, bones, and per bone three rotation angles (a byte, 256 to a turn;
+  applied Ry·Rx·Rz, the sine table `D_800DF120`) and three offsets, each either fixed or a channel with a value per
+  frame. Scripts pick it by number (`anime`, `canim`, `dfanm`, `animw` ...; `func_800C5B38`). 36 animations have a
+  bone count of their own; the engine loops over the model's.
+- **Rebuilding byte for byte:**
+  - blobs shared by several parts or models (`FARM`, `FRCYO`)
+  - the 12 bytes left in a texture block with no images
+  - 2 bytes after an odd-sized image in `GHOTIN_2`
+  - a junk fourth UV index on 3,172 GT3s
+
+  - the 4 zero bytes ending a `.BCX` header
+  - the bytes that 4-align a part's or animation's data: in 538 files some hold leftovers, not zeros
+
+  The 75 2,048-byte `.BSX` stubs aren't models (their LZS length doesn't match the file).
+- **Building:** a file is packed again only from its first changed byte (`field.repack`); its size goes into
+  `FIELD.BIN` (the map's entry for a `.BSX`, `0x800DF08C` for a `.BCX`). `field.py` and `model.py` each restore only
+  their own files and patch only their own entries, and `FIELD.BIN` goes back to its original bytes when nothing in it
+  differs.
+- **Checked in the lab:** Cloud's parts 0 and 1 (his shirt) given `FF0000` with their normals kept showed bright red
+  in `MD1STIN` ("C'mon newcomer"), lit and shaded as before.
+
 **`MENU/SHOPMENU.MNU`, the shops** (`tools/shop.py` dumps them to a JSON file and builds them back): the module runs
 from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
 - `0x42C8`: 9 shop titles, 20 bytes each ("Item Shop", "Weapon Shop", ...); `0x437C`: two sets of 10 clerk lines, 46
@@ -1031,6 +1090,8 @@ same set). They give the original module and file split, and the staff folders b
   `tools/test_field.py` checks the disassembler, the names, the section layout and the packer.
 - `tools/shop.py`: `SHOPMENU.MNU`'s shops, titles, clerk lines and prices to a JSON file and back (§2,
   `MENU/SHOPMENU.MNU`); `tools/test_shop.py` checks the layout and its limits.
+- `tools/model.py`: the field's models (`.BCX`, `.BSX`) to JSON files and back (§2, `FIELD/*.BCX` and `.BSX`);
+  `tools/test_model.py` checks the layout, shared data and its limits.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
   a repacker that keeps an LZS stream up to a change; `tools/test_world.py` checks the encoding, the table and it.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per

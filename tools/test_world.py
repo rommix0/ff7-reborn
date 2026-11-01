@@ -1,6 +1,6 @@
-from field import lzs_pack
+from field import lzs_pack, repack
 from unpack import lzs
-from world import CODE, SIZE, assemble, disassemble, repack, scripts_json, scripts_raw
+from world import CODE, SIZE, assemble, disassemble, scripts_json, scripts_raw
 
 
 def words(*ws: int) -> bytes:
