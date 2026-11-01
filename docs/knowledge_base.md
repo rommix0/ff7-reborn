@@ -136,11 +136,11 @@ A movie name found on several discs has the same contents on each, so the PC por
   scene 75 (MP and Guard Hound) setup 0.
 - **A scene:** three `u16` enemy IDs (`FFFF` for none, then `FFFF`), four 20-byte setups (`0x008`), four 48-byte
   cameras (`0x058`), 4 × 6 16-byte formation entries (`0x118`), three 184-byte enemy records (`0x298`), 32 attacks in
-  the kernel's 28-byte spell record (`0x4C0`), their `u16` IDs (`0x840`) and 32-byte names (`0x880`), then the AI
-  scripts (`0xC80` to the end). Names are 32 bytes, the text then `FF` to the end, in every scene. Scenes 0–2 number
-  their enemies (`…0(…)` to `…6(…)`) in bytes this font shows as accented letters. An enemy record starts with its
-  name; the battle copies them to
-  `0x800F5F44`, where the battle text's `ED` insert takes names from.
+  the kernel's 28-byte spell record (`0x4C0`), their `u16` IDs (`0x840`) and 32-byte names (`0x880`), then the
+  setups' AI scripts (`0xC80`, 512 bytes) and the enemies' (`0xE80` to the end, 4 KB). Names are 32 bytes, the text
+  then `FF` to the end, in every scene. Scenes 0–2 number their enemies (`…0(…)` to `…6(…)`) in bytes this font shows
+  as accented letters. An enemy record starts with its name; the battle copies them to `0x800F5F44`, where the battle
+  text's `ED` insert takes names from.
 - **Setups, cameras and formations:** `BATINI.X` copies the scene's IDs and the battle's own setup, cameras and
   formation to `0x8016360C` (setup `0x80163614`, cameras `0x80163628`, formation `0x80163658`). A setup's `u16`
   `+0x00` is the battle area (an 8-byte entry of the file table at `0x800E7D98` that the battle loads), `+0x02` the
@@ -180,6 +180,25 @@ A movie name found on several discs has the same contents on each, so the PC por
     statuses it can be given: `FFFFFFFF` for most enemies, bits cleared for bosses (the actor keeps the inverse).
   - `+0xA2`: damage from behind is multiplied by it over 8 (16, double, for nearly all; the party's is 16 too).
     `+0x9A` is `FFFF` or `FFFE`, `+0xA3` and `+0xB4`–`+0xB7` are `FF` in every record.
+- **AI scripts:** `BATINI.X` copies both parts to `0x800F6BA4` and `0x800F6DA4`. Each starts with a `u16` offset per
+  setup (4) or enemy record (3) to a block (`FFFF` none); a block is 16 `u16` slot offsets from its start (`FFFF`
+  none), then the scripts, in slot order, one after another. `func_800A5FB0` finds one (it clears bit 0 of the
+  block's offset, so blocks start even: 174 scripts end in an `FF` that pads them). `func_800A6000` runs an enemy's
+  (slot 0 from `BATINI.X`; 1 on its turn: a script that showed text and used one attack instead of MP's did both;
+  3, 4 and 7 from elsewhere in `BATTLE.X`), `func_800A61D4` the setup's slots 0–7; the party's come from
+  `KERNEL.BIN` section 2 (`0x80082884`), in the same block format.
+  - `func_800B1D48` runs them, a byte stack machine (stack at `+0x7C` of its state, `0x800F4AC4`): an operation's
+    high nibble picks its group. `0X` push a variable and `1X` its address (a `u16` operand; the low nibble is the
+    size, 0 bit to 3 word; `func_800B13B0` maps an address below `0x2000` to the actor's own 128 bytes at
+    `0x800F87F0`, from `0x2000` to the battle's at `0x800F83A4`, from `0x4000` to the actors' at `0x800F83E0`), `3X`
+    add, sub, mul, div, mod, and, or, not, `4X` eq, ne, ge, le, gt, lt (the left operand deeper in the stack),
+    `50`–`52` logical and, or, not, `60`–`62` push a 1-, 2- or 3-byte constant, `70` jump if false, `71` jump if not
+    equal, `72` jump (a `u16` from the script's start), `73` end, `74` pop, `90` store, `92` attack
+    (pops a command and an attack ID), `93` text (to `FF`, with `EA`–`F1`'s two bytes skipped), `A0` debug (a count,
+    then a NUL-ended string). Every other byte is a 1-byte operation; `80`–`87`, `91`, `94`–`96` and `A1` do things
+    not named yet.
+  - Every script on all three discs disassembles to the end of its bytes and its jumps land on operations;
+    `tools/scene.py` dumps them a line per operation with labels and assembles them back byte for byte.
 - **Rebuilding:** every scene dumps and builds back byte for byte, and packed in order they land in the original
   blocks. `SCENE.BIN` can't grow: `BATRES.X` follows it on the disc. `build` remakes `KERNEL.BIN` in each disc folder
   with the table for the new blocks, and the kernel tool takes the table from the folder's `SCENE.BIN` too, so

@@ -38,7 +38,8 @@ python tools/kernel.py build kernel assets
 `BATTLE/SCENE.BIN` holds the 256 battle scenes: the enemies (names, stats, HP, MP, EXP, gil,
 AP, drops, steals, morphs, elements), their attacks and AI, and each battle's setup (area, layout, escape, cameras,
 and which enemy stands where).
-It works the same way, a JSON file per scene:
+It works the same way, a JSON file per scene; the AI scripts come as a list of lines, one operation each (`push8 0x1`,
+`jump_if_false L0029`, `attack`, `text ...`), and can be rewritten freely within the scene's room:
 
 ```bash
 python tools/scene.py dump "assets/Final Fantasy VII (USA) (Disc 1)" scene

@@ -1,7 +1,23 @@
 import random
 
 from kernel import encode, scene_table
-from scene import SCENE_SIZE, pack_scenes, read_scenes, scene_json, scene_raw
+from scene import SCENE_SIZE, ai_blob, ai_blocks, ai_code, ai_text, pack_scenes, read_scenes, scene_json, scene_raw
+
+# An AI script disassembles to a line per operation, a label before each jump target (named by its offset in the
+# script), and assembles back to the same bytes.
+code = bytes.fromhex("110020 6005 90 012000 6001 40 701300") + b"\x93" + encode("Hi") + b"\xff" + \
+    bytes.fromhex("720000 a002") + b"hello\0" + bytes.fromhex("73 2f")
+lines = ["L0000:", "addr_byte 0x2000", "push8 0x5", "store", "push_byte 0x20", "push8 0x1", "eq",
+         "jump_if_false L0013", "text Hi", "L0013:", "jump L0000", "debug 2 hello", "end", "op_2F"]
+assert ai_text(code) == lines and ai_code(lines) == code
+assert ai_code(["push16 0x1234", "jump 0x7"]) == bytes.fromhex("613412 720700")
+
+# A blob is a u16 offset per actor (FFFF for none) to a block: 16 u16 slot offsets, then the scripts. The battle
+# clears bit 0 of a block's offset, so an odd-sized block is padded.
+blob = ai_blob([{"1": lines, "2": ["end"]}, None, {"0": ["end"]}], 0x1000)
+assert blob[:6] == bytes.fromhex("0600 ffff 4800") and len(blob) == 0x1000 and blob[0x47] == 0xFF
+assert blob[0x48:0x4A] == bytes.fromhex("2000") and blob[0x68:] == b"\x73" + b"\xff" * (0x1000 - 0x69)
+assert ai_blocks(blob, 3)[0]["1"] == lines and ai_blocks(blob, 3)[1:] == [None, {"0": ["end"]}]
 
 # Scenes go into 8 KB blocks, at most 16 to a block: a u32 offset in words per scene (FF for none), then their gzip
 # streams on 4-byte boundaries, FF to the end. One that won't fit starts the next block.
@@ -20,7 +36,10 @@ for name in [0x298 + 184 * k for k in range(3)] + [0x880 + 32 * k for k in range
     scene[name:name + 32] = encode("-").ljust(32, b"\xff")
 scene[0x298:0x298 + 32] = encode("Guard Hound").ljust(32, b"\xff")
 scene[0x880:0x880 + 32] = encode("Bite").ljust(32, b"\xff")
+scene[0xC80:0xE80] = ai_blob([None] * 4, 0x200)
+scene[0xE80:] = blob
 table = scene_json(bytes(scene))
+assert table["enemies"][0]["ai"]["1"] == lines and table["setups"][0]["ai"] is None
 assert table["enemies"][0]["name"] == "Guard Hound" and table["attacks"][0]["name"] == "Bite"
 assert scene_raw(table) == scene
 table["enemies"][0]["name"] = "Hound"
