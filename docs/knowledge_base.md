@@ -144,8 +144,28 @@ A movie name found on several discs has the same contents on each, so the PC por
 - **Enemy fields shown by the game** (the opening battle, two MPs, from a new game): with MP's `+0xA8` (`u32`) at
   1,000, Cloud's EXP (`0x8009C774`) rose 2,000 instead of 32; `+0xAC` (`u32`) at 300 put 600 gil at `0x8009D7E0`
   instead of 20; `+0x9E` (`u16`) at 7 gave the materia 14 AP instead of 4; `+0xA4` (`u32`) at 1 turned up as the
-  enemy's HP in the battle's copy (`0x800F5FE8`) and its actor (`0x800F85AC`). MP's record has level 2 at `+0x20`,
-  Guard Hound's 3, not shown yet.
+  enemy's HP in the battle's copy (`0x800F5FE8`) and its actor (`0x800F85AC`).
+- **The rest of the record, from the code that reads it:** `BATINI.X` builds each enemy's actor (`0x800F8580`, `0x68`
+  bytes) from it, into the fields it fills for the party from the 64-byte block at `0x8009D84C` that the Status
+  screen draws (bytes `+2`–`+7` Strength, Vitality, Magic, Spirit, Dexterity, Luck, as `func_8001FCDC` numbers them;
+  `u16` Attack `+8`, Defense `+0xA`, Magic atk `+0xC`, Magic def `+0xE`). So `+0x20` level (the party's comes from
+  the save's level byte), `+0x21` dexterity, `+0x22` luck, `+0x23` defense % (the party's is the armor's), `+0x24`
+  strength, `+0x25` defense and `+0x27` magic defense (both doubled into the actor), `+0x26` magic, `+0x9C` MP. In
+  the lab, MP's strength at 60 instead of 6 took Cloud to 87 of 302 HP before the battle ended (284 left without).
+  - Items: four rate bytes at `+0x88` and four `u16` inventory numbers at `+0x8C` (`FF`/`FFFF` for none).
+    `func_800B0F04` takes the first slot whose top two bits match (`0x80` steal, `0` drop) and whose low six bits,
+    as they are for a drop and times a factor `func_800A2974` works out for a steal, are at least a 0–63 roll. MP's
+    first slot at `0x3F` with item 5 had both MPs drop an Elixir in the lab (the spoils list at `0x8009D808`).
+    `+0xA0` is the item Morph turns it into (`FFFF` for none).
+  - Attacks: 16 `u16` scene attack IDs at `+0x48`; for the one being used, the byte at the same index from `+0x38`
+    is its animation and the `u16` from `+0x68` its camera (`FFFF`: the attack's own). `+0x94` is three `u16`
+    attack IDs, the Manipulate menu's (`BATINI.X` looks them up in the scene's list); the first is what it does
+    when Berserk, and under one more status unless bit 0 of `+0x9A` is clear.
+  - Elements: eight ids at `+0x28` (`FF` none; elements below 32, statuses from 32) and at `+0x30` the kind each
+    is (the battle keeps a bit mask per kind; 0, 1, 2, 4, 5 and 6 are used, not named yet). `+0xB0` is the
+    statuses it can be given: `FFFFFFFF` for most enemies, bits cleared for bosses (the actor keeps the inverse).
+  - `+0xA2`: damage from behind is multiplied by it over 8 (16, double, for nearly all; the party's is 16 too).
+    `+0x9A` is `FFFF` or `FFFE`, `+0xA3` and `+0xB4`–`+0xB7` are `FF` in every record.
 - **Rebuilding:** every scene dumps and builds back byte for byte, and packed in order they land in the original
   blocks. `SCENE.BIN` can't grow: `BATRES.X` follows it on the disc. `build` remakes `KERNEL.BIN` in each disc folder
   with the table for the new blocks, and the kernel tool takes the table from the folder's `SCENE.BIN` too, so

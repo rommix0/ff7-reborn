@@ -25,4 +25,13 @@ assert table["enemies"][0]["name"] == "Guard Hound" and table["attacks"][0]["nam
 assert scene_raw(table) == scene
 table["enemies"][0]["name"] = "Hound"
 assert scene_raw(table)[0x298:0x298 + 32] == encode("Hound").ljust(32, b"\xff")
+
+# The enemy record's fields the battle code reads (docs/knowledge_base.md, SCENE.BIN); what's left stays unknown_XX.
+hound = table["enemies"][0]
+assert hound["level"] == scene[0x298 + 0x20] and hound["magic_defense"] == scene[0x298 + 0x27]
+assert hound["item_2"] == int.from_bytes(scene[0x298 + 0x8E:0x298 + 0x90], "little")
+assert hound["camera_16"] == int.from_bytes(scene[0x298 + 0x86:0x298 + 0x88], "little")
+assert hound["statuses"] == int.from_bytes(scene[0x298 + 0xB0:0x298 + 0xB4], "little")
+assert sorted(k for k in hound if k.startswith("unknown_")) == ["unknown_9A", "unknown_9B", "unknown_A3"] + \
+    [f"unknown_{i:02X}" for i in range(0xB4, 0xB8)]
 print("ok")

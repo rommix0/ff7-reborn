@@ -23,8 +23,19 @@ BLOCK = 8192
 ENEMIES, ENEMY_SIZE = 0x298, 184
 ATTACKS, ATTACK_SIZE, ATTACK_IDS, ATTACK_NAMES = 0x4C0, 28, 0x840, 0x880
 HEX = [("setups", 0x008, 0x058), ("cameras", 0x058, 0x118), ("formations", 0x118, ENEMIES), ("ai", 0xC80, SCENE_SIZE)]
-# A record's fields past its name, once the game shows them (docs/knowledge_base.md, SCENE.BIN).
-ENEMY_FIELDS = [(0x9E, 2, "ap"), (0xA4, 4, "hp"), (0xA8, 4, "exp"), (0xAC, 4, "gil")]
+# A record's fields past its name, as the battle code reads them (docs/knowledge_base.md, SCENE.BIN).
+ENEMY_FIELDS = [
+    *[(0x20 + i, 1, f) for i, f in enumerate(["level", "dexterity", "luck", "defense_pct", "strength", "defense",
+                                              "magic", "magic_defense"])],
+    *[(0x28 + i, 1, f"element_{i + 1}") for i in range(8)],
+    *[(0x30 + i, 1, f"element_kind_{i + 1}") for i in range(8)],
+    *[(0x38 + i, 1, f"animation_{i + 1}") for i in range(16)],
+    *[(0x48 + 2 * i, 2, f"attack_{i + 1}") for i in range(16)],
+    *[(0x68 + 2 * i, 2, f"camera_{i + 1}") for i in range(16)],
+    *[(0x88 + i, 1, f"item_rate_{i + 1}") for i in range(4)], *[(0x8C + 2 * i, 2, f"item_{i + 1}") for i in range(4)],
+    *[(0x94 + 2 * i, 2, f"manipulate_{i + 1}") for i in range(3)],
+    (0x9C, 2, "mp"), (0x9E, 2, "ap"), (0xA0, 2, "morph"), (0xA2, 1, "back_damage"), (0xA4, 4, "hp"), (0xA8, 4, "exp"),
+    (0xAC, 4, "gil"), (0xB0, 4, "statuses")]
 ATTACK_FIELDS = kernel.LAYOUTS[1][2]  # a scene's attacks are the kernel's spell records
 
 
