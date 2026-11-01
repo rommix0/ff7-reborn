@@ -89,6 +89,44 @@ A movie name found on several discs has the same contents on each, so the PC por
   converter shows each frame at the next 15 fps tick or when its data has arrived, whichever is later.
 - Audio usually runs past the last frame (median 3.2 s).
 
+**Text and `KERNEL.BIN`** (`tools/kernel.py` dumps it to JSON and text files and builds it back):
+- **Characters:** a game byte plus 0x20 is Mac OS Roman. `WINDOW.BIN`'s second TIM is the font (4-bit, 12-pixel
+  cells, 21 a row) in that order; a few Mac Roman symbols (†, §, ©, ®, ™) are blank in it. From 0xE0 they're codes:
+  `EA`–`F1` take a big-endian `u16` that `func_80014E74` fills in (`EA` a character's name, `EB` an item, `EC` a
+  number, `ED` a party member or enemy, `EE` and `F0` other name lists, `EF` one character, `F1` any list by list and
+  index); `F8` (colour) and `FA`–`FE` (more glyph pages) take a byte (the drawing at `0x80026F7C`); `FF` ends a string.
+- **Sections:** 0–8 are tables, 9–26 text. A text section is a `u16` offset per string, then the strings. The help
+  texts (9–16) and the battle text (25) are packed: `F9 b` copies `(b >> 6) * 2 + 4` bytes of the packed section from
+  `(b & 0x3F) + 1` bytes before the `F9` (`func_800150E4`). The names (17–24, 26) aren't (`func_80014D58` copies them
+  as they are; packed, "Hi-Potion" came out "Hi-i"). A copy can bring an earlier string's `FF`, which ends the text.
+  The battle text's inserts are filled in before its copies are unpacked, at positions counted in the packed string,
+  so the original never puts a copy after an insert (0 of 33) and neither may a rebuild. Section 9's first offset is
+  `0x3F`, a byte into its own table.
+- **Loading:** `load_boot_files` reads the file to `0x801B0000` by `YAMADA.BIN`'s entry (sector 622, 22,376 bytes).
+  `func_80014C80` gives each text section the next part of `0x80063690`–`0x8006947C` (24,044 bytes; the original
+  uses 23,030) without a check and keeps its offset in the `u16` table at `0x80069490`. The tables load whole:
+  commands `0x800707C4` (32 × 8 bytes), spells `0x800708C4` (128 × 28), section 2 `0x80082268`, items `0x800722CC`
+  (128 × 28), weapons `0x800738A0` (128 × 44), armor `0x80071E44` (32 × 36), accessories `0x80071C24` (32 × 16),
+  materia `0x800730D0` (96 × 20). Section 3 is a new game's save data: `func_80014934` reads the file again and copies
+  it to `0x8009C738`. `func_8001FAF8` numbers the inventory: items 0–127, weapons 128–255, armor 256–287, accessories
+  288–319.
+- **Fields shown by the game:** with each candidate bumped by a different amount, Cloud's Status and Equip screens
+  moved by exactly that much for weapon attack (`+0x04`), hit % (`+0x08`) and stat bonus (stat at `+0x14`, amount at
+  `+0x18`; 0 Strength, 1 Vitality, 2 Magic, 3 Spirit, 4 Dexterity, 5 Luck), and armor defense (`+0x02`), magic
+  defense (`+0x03`), defense % (`+0x04`) and magic defense % (`+0x05`). The Status screen's Magic def leaves the
+  armor's magic defense out (it showed Spirit alone, before and after); the Equip screen shows it. Growth 1 shows as
+  Normal; a slot byte is 5 for a single slot, 6 and 7 for a linked pair, 0 for none. The `u16` that
+  `func_8001FAF8` returns for every kind is clear where allowed: 1 sell (the shop), 2 battle, 4 menu, 8 throw (the
+  item menu's tests; an Antidote can't be used from the menu, a Hardedge can be thrown, the Buster Sword can't be
+  sold). An item's power times 20 is what Potion and Hi-Potion say they restore; a spell's MP cost is the `u16` at
+  `+0x04`; materia lists the AP for each level in hundreds (Fire: 2,000, 18,000, 35,000). The rest, sections 2 and
+  3 among them, are dumped as bytes until something shows what they are.
+- **Rebuilding:** the dump of an unchanged file builds back to the same tables and the same text, string for string;
+  the packing differs (the original keeps more repeats as they are), so it comes out smaller: 21,832 bytes, 21,032 of
+  text. A bigger file needs `YAMADA.BIN`'s size (the game reads that much) and `files.txt`'s (the PC port maps sectors
+  to files by it); on the disc there are 17 sectors before `MINI/CHOCOBO.BIN`. Checked in the lab: a renamed Potion
+  and its new help text show in the item menu, and a battle runs to the same frame, pixel for pixel.
+
 ## 3. Code: what is recovered and what isn't
 
 The main exe `SCUS_941.63` is split with splat and `make` rebuilds it byte-identical (SHA1-checked) from asm plus the
@@ -796,6 +834,8 @@ same set). They give the original module and file split, and the staff folders b
   size, raw or not, path), the sector index the PC build reads through.
 - `tools/unpack.py`: detects and decompresses gzip overlays, plain gzip, BIN-GZ archives and LZS.
   `tools/test_unpack.py` is the LZS self-check.
+- `tools/kernel.py`: `KERNEL.BIN` to editable files and back (§2, Text and `KERNEL.BIN`); `tools/test_kernel.py`
+  checks the character set, the codes, the `F9` packing and its limits, and the archive.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
   frame); each in-memory one a silent 30 fps AVI, found by matching file sizes against `MOVIE_ID.BIN`. The JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
   exactly, so nothing is re-encoded. Checked on `MK8.STR` against ffmpeg's MDEC decoder: the planes agree to ±1

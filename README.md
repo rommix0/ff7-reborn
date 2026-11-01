@@ -26,6 +26,19 @@ Then decompress what you need (overlays, `KERNEL.BIN`, field maps). The format i
 python tools/unpack.py "assets/Final Fantasy VII (USA) (Disc 1)/BATTLE/BATTLE.X"
 ```
 
+Mod the game's data: `INIT/KERNEL.BIN` holds the item, weapon, armor, accessory, materia, spell and command tables
+and their names, help texts and battle messages. Dump it to files you can edit (the tables as JSON, the text one line
+per string), then build it back into every disc's folder for the PC build:
+
+```bash
+python tools/kernel.py dump "assets/Final Fantasy VII (USA) (Disc 1)" kernel
+python tools/kernel.py build kernel assets
+```
+
+`build` keeps the first originals as `.orig` (copy them back to undo) and refuses text that won't fit in the game's
+memory. Fields not worked out yet are `unknown_XX`, and their values can still be changed; `docs/knowledge_base.md`
+(Text and `KERNEL.BIN`) says what each named one does and how the text's `{XX}` codes work.
+
 Disassemble the music and sound effects (AKAO sequences):
 
 ```bash
