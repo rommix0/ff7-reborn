@@ -75,7 +75,8 @@ python tools/shop.py build shops.json assets
 
 The world map's event scripts (inside `WORLD/WM*.TXZ`): what happens where on the world map, the scripted battles
 among it. A JSON file per set (the main world, `WMB`, `WMC`) lists the scripts by key and the code a line per
-operation, as `scene.py`'s AI does (`push story`, `push #1000`, `ge`, `ifnot L0026`, `push #324`, `battle`):
+operation, as `scene.py`'s AI does (`push story`, `push #1000`, `ge`, `ifnot L0026`, `push #324`, `battle`,
+`push #49`, `message`, `push byte.player_id`, `select_entity`; commands not worked out yet are `op_3XX`):
 
 ```bash
 python tools/world.py dump "assets/Final Fantasy VII (USA) (Disc 1)" world

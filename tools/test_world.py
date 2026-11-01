@@ -11,13 +11,18 @@ def words(*ws: int) -> bytes:
 # goto/ifnot (200/201) a word number from the code's start. A push's type says what the value is: 110 itself, 114
 # a bit, 118 a byte, 11C a u16 at that address; the low two bits pick the save data (0), a scratch area (1, 2) or
 # a special value (3). Saved bytes and u16s take the field's names.
-code = words(0x203, 0x100, 0x110, 300, 0x11C, 0, 0x70, 0x201, 11, 0x119, 0x0A, 0x317, 0x200, 1, 0x203, 0x20D, 0x352)
+code = words(0x203, 0x100, 0x110, 300, 0x11C, 0, 0x70, 0x201, 11, 0x119, 0x0A, 0x317, 0x200, 1, 0x203, 0x20D, 0x331)
 lines = ["L0000:", "ret", "L0001:", "reset", "push #300", "push story", "eq", "ifnot L000B", "push byte.1[A]",
-         "L000B:", "battle", "goto L0001", "ret", "run 9", "op_352"]
+         "L000B:", "battle", "goto L0001", "ret", "run 9", "op_331"]
 assert disassemble(code, {0}) == lines and assemble(lines) == code
-assert disassemble(words(0x11B, 0xF, 0x118, 0x10, 0x112, 7, 0x16)) == ["push byte.3[F]", "push play_hours",
+assert disassemble(words(0x11B, 0x9, 0x118, 0x10, 0x112, 7, 0x16)) == ["push byte.3[9]", "push play_hours",
                                                                          "push_112 0007", "op_016"]
 assert assemble(["push word[10]", "push bit[523]", "push_112 7"]) == words(0x11C, 0x10, 0x114, 0x523, 0x112, 7)
+# Commands, the measuring operators and the special values the code shows the meaning of go by name.
+named = words(0x11B, 8, 0x330, 0x117, 0x15, 0x110, 50, 0x110, 0, 0x318, 0x19)
+assert disassemble(named) == ["push byte.player_id", "select_entity", "push bit.3[15]", "push #50", "push #0",
+                              "enter_field", "entity_distance"]
+assert assemble(disassemble(named)) == named
 for wrong in (["goto L0005"], ["push"], ["push word.4[1]"], ["fly"]):
     try:
         assemble(wrong)

@@ -28,7 +28,31 @@ SIZES = [0x273E4, 0x2744C]  # WORLD.BIN unpacked: a sector and size per WM0-WMC.
 OPERATORS = {0x15: "neg", 0x17: "not", 0x30: "mul", 0x40: "add", 0x41: "sub", 0x50: "shl", 0x51: "shr",
              0x60: "lt", 0x61: "gt", 0x62: "le", 0x63: "ge", 0x70: "eq", 0x71: "ne", 0x80: "and", 0xA0: "or",
              0xB0: "land", 0xC0: "lor", 0xE0: "set"}  # func_800ABFC0
-NAMES = {**OPERATORS, 0x100: "reset", 0x200: "goto", 0x201: "ifnot", 0x203: "ret", 0x317: "battle"}
+# 18-1B measure from the current entity: to a point, an entity, a position 344 saved; the angle to a point.
+MEASURES = {0x18: "point_distance", 0x19: "entity_distance", 0x1A: "saved_pos_distance", 0x1B: "point_angle"}
+# Commands (func_800AC700) by what their handlers do; most act on the current entity, and the wait_ ones run again
+# each frame until what they wait on is done.
+COMMANDS = {
+    0x300: "spawn_entity", 0x302: "set_player", 0x303: "set_speed", 0x304: "set_direction", 0x305: "set_wait",
+    0x306: "wait_move", 0x307: "set_player_control", 0x308: "set_block", 0x309: "set_block_pos",
+    0x30A: "set_height_step", 0x30B: "set_height_offset", 0x30C: "board", 0x30E: "play_animation",
+    0x310: "point_select", 0x311: "point_block", 0x312: "point_pos", 0x313: "point_rgb1", 0x314: "point_range",
+    0x315: "point_rgb2", 0x316: "point_rgb3", 0x317: "battle", 0x318: "enter_field", 0x319: "set_view",
+    0x31C: "camera_mode", 0x31D: "play_sound", 0x31F: "camera_turn_speed", 0x321: "face_point", 0x324: "set_window",
+    0x325: "message", 0x326: "ask", 0x327: "wait_answer", 0x328: "set_move_direction", 0x329: "camera_tilt_speed",
+    0x32A: "camera_zoom_speed", 0x32B: "set_encounters", 0x32D: "close_window", 0x32E: "wait_window",
+    0x32F: "set_camera_yaw", 0x330: "select_entity", 0x333: "face_entity", 0x334: "wait_run", 0x336: "set_speed_x16",
+    0x33A: "set_vertical_speed", 0x33B: "fade_out", 0x33D: "enter_field_now", 0x33E: "play_music",
+    0x344: "save_pos", 0x345: "face_saved_pos", 0x347: "move_to_entity", 0x348: "fade_in", 0x349: "map_stage",
+    0x34A: "spawn_effect", 0x34D: "effect_emitter", 0x34E: "effect_emitter_stop", 0x34F: "set_y",
+    0x351: "music_volume", 0x352: "screen_shake", 0x353: "restore_player_pos", 0x354: "set_active", 0x355: "set_timer",
+}
+NAMES = {**OPERATORS, **MEASURES, **COMMANDS, 0x100: "reset", 0x200: "goto", 0x201: "ifnot", 0x203: "ret"}
+# Special values (area 3, jtbl_800A0268), whatever the push's kind: the current entity's block and place in it, its
+# direction and model id, the last field exit, the view (as set_view takes it), the player's model id, the last
+# answer (-1 while the window is open), the random table's next byte.
+SPECIALS = {0: "block_x", 1: "block_z", 2: "x", 3: "z", 4: "direction", 5: "exit_kind", 6: "exit_key",
+            7: "view_mode", 8: "player_id", 0xC: "answer", 0xF: "entity_id", 0x10: "random"}
 OPCODES = {name: op for op, name in NAMES.items()}
 KINDS = {0x114: "bit", 0x118: "byte", 0x11C: "word"}  # func_800ABB24; 0x110 is the value itself
 BYTE_BANKS, WORD_BANKS = [1, 3, 11, 13, 15], [2, 4, 12, 14, 7]  # the field's banks for each 256 bytes of save data
@@ -48,6 +72,8 @@ def operand(op: int, value: int) -> str:
         key = ((BYTE_BANKS if kind == 0x118 else WORD_BANKS)[value >> 8], value & 0xFF)
         if key in field.VARS:
             return field.VARS[key]
+    if bank == 3 and value in SPECIALS:
+        return f"{KINDS[kind]}.{SPECIALS[value]}"
     return f"{KINDS[kind]}{f'.{bank}' if bank else ''}[{value:X}]"
 
 
@@ -87,8 +113,11 @@ def push_value(text: str) -> tuple[int, int]:
     name, _, rest = text.partition("[")
     name, _, bank = name.partition(".")
     kind = next((k for k, n in KINDS.items() if n == name), None)
+    special = next((i for i, n in SPECIALS.items() if n == bank), None)
+    if kind is not None and special is not None and not rest:
+        return kind | 3, special
     if kind is None or not rest.endswith("]") or bank not in ("", "1", "2", "3"):
-        raise ValueError(f"{text} isn't #value, a variable's name, or bit/byte/word[.bank][address]")
+        raise ValueError(f"{text} isn't #value, a variable's name, bit/byte/word[.bank][address] or a special")
     return kind | int(bank or 0), int(rest[:-1], 16)
 
 

@@ -288,7 +288,21 @@ from `0x801D0000` as the file is, the same on all three discs. A field script op
     special values (the entity's block and position, direction, its id, ...).
   - `0x200` goto, `0x201` jump if zero (word numbers from the code's start), `0x203` return (to a caller, or the end),
     `0x204 + N` run function N of the entity on the stack.
-  - `0x300`–`0x355` commands, their arguments popped (none inline); `0x317` starts battle N (`func_800A3F4C`).
+  - `0x300`–`0x355` commands, their arguments popped (none inline), most on the current entity (`D_8010AD3C`); a
+    "wait" one takes its own word back off the script position and yields, so it runs again next frame. Named by
+    what their handlers do (`tools/world.py`'s `COMMANDS`): `spawn_entity` N (the entity with model N, made if there
+    isn't one, its function 0 started), `select_entity`, `set_player`; speed, direction, `set_block` /
+    `set_block_pos` (the high and low 13 bits of x and z), `set_wait` N then `wait_move` (moves N frames);
+    `play_animation`; `battle` N (`func_800A3F4C`); `enter_field` (a, b): entry `(a - 1) * 2 + (b & 1)` of the 12-byte
+    table at `0x800BF5F0` (`+6` the field ID, `+0`/`+2`/`+4` where to stand); `set_window` (x, y, w, h of window 0),
+    `message` N, `ask` (message, first and last choice line), `close_window`, `wait_window`, `wait_answer`;
+    `play_sound` (sound command `0x30`), `play_music`, `music_volume` (`C0`), `screen_shake`, `fade_out` /
+    `fade_in`; `set_encounters` (random battles roll only while it's set); the camera and view; 16 light points
+    (`point_*`); effects. The 68 uses of the rest stay `op_3XX`.
+  - Special values by name: the current entity's `block_x`/`block_z`, `x`/`z` in the block, `direction`,
+    `entity_id`; `player_id`, `view_mode` (as `set_view` takes it), `exit_kind`/`exit_key` (the last field exit),
+    `answer` (-1 while the window is open), `random` (the next byte of a table). Operators 18–1B measure from the
+    current entity: `point_distance`, `entity_distance`, `saved_pos_distance`, `point_angle`.
   - Only pushes and jumps take a second word, so every script disassembles linearly; all three sets assemble back
     byte for byte.
 - **Building:** a container is packed again only from the flag byte before its scripts (LZS only looks back), within
@@ -298,7 +312,9 @@ from `0x801D0000` as the file is, the same on all three discs. A field script op
   only if a count does.
 - **Checked in the lab:** `push #324`, `battle` at the start of system script 2 opened battle `0x144` (Guard Scorpion)
   ten frames after the world map loaded; at the start of script 0 (still loading) the world map stopped on its whole
-  map instead. A word added to script 0 moved every label after it and the world map ran as before.
+  map instead. A word added to script 0 moved every label after it and the world map ran as before. In script 2,
+  `enter_field` (50, 0) left for field `0x46` (`FSHIP_23`), entry 98's ID; `set_window` (30, 160, 260, 41) then
+  `message` 49 showed Cloud's "...First, I gotta do something about her." in a box there.
 
 ## 3. Code: what is recovered and what isn't
 
