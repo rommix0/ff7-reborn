@@ -52,8 +52,10 @@ out yet are `unknown_XX`, and their values can still be changed; `docs/knowledge
 `BATTLE/SCENE.BIN`) says what each named one does and how the text's `{XX}` codes work.
 
 The field maps (`FIELD/*.DAT`) hold the story: each map's scripts and dialogue. They dump to a JSON file per map:
-its entities, their scripts a line per operation (named as the game's own debug trace names them, operand bytes in
-hex, jumps to labels) and its dialogue. `build` writes only the maps that differ from the originals (into every
+its entities, their scripts a line per operation (named as the game's own debug trace names them, values as
+`#12` or a variable `var[bank][address]`, other operands as hex bytes, jumps to labels, e.g.
+`if2 var[2][00] == #0 L002D`, `batle #300`, `mes 03 1E ; ...` with the string shown) and its
+dialogue. `build` writes only the maps that differ from the originals (into every
 disc folder, keeping `.orig` copies) and moves `FIELD.BIN`'s table of where each map lies to match. A longer line
 may need its window made wider: the `wsize` before its `mes`.
 

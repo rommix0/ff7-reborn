@@ -226,6 +226,16 @@ back):
   (`30`–`32`) and `prtyq`/`membq` (`CB`/`CC`) count forward from their operand, `back`/`lback` (`12`/`13`) back from
   the operation. Every script on all three discs (2,109 maps, 144,180 scripts) decodes exactly to the next one's
   start, all 122,658 jumps land on an operation, and 1,854 of them on the end of their own script.
+- **Values and variables:** handlers read operands through `func_800BEE10` (a byte) and `func_800BF908` (a `u16`) and
+  write them through `func_800BF3AC` and `func_800C0248`, each given a bank number 1–6 (the high or low nibble of
+  operand byte 1, 2 or 3) and the operand's offset. With the nibble 0 the operand is the value; otherwise it's an
+  address in that bank (bank 1 is `D_8009D288`; 16 cases). Harvesting each handler's constant arguments gives 130
+  operations' value operands (`tools/field.py`'s `SPEC`; the if family's come from its compare helpers
+  `func_800C2000`, `func_800C24A8` and `func_800C2970`, which switch on an operator byte: `==`, `!=`, `>`, `<`, `>=`,
+  `<=`, `&`, `^`, `|`, bit set, bit clear). The dump shows them as `#value` or `var[bank][address]`, the if family as
+  `if var[1][2B] == #5 L0034`; an operation that can't be said that way exactly (177 `mpara`/`mpra2` use a nibble
+  the table doesn't name) stays in hex. Checked in the lab: `batle #300` in `MD1STIN` made `#324` opened the opening
+  fight as battle `0x144`, Guard Scorpion's.
 - **Dialogue:** a `u16` count, an offset per string from the table, the strings ending `FF`. The field's text parser
   (`func_800D5C9C`) switches on `E0`–`FF`: `EA`–`F2` are names and take nothing, `FA`–`FD` take one byte, `FE` a
   sub-code (`D2`–`E9`; `DD` waits on two more bytes, `DE`, `DF`, `E1` and `E2` insert numbers). An argument can be

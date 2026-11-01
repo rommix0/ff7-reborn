@@ -46,6 +46,60 @@ FORWARD = {0x10: (1, 1), 0x11: (1, 2), 0x14: (5, 1), 0x15: (5, 2), 0x16: (7, 1),
            0x19: (7, 2), 0x30: (3, 1), 0x31: (3, 1), 0x32: (3, 1), 0xCB: (2, 1), 0xCC: (2, 1)}
 BACKWARD = {0x12: (1, 1), 0x13: (1, 2)}
 JUMPS = FORWARD | BACKWARD
+# Operands a handler reads or writes through func_800BEE10/BF908/BF3AC/C0248 (offset, bytes, bank nibble: 1 is
+# byte 1's high one, 2 its low one, up to 6 for byte 3); with the nibble 0 the operand is the value itself, else an
+# address in that bank. The if family's come from its compare helpers; ask's (48) from two of its three calls; move,
+# cmove and fmove (A8, A9, AD) set theirs in branch delay slots.
+SPEC = {
+    0x09: ((4, 2, 1), (6, 2, 2), (8, 1, 3), (9, 2, 4), (11, 2, 5), (13, 1, 6)), 0x14: ((2, 1, 1), (3, 1, 2)),
+    0x15: ((2, 1, 1), (3, 1, 2)), 0x16: ((2, 2, 1), (4, 2, 2)), 0x17: ((2, 2, 1), (4, 2, 2)),
+    0x18: ((2, 2, 1), (4, 2, 2)), 0x19: ((2, 2, 1), (4, 2, 2)), 0x23: ((2, 1, 2),),
+    0x25: ((4, 1, 1), (5, 1, 2), (6, 1, 3), (7, 2, 4)), 0x2C: ((3, 2, 1),), 0x37: ((3, 2, 1), (5, 2, 2)),
+    0x38: ((3, 1, 1), (4, 1, 2), (5, 1, 4)), 0x39: ((2, 2, 1), (4, 2, 2)), 0x3A: ((2, 2, 1), (4, 2, 2)),
+    0x3B: ((2, 1, 1), (3, 1, 2)), 0x41: ((3, 1, 1),), 0x42: ((3, 1, 1),), 0x45: ((3, 2, 2),), 0x47: ((3, 2, 2),),
+    0x48: ((6, 1, 2),), 0x49: ((3, 1, 2),), 0x4D: ((3, 2, 2),), 0x4F: ((3, 2, 2),),
+    0x56: ((3, 1, 1), (4, 1, 2), (5, 1, 3), (6, 1, 4)), 0x57: ((3, 1, 1), (4, 1, 2), (5, 1, 3), (6, 1, 4)),
+    0x58: ((2, 2, 1), (4, 1, 2)), 0x59: ((2, 2, 1), (4, 1, 2)), 0x5A: ((2, 2, 1), (4, 1, 2)),
+    0x5B: ((3, 1, 1), (4, 1, 2), (5, 1, 3), (6, 1, 4)), 0x5C: ((3, 1, 1), (4, 1, 2), (5, 1, 3), (6, 1, 4)),
+    0x5D: ((4, 1, 1), (5, 1, 2), (6, 1, 3), (7, 1, 4), (9, 1, 6)),
+    0x5E: ((4, 1, 1), (5, 1, 2), (6, 1, 3), (7, 1, 4)), 0x62: ((2, 2, 2),), 0x63: ((2, 2, 2),),
+    0x64: ((2, 2, 1), (4, 2, 2)), 0x66: ((3, 2, 1), (5, 2, 2), (7, 2, 4)), 0x68: ((3, 2, 1), (5, 2, 2), (7, 2, 4)),
+    0x6B: ((3, 1, 1), (4, 1, 2), (5, 1, 4)), 0x6E: ((2, 1, 2),), 0x6F: ((2, 2, 2),), 0x70: ((2, 2, 2),),
+    0x73: ((3, 1, 2),), 0x74: ((3, 1, 2),), 0x75: ((4, 1, 1), (5, 1, 2), (6, 1, 3), (7, 1, 4)),
+    0x76: ((2, 1, 1), (3, 1, 2)), 0x77: ((2, 1, 1), (3, 2, 2)), 0x78: ((2, 1, 1), (3, 1, 2)),
+    0x79: ((2, 1, 1), (3, 2, 2)), 0x7A: ((2, 1, 2),), 0x7B: ((2, 1, 2),), 0x7C: ((2, 1, 2),), 0x7D: ((2, 1, 2),),
+    0x7F: ((2, 1, 2),), 0x80: ((2, 1, 1), (3, 1, 2)), 0x81: ((2, 1, 1), (3, 2, 2)), 0x82: ((2, 1, 1), (3, 1, 2)),
+    0x83: ((2, 1, 1), (3, 1, 2)), 0x84: ((2, 1, 1), (3, 1, 2)), 0x85: ((2, 1, 1), (3, 1, 2)),
+    0x86: ((2, 1, 1), (3, 2, 2)), 0x87: ((2, 1, 1), (3, 1, 2)), 0x88: ((2, 1, 1), (3, 2, 2)),
+    0x89: ((2, 1, 1), (3, 1, 2)), 0x8A: ((2, 1, 1), (3, 2, 2)), 0x8B: ((2, 1, 1), (3, 1, 2)),
+    0x8C: ((2, 1, 1), (3, 2, 2)), 0x8D: ((2, 1, 1), (3, 1, 2)), 0x8E: ((2, 1, 1), (3, 2, 2)),
+    0x8F: ((2, 1, 1), (3, 1, 2)), 0x90: ((2, 1, 1), (3, 2, 2)), 0x91: ((2, 1, 1), (3, 1, 2)),
+    0x92: ((2, 1, 1), (3, 2, 2)), 0x93: ((2, 1, 1), (3, 1, 2)), 0x94: ((2, 1, 1), (3, 2, 2)), 0x95: ((2, 1, 2),),
+    0x96: ((2, 1, 2),), 0x97: ((2, 1, 2),), 0x98: ((2, 1, 2),), 0x99: ((2, 1, 2),), 0x9A: ((2, 1, 1), (3, 1, 2)),
+    0x9B: ((2, 1, 1), (3, 2, 2)), 0x9C: ((3, 1, 1), (4, 1, 2), (5, 1, 4)), 0x9D: ((3, 2, 2), (5, 1, 4)),
+    0x9E: ((3, 2, 2), (5, 1, 4)), 0x9F: ((5, 2, 2), (7, 2, 3), (9, 1, 4), (10, 1, 6)),
+    0xA5: ((3, 2, 1), (5, 2, 2), (7, 2, 3), (9, 2, 4)), 0xA6: ((3, 2, 1), (5, 2, 2), (7, 2, 3)),
+    0xA7: ((3, 2, 1), (5, 2, 2), (7, 2, 3)), 0xA8: ((2, 2, 1), (4, 2, 2)), 0xA9: ((2, 2, 1), (4, 2, 2)),
+    0xAD: ((2, 2, 1), (4, 2, 2)), 0xB2: ((2, 2, 2),), 0xB3: ((2, 1, 2),), 0xB4: ((2, 1, 2),), 0xB5: ((2, 2, 2),),
+    0xB7: ((3, 1, 2),), 0xB8: ((3, 1, 1), (4, 1, 2)), 0xB9: ((3, 1, 2),), 0xBD: ((2, 2, 2),),
+    0xC0: ((3, 2, 1), (5, 2, 2), (7, 2, 3), (9, 2, 4)), 0xC1: ((4, 1, 1), (5, 1, 2), (6, 1, 3), (7, 1, 4)),
+    0xC2: ((3, 2, 1), (5, 2, 2), (7, 2, 3), (9, 2, 4)), 0xC3: ((4, 2, 1), (6, 2, 2), (8, 2, 3), (10, 2, 4)),
+    0xC5: ((2, 1, 2),), 0xC6: ((2, 1, 2),),
+    0xD3: ((4, 2, 1), (6, 2, 2), (8, 2, 3), (10, 2, 4), (12, 2, 5), (14, 2, 6)),
+    0xD4: ((3, 2, 1), (5, 2, 2), (7, 2, 3), (9, 1, 4)), 0xD5: ((3, 2, 1), (5, 2, 2), (7, 2, 3), (9, 1, 4)),
+    0xD6: ((2, 2, 2),), 0xD7: ((2, 2, 2),), 0xDA: ((5, 2, 1), (7, 2, 2), (9, 2, 3), (11, 2, 4), (13, 2, 6)),
+    0xDF: ((6, 1, 1), (7, 1, 2), (8, 1, 3), (9, 1, 4), (10, 1, 6)), 0xE0: ((2, 1, 1), (3, 1, 2)),
+    0xE1: ((2, 1, 1), (3, 1, 2)), 0xE2: ((2, 1, 2),), 0xE3: ((2, 1, 2),), 0xE4: ((2, 1, 2),),
+    0xE5: ((2, 1, 1), (3, 1, 2)), 0xE6: ((2, 1, 1), (3, 1, 2)), 0xE7: ((2, 1, 1), (3, 1, 2)),
+    0xE8: ((3, 1, 1), (4, 1, 2), (5, 1, 4)), 0xE9: ((4, 1, 1), (5, 1, 2), (6, 1, 3), (7, 1, 4), (8, 1, 5)),
+    0xEA: ((4, 1, 1), (5, 1, 2), (6, 1, 3), (7, 1, 4), (8, 1, 5)), 0xED: ((5, 1, 1), (6, 1, 2), (7, 1, 4)),
+    0xEE: ((5, 1, 1), (6, 1, 2), (7, 1, 4)), 0xEF: ((6, 1, 1), (7, 1, 2), (8, 1, 3), (9, 1, 4), (10, 1, 6)),
+    0xF1: ((2, 2, 1), (4, 1, 2)), 0xF2: ((5, 1, 1), (6, 2, 2), (8, 2, 3), (10, 2, 4), (12, 2, 6)),
+    0xF7: ((2, 1, 1), (3, 1, 2)), 0xFE: ((2, 1, 2),),
+}
+COMPARE = ["==", "!=", ">", "<", ">=", "<=", "&", "^", "|", "bit", "!bit"]  # the if family's operator byte
+COMPARE_AT = {0x14: 4, 0x15: 4, 0x16: 6, 0x17: 6, 0x18: 6, 0x19: 6}
+TEXT_AT = {0x40: 2, 0x43: 1, 0x48: 3}  # mes, mpnam, ask: the string they show
 
 
 def u16(data: bytes, at: int) -> int:
@@ -90,7 +144,86 @@ def length(code: bytes, at: int) -> int:
     return LENGTHS[op] or 1
 
 
-def disassemble(code: bytes, names: list[str]) -> list[str]:
+def is_byte(token: str) -> bool:
+    return len(token) == 2 and all(c in "0123456789abcdefABCDEF" for c in token)
+
+
+def tokens(op: bytes, label: str | None, plain: bool = False) -> list[str]:
+    """An operation's operands as text: SPEC's values as #literal or var[bank][address] (their bank bytes left out),
+    the if family's operator by its sign and between its values, a jump's label, the rest (all, if plain) as hex."""
+    fields = {} if plain else {at: (size, n) for at, size, n in SPEC.get(op[0], ())}
+    banks = {(n + 1) // 2 for size, n in fields.values()}
+    jump = JUMPS[op[0]] if label else None
+    out, at = [], 2 if op[0] == 0x28 else 1  # kawai's length byte is worked out again
+    while at < len(op):
+        if jump and at == jump[0]:
+            out.append(label)
+            at += jump[1]
+        elif at in banks:
+            at += 1
+        elif at in fields:
+            size, n = fields[at]
+            bank = op[(n + 1) // 2] >> 4 if n % 2 else op[(n + 1) // 2] & 15
+            value = int.from_bytes(op[at:at + size], "little")
+            out.append(f"var[{bank}][{value:02X}]" if bank else f"#{value}")
+            at += size
+        elif not plain and COMPARE_AT.get(op[0]) == at and op[at] < len(COMPARE):
+            out.append(COMPARE[op[at]])
+            at += 1
+        else:
+            out.append(f"{op[at]:02X}")
+            at += 1
+    if len(out) > 2 and out[2] in COMPARE:
+        out[1:3] = out[2], out[1]
+    return out
+
+
+def operands(op: int, words: list[str]) -> tuple[bytearray, str | None]:
+    """Operand bytes from tokens(): a line with no #, var or operator is all hex bytes; a jump's label comes back
+    with its bytes left zero."""
+    nice = any(w.startswith(("#", "var[")) or w in COMPARE for w in words)
+    fields = {at: (size, n) for at, size, n in SPEC.get(op, ())} if nice else {}
+    banks = {(n + 1) // 2 for size, n in fields.values()}
+    if nice and len(words) > 2 and words[1] in COMPARE:
+        words = [words[0], words[2], words[1]] + words[3:]
+    out, label, at = bytearray(), None, 2 if op == 0x28 else 1
+    pending = iter(words)
+    while True:
+        if at in banks:
+            out.append(0)
+            at += 1
+            continue
+        word = next(pending, None)
+        if word is None:
+            return out, label
+        if op in JUMPS and at == JUMPS[op][0] and not is_byte(word):
+            label = word
+            out += bytes(JUMPS[op][1])
+            at += JUMPS[op][1]
+        elif at in fields:
+            size, n = fields[at]
+            if word.startswith("#"):
+                bank, value = 0, int(word[1:])
+            elif word.startswith("var[") and word.endswith("]") and "][" in word:
+                bank, value = int(word[4:word.index("]")]), int(word[word.index("][") + 2:-1], 16)
+            else:
+                raise ValueError(f"{word} isn't #value or var[bank][address]")
+            if not 0 <= bank < 16:
+                raise ValueError(f"{word}: banks go 0 to 15")
+            out[(n + 1) // 2 - 1] |= bank << 4 if n % 2 else bank
+            out += (value & (1 << 8 * size) - 1).to_bytes(size, "little")
+            at += size
+        elif nice and COMPARE_AT.get(op) == at and word in COMPARE:
+            out.append(COMPARE.index(word))
+            at += 1
+        elif is_byte(word):
+            out.append(int(word, 16))
+            at += 1
+        else:
+            raise ValueError(f"{word} isn't a byte here")
+
+
+def disassemble(code: bytes, names: list[str], strings: list | None = None) -> list[str]:
     ops, at = [], 0
     while at < len(code):
         ops.append((at, code[at:at + length(code, at)]))
@@ -109,13 +242,19 @@ def disassemble(code: bytes, names: list[str]) -> list[str]:
     for at, op in ops:
         if at in labels:
             lines.append(f"L{at:04X}:")
-        operands = [f"{b:02X}" for b in op[1:]]
-        if op[0] == 0x28:
-            operands = operands[1:]
-        if at in targets:
+        label = f"L{targets[at]:04X}" if at in targets else None
+        words = tokens(op, label)
+        raw = bytearray(op)
+        if label:
             where, size = JUMPS[op[0]]
-            operands[where - 1:where - 1 + size] = [f"L{targets[at]:04X}"]
-        lines.append(" ".join([names[op[0]]] + operands))
+            raw[where:where + size] = bytes(size)
+        if bytes(operands(op[0], words)[0]) != raw[2 if op[0] == 0x28 else 1:]:  # what that can't say stays hex
+            words = tokens(op, label, plain=True)
+        line = " ".join([names[op[0]]] + words)
+        if strings and op[0] in TEXT_AT and op[TEXT_AT[op[0]]] < len(strings):
+            text = strings[op[TEXT_AT[op[0]]]]
+            line += f" ; {strings[text] if isinstance(text, int) else text}"
+        lines.append(line)
     if len(code) in labels:
         lines.append(f"L{len(code):04X}:")
     return lines
@@ -125,24 +264,24 @@ def assemble(lines: list[str], names: list[str]) -> bytes:
     opcodes = {name: op for op, name in enumerate(names)}
     code, labels, jumps = bytearray(), {}, []
     for line in lines:
+        line = line.split(";")[0].strip()  # a comment: mes shows its string there
         if line.endswith(":"):
             labels[line[:-1]] = len(code)
             continue
-        name, *operands = line.split()
+        name, *words = line.split()
         if name not in opcodes:
             raise ValueError(f"{line!r}: no operation {name}")
         op, at = opcodes[name], len(code)
+        try:
+            data, label = operands(op, words)
+        except ValueError as e:
+            raise ValueError(f"{line!r}: {e}")
         code.append(op)
         if op == 0x28:
-            code.append(len(operands) + 2)
-        for token in operands:
-            if len(token) == 2 and all(c in "0123456789abcdefABCDEF" for c in token):
-                code.append(int(token, 16))
-            elif op in JUMPS and len(code) - at == JUMPS[op][0]:
-                jumps.append((at, token, line))
-                code += bytes(JUMPS[op][1])
-            else:
-                raise ValueError(f"{line!r}: {token} isn't a byte here")
+            code.append(len(data) + 2)
+        if label:
+            jumps.append((at, label, line))
+        code += data
         if op != 0x28 and len(code) - at != length(code, at):
             raise ValueError(f"{line!r}: {name} takes {length(code, at) - 1} operand bytes")
     for at, label, line in jumps:
@@ -185,12 +324,13 @@ def section_json(sec: bytes, names: list[str]) -> dict:
     code_end = min([strings_at] + music_at) if strings_at else min(music_at + [len(sec)])
     strings, start = dialogue(sec)[:2]
     offsets = [u16(sec, start + 2 + 2 * i) for i in range(len(strings))]
+    texts = [offsets.index(o) if offsets.index(o) < i else  # a string shared with an earlier one
+             kernel.decode(s[:-1] if s.endswith(b"\xff") else s, FIELD_ARGS)
+             for i, (o, s) in enumerate(zip(offsets, strings))]
     out = {"entities": [{"name": sec[0x20 + 8 * e:0x28 + 8 * e].rstrip(b"\0").decode("latin-1"),
                          "scripts": [starts.index(at) for at in slots[e]]} for e in range(n)],
-           "scripts": [disassemble(sec[at:end], names) for at, end in zip(starts, starts[1:] + [code_end])],
-           "strings": [offsets.index(o) if offsets.index(o) < i else  # a string shared with an earlier one
-                       kernel.decode(s[:-1] if s.endswith(b"\xff") else s, FIELD_ARGS)
-                       for i, (o, s) in enumerate(zip(offsets, strings))]}
+           "scripts": [disassemble(sec[at:end], names, texts) for at, end in zip(starts, starts[1:] + [code_end])],
+           "strings": texts}
     unterminated = [i for i, s in enumerate(strings) if not s.endswith(b"\xff")]
     if unterminated:
         out["unterminated"] = unterminated
