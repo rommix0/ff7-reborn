@@ -3,10 +3,11 @@
   python tools/scene.py dump "assets/Final Fantasy VII (USA) (Disc 1)" scene
   python tools/scene.py build scene assets
 
-A scene is up to three enemies (their IDs, records and 32 attacks with names) and four battle setups; battle number
-N is scene N // 4, setup N % 4. The setups, cameras, formations and AI scripts are dumped as hex until they're worked
-out, and a record's bytes not named yet as unknown_XX. build writes SCENE.BIN into every disc folder under assets,
-keeping the first original as .orig, and rebuilds KERNEL.BIN there with its table of the blocks each scene sits in.
+A scene is up to three enemies (their IDs, records and 32 attacks with names) and four battle setups, each with its
+cameras and the six places enemies stand (by enemy ID); battle number N is scene N // 4, setup N % 4. The AI scripts
+are dumped as hex until they're worked out, and bytes not named yet as unknown_XX. build writes SCENE.BIN into every
+disc folder under assets, keeping the first original as .orig, and rebuilds KERNEL.BIN there with its table of the
+blocks each scene sits in.
 Names are up to 31 characters, in the text format tools/kernel.py describes.
 """
 import argparse
@@ -22,7 +23,13 @@ SCENE_SIZE = 7808
 BLOCK = 8192
 ENEMIES, ENEMY_SIZE = 0x298, 184
 ATTACKS, ATTACK_SIZE, ATTACK_IDS, ATTACK_NAMES = 0x4C0, 28, 0x840, 0x880
-HEX = [("setups", 0x008, 0x058), ("cameras", 0x058, 0x118), ("formations", 0x118, ENEMIES), ("ai", 0xC80, SCENE_SIZE)]
+SETUPS, CAMERAS, FORMATIONS, AI = 0x008, 0x058, 0x118, 0xC80
+SETUP_FIELDS = [(0x00, 2, "location"), (0x02, 2, "next_battle"), (0x04, 2, "escape"),
+                *[(0x08 + 2 * i, 2, f"arena_{i + 1}") for i in range(4)], (0x10, 2, "flags"), (0x12, 1, "layout"),
+                (0x13, 1, "camera_script")]
+CAMERA_FIELDS = [(2 * i, 2, f, True) for i, f in enumerate(["x", "y", "z", "target_x", "target_y", "target_z"])]
+FORMATION_FIELDS = [(0x0, 2, "enemy_id"), (0x2, 2, "x", True), (0x4, 2, "y", True), (0x6, 2, "z", True),
+                    (0x8, 2, "row"), (0xA, 2, "cover"), (0xC, 4, "flags")]
 # A record's fields past its name, as the battle code reads them (docs/knowledge_base.md, SCENE.BIN).
 ENEMY_FIELDS = [
     *[(0x20 + i, 1, f) for i, f in enumerate(["level", "dexterity", "luck", "defense_pct", "strength", "defense",
@@ -83,9 +90,14 @@ def name_bytes(text: str) -> bytes:
 
 
 def scene_json(raw: bytes) -> dict:
-    table = {"enemy_ids": [int.from_bytes(raw[2 * i:2 * i + 2], "little") for i in range(3)]}
-    for key, start, end in HEX[:3]:
-        table[key] = [raw[i:min(i + 16, end)].hex(" ") for i in range(start, end, 16)]
+    table = {"enemy_ids": [int.from_bytes(raw[2 * i:2 * i + 2], "little") for i in range(3)], "setups": []}
+    for k in range(4):
+        setup = kernel.fields_json(raw[SETUPS + 20 * k:SETUPS + 20 * (k + 1)], SETUP_FIELDS)
+        setup["cameras"] = [kernel.fields_json(raw[at:at + 12], CAMERA_FIELDS)
+                            for at in range(CAMERAS + 48 * k, CAMERAS + 48 * (k + 1), 12)]
+        setup["formation"] = [kernel.fields_json(raw[at:at + 16], FORMATION_FIELDS)
+                              for at in range(FORMATIONS + 96 * k, FORMATIONS + 96 * (k + 1), 16)]
+        table["setups"].append(setup)
     table["enemies"] = []
     for k in range(3):
         record = raw[ENEMIES + k * ENEMY_SIZE:ENEMIES + (k + 1) * ENEMY_SIZE]
@@ -94,16 +106,20 @@ def scene_json(raw: bytes) -> dict:
                          "name": name_text(raw[ATTACK_NAMES + 32 * k:ATTACK_NAMES + 32 * (k + 1)]),
                          **kernel.fields_json(raw[ATTACKS + ATTACK_SIZE * k:ATTACKS + ATTACK_SIZE * (k + 1)],
                                               ATTACK_FIELDS)} for k in range(32)]
-    key, start, end = HEX[3]
-    table[key] = [raw[i:min(i + 16, end)].hex(" ") for i in range(start, end, 16)]
+    table["ai"] = [raw[i:min(i + 16, SCENE_SIZE)].hex(" ") for i in range(AI, SCENE_SIZE, 16)]
     return table
 
 
 def scene_raw(table: dict) -> bytes:
     raw = bytearray(SCENE_SIZE)
     raw[0:8] = b"".join(n.to_bytes(2, "little") for n in table["enemy_ids"]) + b"\xff\xff"
-    for key, start, end in HEX:
-        raw[start:end] = bytes.fromhex("".join(table[key]))
+    for k, setup in enumerate(table["setups"]):
+        raw[SETUPS + 20 * k:SETUPS + 20 * (k + 1)] = kernel.fields_raw(setup, 20, SETUP_FIELDS)
+        raw[CAMERAS + 48 * k:CAMERAS + 48 * (k + 1)] = b"".join(kernel.fields_raw(c, 12, CAMERA_FIELDS)
+                                                               for c in setup["cameras"])
+        raw[FORMATIONS + 96 * k:FORMATIONS + 96 * (k + 1)] = b"".join(kernel.fields_raw(f, 16, FORMATION_FIELDS)
+                                                                     for f in setup["formation"])
+    raw[AI:] = bytes.fromhex("".join(table["ai"]))
     for k, enemy in enumerate(table["enemies"]):
         record = kernel.fields_raw(enemy, ENEMY_SIZE, ENEMY_FIELDS)
         record[:32] = name_bytes(enemy["name"])

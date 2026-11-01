@@ -34,4 +34,12 @@ assert hound["camera_16"] == int.from_bytes(scene[0x298 + 0x86:0x298 + 0x88], "l
 assert hound["statuses"] == int.from_bytes(scene[0x298 + 0xB0:0x298 + 0xB4], "little")
 assert sorted(k for k in hound if k.startswith("unknown_")) == ["unknown_9A", "unknown_9B", "unknown_A3"] + \
     [f"unknown_{i:02X}" for i in range(0xB4, 0xB8)]
+
+# Each setup carries its own four cameras and six formation entries; positions are signed.
+setup = table["setups"][1]
+assert setup["escape"] == int.from_bytes(scene[0x1C + 4:0x1C + 6], "little") and setup["layout"] == scene[0x1C + 0x12]
+assert [k for k in setup if k.startswith("unknown_")] == ["unknown_06", "unknown_07"]
+assert setup["cameras"][3]["target_z"] == int.from_bytes(scene[0x88 + 46:0x88 + 48], "little", signed=True)
+assert setup["formation"][5]["x"] == int.from_bytes(scene[0x178 + 0x52:0x178 + 0x54], "little", signed=True)
+assert setup["formation"][5]["flags"] == int.from_bytes(scene[0x178 + 0x5C:0x178 + 0x60], "little")
 print("ok")

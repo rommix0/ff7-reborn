@@ -141,6 +141,20 @@ A movie name found on several discs has the same contents on each, so the PC por
   their enemies (`…0(…)` to `…6(…)`) in bytes this font shows as accented letters. An enemy record starts with its
   name; the battle copies them to
   `0x800F5F44`, where the battle text's `ED` insert takes names from.
+- **Setups, cameras and formations:** `BATINI.X` copies the scene's IDs and the battle's own setup, cameras and
+  formation to `0x8016360C` (setup `0x80163614`, cameras `0x80163628`, formation `0x80163658`). A setup's `u16`
+  `+0x00` is the battle area (an 8-byte entry of the file table at `0x800E7D98` that the battle loads), `+0x02` the
+  battle that follows when this one ends (`FFFF` none), `+0x04` the escape counter (it counts down while the party
+  runs; held L1+R1 in the opening battle got away at frame 18400 with 9, 15620 with 1), `+0x08` four battle IDs
+  `func_800A35F8` picks from when flag `0x40` of `0x8016376A` is set (999 or the battle itself in most), `+0x10`
+  flags (bit 2 set allows escape: the opening battle's `FFF9` says "Can't escape!", `FFFD` lets the party run),
+  `+0x12` the layout (`0x801B0044` turns it into the battle type; 2 put the party on the enemies' far side) and
+  `+0x13` the camera script the battle starts (`0x80163F30`). `+0x06` is `FFFF` everywhere. A camera is 12 bytes,
+  four per setup: a position and the point it looks at, three `i16` each (`0x80158D00`, `0x801031E8`). A formation
+  is six 16-byte entries: the enemy ID (`FFFF` none; `BATINI.X` turns it into the record index), `i16` x, y, z (MP's
+  x from -500 to 1,500 moved it to the screen's edge), `u16` row (into the actor's `0x4E`), a `u16` cover mask (an
+  enemy is covered, actor flag `0x800`, when one in a lower row shares a bit) and `u32` flags whose low five bits
+  go to the actor. Changing the first entry's ID from MP's to Guard Hound's put a Guard Hound in its place.
 - **Enemy fields shown by the game** (the opening battle, two MPs, from a new game): with MP's `+0xA8` (`u32`) at
   1,000, Cloud's EXP (`0x8009C774`) rose 2,000 instead of 32; `+0xAC` (`u32`) at 300 put 600 gil at `0x8009D7E0`
   instead of 20; `+0x9E` (`u16`) at 7 gave the materia 14 AP instead of 4; `+0xA4` (`u32`) at 1 turned up as the

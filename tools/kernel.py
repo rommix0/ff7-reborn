@@ -154,10 +154,11 @@ def pack_kernel(sections: list[tuple[int, bytes]]) -> bytes:
 
 
 def fields_json(data: bytes, fields: list, skip: range = range(0)) -> dict:
-    """A record's named fields (little-endian), then each byte no field covers as unknown_XX."""
+    """A record's named fields (little-endian; a fourth item True for signed), then each byte no field covers as
+    unknown_XX."""
     record, covered = {}, set(skip)
-    for offset, length, field in fields:
-        record[field] = int.from_bytes(data[offset:offset + length], "little")
+    for offset, length, field, *signed in fields:
+        record[field] = int.from_bytes(data[offset:offset + length], "little", signed=bool(signed))
         covered.update(range(offset, offset + length))
     record.update((f"unknown_{i:02X}", data[i]) for i in range(len(data)) if i not in covered)
     return record
@@ -165,8 +166,8 @@ def fields_json(data: bytes, fields: list, skip: range = range(0)) -> dict:
 
 def fields_raw(record: dict, size: int, fields: list) -> bytearray:
     data = bytearray(size)
-    for offset, length, field in fields:
-        data[offset:offset + length] = record[field].to_bytes(length, "little")
+    for offset, length, field, *signed in fields:
+        data[offset:offset + length] = record[field].to_bytes(length, "little", signed=bool(signed))
     for key, value in record.items():
         if key.startswith("unknown_"):
             data[int(key[8:], 16)] = value
