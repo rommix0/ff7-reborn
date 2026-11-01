@@ -299,4 +299,15 @@ pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_E
 clean:
 	rm -rf build asm
 
-.PHONY: check split clean native pc pc-test
+# The model editor's PS1 view (tools/model_editor.py): the software GPU as a library for the editor's Python, so built
+# for the host as it is (64-bit). From WSL, a Windows gcc finds its own files by searching the Windows PATH, so the
+# 64-bit MinGW goes first there. On Linux: make editor EDITOR_CC=gcc EDITOR_LIB=libps1gpu.so
+EDITOR_CC ?= gcc.exe
+EDITOR_BIN ?= /mnt/c/winlibs/mingw64/bin
+EDITOR_LIB ?= ps1gpu.dll
+editor: build/editor/$(EDITOR_LIB)
+build/editor/$(EDITOR_LIB): pc/gpu.c pc/gpu.h tools/ps1gpu.c
+	mkdir -p build/editor
+	WSLENV=PATH/l PATH="$(EDITOR_BIN):$$PATH" $(EDITOR_CC) -std=gnu99 -O2 -Wall -Ipc -shared -fPIC pc/gpu.c 		tools/ps1gpu.c -o $@
+
+.PHONY: check split clean native pc pc-test editor

@@ -145,7 +145,16 @@ The PS1 view is the exact one.
 1. **Formats:** decoded; written up in the knowledge base with `model.py`.
 2. **`model.py dump`/`build`:** done. Byte for byte on all 721 model files; Cloud's shirt turned red showed in
    `MD1STIN`.
-3. **Viewer:** open any model, orbit, play its animations, with the PS1 view beside it.
+3. **Viewer:** done (`tools/model_editor.py`).
+   - **What it does:** every party and map model, orbiting, animations, colours lit as the field lights them at
+     load, textures from the map's images and the `FIELD.TDB` faces.
+   - **The PS1 view:** `pc/gpu.c` drawing the field's own packets, back faces dropped and in the ordering table's
+     order.
+   - **`--shot`:** draws both views to a PNG without a window.
+   - **Not exact:**
+     - posing is in floating point, not the game's fixed-point GTE code
+     - the editing view draws semi-transparent polygons opaque (the PS1 view blends them)
+     - faces show each list's second image (the field loads a blank first)
 4. **Editing:** vertex colours, vertices, UVs, bone poses and frames, undo, save. Lab check: an edit made in the
    editor shows in the game.
 5. **Textures and palettes:** image replacement, palette editing; then glTF export/import if wanted.

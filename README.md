@@ -74,7 +74,16 @@ python tools/model.py dump "assets/Final Fantasy VII (USA) (Disc 1)" models
 python tools/model.py build models assets
 ```
 
-`docs/model_editor.md` plans an editor for them.
+View them with `tools/model_editor.py` (the start of the editor `docs/model_editor.md` plans; it needs
+imgui-bundle, moderngl and numpy): pick a party member or any map's model, turn it about, play its animations. Beside
+the view, a PS1 view draws it with the PC port's own GPU (`make editor` builds that), the way the game sends it:
+
+```bash
+pip install -r tools/requirements-editor.txt
+make editor
+python tools/model_editor.py assets
+python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --shot cloud.png
+```
 
 The shops (`MENU/SHOPMENU.MNU`): what each of the 80 sells (by inventory number or materia, names shown), the price
 of every item and materia, the shops' titles and the clerks' lines, in one JSON file:

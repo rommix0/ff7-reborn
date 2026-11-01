@@ -1,6 +1,6 @@
 import struct
 
-from model import bcx_json, bcx_raw, bsx_json, bsx_raw, PACKET
+from model import bcx_json, bcx_raw, bsx_json, bsx_raw, light, PACKET, pose
 
 # A .BCX: u32 size, u32 header offset H; the parts' and animations' data from 8; at H a 0x24-byte header, then the
 # bones (4 bytes), parts (32) and animations (16). This one: two bones, a part on the second with a Gouraud textured
@@ -50,4 +50,22 @@ for wrong in ({"bone": 5}, {"polygons": [{"kind": "G4", "vertices": [0, 1, 2, 9]
         raise AssertionError(wrong)
     except ValueError:
         pass
+# Posing: a bone turns by its parent's turn and its own (Ry, then Rx, then Rz; a byte, 256 to a turn), and starts at
+# its parent's start plus the parent's turn of (0, 0, its length). The root turned a quarter about y puts the child's
+# start along x.
+bones = [{"length": 0, "parent": -1}, {"length": 100, "parent": 0}]
+anim = {"frames": 1, "bones": [{"flags": 1, "rotation": [0, 0, 0], "offset": [255] * 3},
+                               {"flags": 0, "rotation": [0, 0, 0], "offset": [255] * 3}],
+        "offsets": [], "fixed": [], "rotations": [[0]]}
+assert [[round(x) for x in t] for _, t in pose(bones, anim, 0)] == [[0, 0, 0], [0, 0, 100]]
+anim["bones"][0]["rotation"] = [0, 64, 0]  # rx is channel 0 (flags bit 0), 0 in its one frame; ry fixed at 64
+assert [[round(x) for x in t] for _, t in pose(bones, anim, 0)][1] == [100, 0, 0]
+
+# Lighting as the GTE does it once at load (nccs): per light max(0, L.N), times its colour, plus the ambient,
+# times the stored colour; 255 in a light's colour is 4080/4096.
+lights = {"ambient": "000000", "light_colors": ["FFFFFF", "000000", "000000"],
+          "light_vectors": [[0, 0, 4096], [4096, 0, 0], [0, 4096, 0]]}
+assert light("80808000", [0, 0, 4096], lights) == (127, 127, 127)
+assert light("80808000", [0, 0, -4096], lights) == (0, 0, 0)
+assert light("80808000", [0, 0, -4096], {**lights, "ambient": "808080"}) == (64, 64, 64)
 print("ok")

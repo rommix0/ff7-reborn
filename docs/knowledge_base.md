@@ -315,6 +315,17 @@ dumps and builds back byte for byte):
   differs.
 - **Checked in the lab:** Cloud's parts 0 and 1 (his shirt) given `FF0000` with their normals kept showed bright red
   in `MD1STIN` ("C'mon newcomer"), lit and shaded as before.
+- **What drawing them showed** (`tools/model_editor.py`):
+  - **Posing:** a bone turns by its parent's turn times its own (Ry·Rx·Rz) and starts at its parent's start plus
+    the parent's turn of (0, 0, its length). Every model drawn that way stands as in the game.
+  - **Lights:** `func_800B1E40` takes them from the `.BSX` entry in order, the colours at `+14`, `+20` and `+2C` and
+    the vectors at `+C`, `+18` and `+24`, so the n-th colour goes with the n-th vector. The vectors and the normals
+    are unit vectors at 4096.
+  - **`FIELD.TDB`:** LZS-packed on the disc like the rest. Every face's lists start with image `0x7E`, which is
+    blank, and that's the one the field loads (`a = b = c = 0`). Scripts swap in the eyes and mouths after; drawn
+    with each list's second entry, Cloud, Barret and the rest show their faces.
+  - **Draw order:** within a depth bucket of the ordering table, the packet added last is drawn first, so a part's
+    Gouraud polygons go under its textured ones (an eye on the face).
 
 **`MENU/SHOPMENU.MNU`, the shops** (`tools/shop.py` dumps them to a JSON file and builds them back): the module runs
 from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
@@ -1090,8 +1101,10 @@ same set). They give the original module and file split, and the staff folders b
   `tools/test_field.py` checks the disassembler, the names, the section layout and the packer.
 - `tools/shop.py`: `SHOPMENU.MNU`'s shops, titles, clerk lines and prices to a JSON file and back (§2,
   `MENU/SHOPMENU.MNU`); `tools/test_shop.py` checks the layout and its limits.
-- `tools/model.py`: the field's models (`.BCX`, `.BSX`) to JSON files and back (§2, `FIELD/*.BCX` and `.BSX`);
-  `tools/test_model.py` checks the layout, shared data and its limits.
+- `tools/model.py`: the field's models (`.BCX`, `.BSX`) to JSON files and back (§2, `FIELD/*.BCX` and `.BSX`), with
+  posing and the GTE's lighting; `tools/test_model.py` checks the layout, shared data, its limits, posing and light.
+- `tools/model_editor.py`: the model viewer (`docs/model_editor.md`); its PS1 view is `pc/gpu.c` as a library
+  (`make editor`, with `tools/ps1gpu.c`); `tools/test_model_editor.py` checks the texture words and packets.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
   a repacker that keeps an LZS stream up to a change; `tools/test_world.py` checks the encoding, the table and it.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per

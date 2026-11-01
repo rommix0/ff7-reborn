@@ -14,6 +14,7 @@ every disc folder under assets, keeping the first originals as .orig, and their 
 """
 import argparse
 import json
+import math
 import re
 import struct
 from pathlib import Path
@@ -144,6 +145,58 @@ def anim_raw(anim: dict) -> tuple[bytes, bytes]:
     head = struct.pack("<H4B3H", frames, len(bones), moving, fixed, turning, start, start + 2 * frames * moving,
                        start + 2 * frames * moving + 2 * fixed)
     return padded(data, anim), head
+
+
+def angles(anim: dict | None, bone: int, frame: int) -> list[int]:
+    """A bone's three angles in a frame (bytes, 256 to a turn); a bone the animation lacks keeps 0."""
+    if anim is None or bone >= len(anim["bones"]):
+        return [0, 0, 0]
+    record = anim["bones"][bone]
+    return [anim["rotations"][r][frame] if record["flags"] >> k & 1 else r for k, r in enumerate(record["rotation"])]
+
+
+def rotation(rx: int, ry: int, rz: int) -> list[list[float]]:
+    """Ry Rx Rz, as func_800AEE24 builds a bone's turn."""
+    (sx, cx), (sy, cy), (sz, cz) = ((math.sin(a * math.pi / 128), math.cos(a * math.pi / 128)) for a in (rx, ry, rz))
+    ry_ = [[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]]
+    rx_ = [[1, 0, 0], [0, cx, -sx], [0, sx, cx]]
+    rz_ = [[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]
+    return matmul(matmul(ry_, rx_), rz_)
+
+
+def matmul(a: list, b: list) -> list[list[float]]:
+    return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+
+def apply(m: list, v) -> list[float]:
+    return [sum(m[i][k] * v[k] for k in range(3)) for i in range(3)]
+
+
+def pose(bones: list, anim: dict | None, frame: int) -> list[tuple[list, list]]:
+    """Each bone's turn and start in a frame: its parent's turn times its own, and its parent's start plus the
+    parent's turn of (0, 0, its length). Vertices of a part on the bone go to turn x vertex + start. The animations'
+    offsets, which the field applies only in some modes, are left out."""
+    out = []
+    for i, bone in enumerate(bones):
+        turn, start = ([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0]) if bone["parent"] < 0 else out[bone["parent"]]
+        out.append((matmul(turn, rotation(*angles(anim, i, frame))),
+                    [s + d for s, d in zip(start, apply(turn, (0, 0, bone["length"])))]))
+    return out
+
+
+def light(color: str, normal, lights: dict) -> tuple[int, int, int]:
+    """A colour as the GTE lights it at load (nccs, func_800B0A48): the normal against each light, clamped at 0,
+    times the light's colour, plus the ambient (bytes x 16, 4096 being 1), times the stored colour."""
+    rgb = bytes.fromhex(color[:6])
+    ambient = bytes.fromhex(lights["ambient"])
+    colors = [bytes.fromhex(c) for c in lights["light_colors"]]
+    strength = [max(0, sum(a * b for a, b in zip(v, normal)) >> 12) for v in lights["light_vectors"]]
+    out = []
+    for c in range(3):
+        total = (ambient[c] << 16) + sum((col[c] << 4) * s for col, s in zip(colors, strength)) >> 12
+        total = min(0x7FFF, max(0, total))
+        out.append(min(255, rgb[c] * total >> 12))
+    return tuple(out)
 
 
 def model_json(d: bytes, at: int, bones: int, parts: int, anims: int) -> dict:
