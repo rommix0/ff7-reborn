@@ -978,7 +978,9 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   call from the top of the stack reads), and the scratchpad at `0x1F800000`; the I/O window `0x1F801000`–`0x1F802FFF`
   goes to `pc/hw.c`. Of RAM's mirrors, `0xA0000000` folds back, and so does KUSEG's 2 MB from 0 (the field reads
   through a null pointer at the start of `MD1STIN`; the bike and the Speed Square store through 24-bit addresses):
-  the host's stack and heap sit above its image, and `mem_map` keeps Windows from handing out what's free below 2 MB.
+  the host's main stack and image sit above it, and `mem_map` keeps Windows from handing out what's free below 2 MB.
+  The C runtime's heap is made before `mem_map` and can sit there (under `make pc-test` a `malloc` came back at
+  `0x001F4FC8`, which recompiled code then read as `0x801F4FC8`), so a buffer handed to game code is static.
   Game pointers need no translation, and C and recompiled code share the game's data. The link is
   `--large-address-aware --disable-dynamicbase`, and `tools/pc_syms.py` places each game symbol at its address.
 - **Recompiler rules:** one C function per game function over a register context (`pc/recomp.h`); delay slots
@@ -989,7 +991,10 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   aligned word in a data file's range that holds a function's address, whatever type splat gave it. (A `.word func`
   parse missed most of `snd_command_handlers`: `seq_cmd_scan_sizes` and `seq_cmd_sizes` are named at their C base,
   0xA0 entries before their tables, which puts a label inside the handler table, and splat emits the rest of it as
-  bytes. Sound command 0xF0 then called a game address natively.) A game
+  bytes. Sound command 0xF0 then called a game address natively.) A jump table splat ends the same way is read on
+  from the image while its words land in the switch's function: `BATTLE.X`'s at `0x800A0220` has 22 entries, but
+  `D_800A0240` cut it at 8, so entry 11 (`0x800A5454`, an actor script byte of 13) left `func_800A5250` without its
+  epilogue, and the caller's saved registers came back wrong: a world battle with Vincent jumped to 0. A game
   address that still turns up is looked up in the code tables. The point after a `jal setjmp` is an entry of its own:
   libetc's interrupt entry resumes there, through the BIOS's custom exit.
 - **Modules:** the Makefile's `PC_MODULES` lists each with its file and load address (`ENDING.X` and the field's
@@ -1207,6 +1212,12 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   - Cards from emulators (ePSXe's `.mcr`) are the same raw images and load as they are, renamed `memcard1.mcd`. In
     the lab, Continue is: the credits skipped (up 2040, ○ 2100, START 2160), then ○ at 2390 (the title's cursor
     starts on Continue when the card has a save), ○ at 2520 (slot 1), ○ at 2660 (file 01); the game is up by 2692.
+  - Swept with a playthrough of 57 emulator saves, one per story stop on all three discs: each loads into its field or
+    onto the world map (all three world maps, the Highwind and a chocobo among them) and draws. Then 9200 frames of
+    turning and ○ every half second walks 18 world saves into fields and opens dialogue and the snowboard's
+    instructions, and 600-frame straight walks bring on 28 battles (fields and world map, spells and summons cast, six
+    of them over, one a loss through the game over screen) with no crash once the jump table above is read whole. A
+    random walk on the world map meets few battles: it turns before it covers ground.
 - **Not yet:** waiting for the host's clock spins a core.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
   bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display, the CD layer and the memory cards.

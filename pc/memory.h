@@ -11,9 +11,11 @@
 #define IO_START 0x1F801000u
 #define IO_END 0x1F803000u
 #define UNCACHED_START 0xA0000000u /* KSEG1, the same RAM without the cache */
-/* KUSEG mirrors RAM from 0 too, all 2 MB of it (a null pointer's reads, HIGHWAY.BIN's 24-bit addresses). No host
- * pointer is ever there: Windows and Linux both keep the first 64 KB unmapped, the host's stack and heap sit above its
- * image, and mem_map keeps the rest from Windows, which hands out the lowest free addresses first. */
+/* KUSEG mirrors RAM from 0 too, all 2 MB of it (a null pointer's reads, HIGHWAY.BIN's 24-bit addresses). So game code
+ * must never be handed a host pointer from there: Windows and Linux both keep the first 64 KB unmapped, the main
+ * stack and the image sit above it, and mem_map keeps what's free from Windows, which hands out the lowest free
+ * addresses first. The C runtime's heap is made before that and can be there (seen under make), so a buffer game
+ * code reads is static, never malloc'd. */
 #define NULL_PAGE_END 0x10000u
 
 int mem_map(void);

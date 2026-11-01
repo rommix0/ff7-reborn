@@ -70,10 +70,12 @@ void movie_poll_start(void) {}
 static int callbacks;
 static void count_callback(void) { callbacks++; }
 
+/* Into a static buffer, not a malloc'd one: the C runtime's heap can sit below 2 MB, which game code (lzs_stream_start
+ * is still recompiled) reads as RAM (memory.h). The caller skips files bigger than this. */
 static unsigned char *read_file(const char *path, long *size)
 {
+    static unsigned char data[0x2000000 + 4];
     FILE *f = fopen(path, "rb");
-    unsigned char *data;
 
     if (!f) {
         perror(path);
@@ -82,7 +84,6 @@ static unsigned char *read_file(const char *path, long *size)
     fseek(f, 0, SEEK_END);
     *size = ftell(f);
     rewind(f);
-    data = malloc(*size + 4);
     if (fread(data, 1, *size, f) != (size_t)*size) {
         perror(path);
         exit(1);
@@ -162,7 +163,6 @@ int main(int argc, char **argv)
                 }
                 unpacked++;
             }
-            free(data);
         }
     }
 

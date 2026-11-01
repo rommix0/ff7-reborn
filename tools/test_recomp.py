@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from recomp import code_pointers, recompile
+from recomp import code_pointers, read_jump_tables, recompile
 
 ZERO, V0, V1, A0, A1, T0, RA = 0, 2, 3, 4, 5, 8, 31
 BASE = 0x80100000
@@ -241,6 +241,20 @@ def code_pointers_found_whatever_splat_typed():
     assert code_pointers(bytes(image), BASE, [data_asm], {BASE: "f", g: "g"}) == [(BASE + 0x80, "g")]
 
 
+def jump_table_runs_past_a_label_inside_it():
+    # BATTLE.X's table at 800A0220 has 22 entries, but splat ends it at a D_ label after 8: the rest, still inside
+    # the switch's function, are cases too. It ends at the first word that isn't.
+    g = BASE + 0x40
+    image = bytearray(0x100)
+    for i, word in enumerate([BASE + 8, BASE + 12, BASE + 16, g, BASE + 20]):
+        image[0x80 + 4 * i:0x84 + 4 * i] = word.to_bytes(4, "little")
+    with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp, "f.s").write_text(f"dlabel jtbl_{BASE + 0x80:08X}\n    .word .L{BASE + 8:08X}\n"
+                                    f"    .word .L{BASE + 12:08X}\nenddlabel jtbl_{BASE + 0x80:08X}\n")
+        tables = read_jump_tables(tmp, {BASE: "f", g: "g"}, bytes(image), BASE)
+    assert tables == {BASE: [BASE + 8, BASE + 12, BASE + 16]}
+
+
 if __name__ == "__main__":
     for test in (delay_slot_runs_on_both_paths, branch_reads_condition_before_slot, jr_ra_returns,
                  div_by_zero_values, unaligned_pair_order, backward_branch_polls, bltzal_links,
@@ -250,6 +264,6 @@ if __name__ == "__main__":
                  setjmp_return_is_an_entry, address_stored_in_return_slot_becomes_native,
                  code_pointers_found_whatever_splat_typed, jr_ra_at_the_image_end_has_a_nop_slot,
                  jr_to_an_address_built_inside_the_function, callee_jr_lands_in_its_caller,
-                 function_ends_where_its_code_does):
+                 function_ends_where_its_code_does, jump_table_runs_past_a_label_inside_it):
         test()
     print("ok")

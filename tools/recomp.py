@@ -409,21 +409,30 @@ def read_symbols(path, lo, hi):
     return funcs
 
 
-def read_jump_tables(asm, funcs):
+def read_jump_tables(asm, funcs, image, image_base):
     starts = sorted(funcs)
     tables = {}
     for path in Path(asm).rglob("*.s"):
-        inside = False
+        table = None
         for line in path.read_text().splitlines():
             if line.startswith("dlabel jtbl_"):
-                inside = True
-            elif line.startswith("enddlabel"):
-                inside = False
-            elif inside and (m := re.search(r"\.word \.L([0-9A-F]{8})", line)):
-                target = int(m[1], 16)
-                owner = max((s for s in starts if s <= target), default=None)
+                table, owner, targets = int(line[12:20], 16), None, []
+            elif line.startswith("enddlabel") and table is not None:
                 if owner is not None:
-                    tables.setdefault(owner, []).append(target)
+                    # splat ends a table at any label inside it (BATTLE.X's at 800A0220): the image goes on while its
+                    # words still land in the switch's function
+                    end = next((s for s in starts if s > owner), 1 << 32)
+                    at = table - image_base + 4 * len(targets)
+                    while 0 <= at <= len(image) - 4 and \
+                            owner <= (target := int.from_bytes(image[at:at + 4], "little")) < end:
+                        targets.append(target)
+                        at += 4
+                    tables.setdefault(owner, []).extend(targets)
+                table = None
+            elif table is not None and (m := re.search(r"\.word \.L([0-9A-F]{8})", line)):
+                targets.append(int(m[1], 16))
+                if owner is None:
+                    owner = max((s for s in starts if s <= targets[0]), default=None)
     return tables
 
 
@@ -471,7 +480,7 @@ def main():
     if args.native:
         native = {line.split()[-1].lstrip("_") for line in args.native.read_text().splitlines()
                   if len(line.split()) == 3 and line.split()[1] in "TDBCR"}
-    jtbls = read_jump_tables(args.asm, funcs) if args.asm else {}
+    jtbls = read_jump_tables(args.asm, funcs, image, image_base) if args.asm else {}
     emit = None
     if args.only:
         names = set(args.only.split(","))

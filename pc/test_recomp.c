@@ -49,11 +49,11 @@ static unsigned int random_word(void)
 
 static int check_lzs_folder(const char *folder)
 {
-    static unsigned char want[0x200000], got[0x200000];
+    /* static, not malloc'd: the C runtime's heap can sit below 2 MB, which game code reads as RAM (memory.h) */
+    static unsigned char want[0x200000], got[0x200000], data[0x200000];
     char path[1024];
     struct dirent *entry;
     DIR *dir = opendir(folder);
-    unsigned char *data;
     unsigned int packed;
     FILE *f;
     long size;
@@ -68,8 +68,7 @@ static int check_lzs_folder(const char *folder)
         fseek(f, 0, SEEK_END);
         size = ftell(f);
         rewind(f);
-        data = malloc(size);
-        assert(fread(data, 1, size, f) == (size_t)size);
+        assert(size <= (long)sizeof(data) && fread(data, 1, size, f) == (size_t)size);
         fclose(f);
         memcpy(&packed, data, 4);
         if (size > 4 && packed == size - 4) {
@@ -83,7 +82,6 @@ static int check_lzs_folder(const char *folder)
             }
             checked++;
         }
-        free(data);
     }
     closedir(dir);
     return checked;

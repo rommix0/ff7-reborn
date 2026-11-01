@@ -67,7 +67,8 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
    are recompiled, and the first battle plays through to its results and back to the field. The world map runs:
    walking, the map display, the camera, its menu, random battles (escaped, or lost through the game over screen and
    back to the title), and walking into a field. All seven mini-games start, draw and take the pad.*
-5. **The whole game,** across all three discs' content with no swaps.
+5. **The whole game,** across all three discs' content with no swaps. *So far: saves from a playthrough, one per
+   story stop on all three discs, load and play: walking, fields, the world maps and battles.*
 
 Each stage is checked against the PS1: the PS1 build stays byte-identical, recompiled code is compared with decompiled
 code where both exist (the sound driver's key-on check is the model), and screens against a reference emulator.
