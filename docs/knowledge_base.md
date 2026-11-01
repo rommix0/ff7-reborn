@@ -229,13 +229,24 @@ back):
 - **Values and variables:** handlers read operands through `func_800BEE10` (a byte) and `func_800BF908` (a `u16`) and
   write them through `func_800BF3AC` and `func_800C0248`, each given a bank number 1–6 (the high or low nibble of
   operand byte 1, 2 or 3) and the operand's offset. With the nibble 0 the operand is the value; otherwise it's an
-  address in that bank (bank 1 is `D_8009D288`; 16 cases). Harvesting each handler's constant arguments gives 130
+  address in that bank. Banks 1/2 are `0x8009D288`, 3/4 `+0x100`, 11/12 `+0x200`, 13/14 `+0x300`, 15/7 `+0x400`
+  (1,280 bytes kept in the save; the first of each pair reads a byte, the second a `u16` at the same address), 5/6
+  `0x80075E24`, each map's scratch space (8–10 aren't banks). Harvesting each handler's constant arguments gives 130
   operations' value operands (`tools/field.py`'s `SPEC`; the if family's come from its compare helpers
   `func_800C2000`, `func_800C24A8` and `func_800C2970`, which switch on an operator byte: `==`, `!=`, `>`, `<`, `>=`,
   `<=`, `&`, `^`, `|`, bit set, bit clear). The dump shows them as `#value` or `var[bank][address]`, the if family as
   `if var[1][2B] == #5 L0034`; an operation that can't be said that way exactly (177 `mpara`/`mpra2` use a nibble
   the table doesn't name) stays in hex. Checked in the lab: `batle #300` in `MD1STIN` made `#324` opened the opening
   fight as battle `0x144`, Guard Scorpion's.
+- **Saved variables with a known meaning** go by name in the dump (`tools/field.py`'s `VARS`), each from the code
+  that uses it outside the scripts: `story` (bank 2 `00`; set only to constants, 0 to 1999, and the world map picks
+  its version by 1000, 1580 and 1620), the play time and countdown (bank 1 `10`–`12` and `14`–`16`, from the
+  field's second counters `D_8009D264`/`D_8009D268`), `battles` (`main` adds 1 per battle), `menu_shown` and
+  `menu_locked` (a bit per main menu entry, Item to Save; a field load locks PHS and Save), `battle_points` (the
+  arena's `u32`, drawn under "Current Battle Points"), the party (bank 3 `09`–`0B`), `disc` (`dskcg`; `main` swaps
+  discs when it differs), `materia_full` (`smtra` when all 200 slots are taken) and the mini-games' scores, courses
+  and chocobo settings. Checked in the lab on a new game: `menu_shown` `0x2FB` (`MD1STIN`'s `#763`), `menu_locked`
+  `0x300`, `disc` 1, the party `00 FF FF`, play time 2:30 at frame 9,000.
 - **Dialogue:** a `u16` count, an offset per string from the table, the strings ending `FF`. The field's text parser
   (`func_800D5C9C`) switches on `E0`–`FF`: `EA`–`F2` are names and take nothing, `FA`–`FD` take one byte, `FE` a
   sub-code (`D2`–`E9`; `DD` waits on two more bytes, `DE`, `DF`, `E1` and `E2` insert numbers). An argument can be

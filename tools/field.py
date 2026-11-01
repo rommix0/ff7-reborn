@@ -100,6 +100,33 @@ SPEC = {
 COMPARE = ["==", "!=", ">", "<", ">=", "<=", "&", "^", "|", "bit", "!bit"]  # the if family's operator byte
 COMPARE_AT = {0x14: 4, 0x15: 4, 0x16: 6, 0x17: 6, 0x18: 6, 0x19: 6}
 TEXT_AT = {0x40: 2, 0x43: 1, 0x48: 3}  # mes, mpnam, ask: the string they show
+# Saved variables by (bank, address), named where the game's code shows what they mean. Banks 1/2 are 0x8009D288,
+# 3/4 +0x100, 11/12 +0x200, 13/14 +0x300, 15/7 +0x400 (the first of each pair reads a byte, the second a u16 at the
+# same address); 5/6 (0x80075E24) is each map's scratch space and isn't saved.
+VARS = {
+    (2, 0x00): "story",  # set only to constants, 0 to 1999; the world map picks its version by it
+    (1, 0x10): "play_hours", (1, 0x11): "play_minutes", (1, 0x12): "play_seconds",  # func_800BB3A8
+    (1, 0x14): "timer_hours", (1, 0x15): "timer_minutes", (1, 0x16): "timer_seconds",  # the countdown, same place
+    (2, 0x18): "battles",  # main adds 1 each battle
+    (2, 0x1C): "menu_shown", (2, 0x1E): "menu_locked",  # a bit per main menu entry, Item (0) to Save (9)
+    (2, 0x70): "battle_points",  # the arena's low u16 of a u32 it draws as "Current Battle Points"
+    (1, 0x74): "arena_round",
+    (3, 0x09): "party1", (3, 0x0A): "party2", (3, 0x0B): "party3",  # character ids, FF empty; party1 is led
+    (3, 0x73): "bike_mode",  # 1: the motorbike game keeps a score
+    (4, 0x62): "speed_square_score",  # what the mini-game returns
+    (3, 0xCE): "snowboard_exit",  # where the snowboard run ended, a bit per way out
+    (11, 0x09): "chocobo_own",  # not 0: the player's race chocobo comes from the bank, not random
+    (11, 0x17): "chocobo_class",  # 0-3: the rivals' stat ranges
+    (11, 0x19): "chocobo_place",  # the last race's place, from 0
+    (12, 0x6B): "bike_score", (12, 0x6D): "bike_high_score",
+    (11, 0x7C): "snowboard_best1", (11, 0x7D): "snowboard_best2", (11, 0x7E): "snowboard_best3",
+    (11, 0x7F): "snowboard_course",
+    (13, 0x00): "disc",  # dskcg sets it; main swaps discs when it differs
+    (13, 0x1F): "materia_full",  # smtra: 1 when all 200 slots were taken
+    (14, 0x5E): "submarine_result",  # what the mini-game returns
+    (15, 0x6F): "owns_all",  # a menu check: 1 when every item or materia in its list is owned
+}
+NAMED = {name: key for key, name in VARS.items()}
 
 
 def u16(data: bytes, at: int) -> int:
@@ -165,7 +192,7 @@ def tokens(op: bytes, label: str | None, plain: bool = False) -> list[str]:
             size, n = fields[at]
             bank = op[(n + 1) // 2] >> 4 if n % 2 else op[(n + 1) // 2] & 15
             value = int.from_bytes(op[at:at + size], "little")
-            out.append(f"var[{bank}][{value:02X}]" if bank else f"#{value}")
+            out.append(VARS.get((bank, value), f"var[{bank}][{value:02X}]") if bank else f"#{value}")
             at += size
         elif not plain and COMPARE_AT.get(op[0]) == at and op[at] < len(COMPARE):
             out.append(COMPARE[op[at]])
@@ -181,7 +208,7 @@ def tokens(op: bytes, label: str | None, plain: bool = False) -> list[str]:
 def operands(op: int, words: list[str]) -> tuple[bytearray, str | None]:
     """Operand bytes from tokens(): a line with no #, var or operator is all hex bytes; a jump's label comes back
     with its bytes left zero."""
-    nice = any(w.startswith(("#", "var[")) or w in COMPARE for w in words)
+    nice = any(w.startswith(("#", "var[")) or w in COMPARE or w in NAMED for w in words)
     fields = {at: (size, n) for at, size, n in SPEC.get(op, ())} if nice else {}
     banks = {(n + 1) // 2 for size, n in fields.values()}
     if nice and len(words) > 2 and words[1] in COMPARE:
@@ -204,10 +231,12 @@ def operands(op: int, words: list[str]) -> tuple[bytearray, str | None]:
             size, n = fields[at]
             if word.startswith("#"):
                 bank, value = 0, int(word[1:])
+            elif word in NAMED:
+                bank, value = NAMED[word]
             elif word.startswith("var[") and word.endswith("]") and "][" in word:
                 bank, value = int(word[4:word.index("]")]), int(word[word.index("][") + 2:-1], 16)
             else:
-                raise ValueError(f"{word} isn't #value or var[bank][address]")
+                raise ValueError(f"{word} isn't #value, var[bank][address] or a variable's name")
             if not 0 <= bank < 16:
                 raise ValueError(f"{word}: banks go 0 to 15")
             out[(n + 1) // 2 - 1] |= bank << 4 if n % 2 else bank

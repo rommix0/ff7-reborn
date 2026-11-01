@@ -28,6 +28,10 @@ assert disassemble(code, names, ["Hello"] * 6) == lines and assemble(lines, name
 assert assemble(["set var[1][2B] #-1", "if var[1][2B] >= var[2][03] L0000", "L0000:"], names) == \
     bytes.fromhex("80102BFF 14122B030401")
 assert assemble(["kawai 01 02 03 04", "skip 05"], names) == bytes.fromhex("280601020304 1005")
+# A saved variable the game's code shows the meaning of goes by its name, both ways.
+names[0x16] = "if2"
+assert disassemble(bytes.fromhex("162000002C010401"), names) == ["if2 story >= #300 L0008", "L0008:"]
+assert assemble(["if2 story >= #300 L0008", "L0008:"], names) == bytes.fromhex("162000002C010401")
 for wrong in (["mes 00"], ["mes 00 L0000", "L0000:"], ["skip L0200"] + ["mes 00 00"] * 90 + ["L0200:"]):
     try:
         assemble(wrong, names)
