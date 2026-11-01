@@ -35,9 +35,18 @@ python tools/kernel.py dump "assets/Final Fantasy VII (USA) (Disc 1)" kernel
 python tools/kernel.py build kernel assets
 ```
 
-`build` keeps the first originals as `.orig` (copy them back to undo) and refuses text that won't fit in the game's
-memory. Fields not worked out yet are `unknown_XX`, and their values can still be changed; `docs/knowledge_base.md`
-(Text and `KERNEL.BIN`) says what each named one does and how the text's `{XX}` codes work.
+`BATTLE/SCENE.BIN` holds the 256 battle scenes: the enemies (names, HP, EXP, gil, AP, ...), their attacks and AI.
+It works the same way, a JSON file per scene:
+
+```bash
+python tools/scene.py dump "assets/Final Fantasy VII (USA) (Disc 1)" scene
+python tools/scene.py build scene assets
+```
+
+`build` keeps the first originals as `.orig` (copy them back to undo) and refuses data that won't fit in the game's
+memory or on the disc; the scene build remakes `KERNEL.BIN` too, which knows where each scene is. Fields not worked
+out yet are `unknown_XX`, and their values can still be changed; `docs/knowledge_base.md` (Text and `KERNEL.BIN`,
+`BATTLE/SCENE.BIN`) says what each named one does and how the text's `{XX}` codes work.
 
 Disassemble the music and sound effects (AKAO sequences):
 

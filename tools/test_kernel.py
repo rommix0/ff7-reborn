@@ -1,4 +1,4 @@
-from kernel import decode, encode, pack_kernel, pack_text, read_text
+from kernel import decode, encode, pack_kernel, pack_text, read_text, scene_table
 from unpack import bingz
 
 # Characters are Mac OS Roman less 0x20 (the order of WINDOW.BIN's font): every byte below 0xE0 survives a round trip,
@@ -38,6 +38,11 @@ assert read_text(bytes([0x02, 0x00, 0xEA, 0xFF, 0xFF, 0x21, 0xFF])) == [b"\xEA\x
 
 # An offset table that starts on an odd byte (section 9's first entry points into the table) still counts its strings.
 assert len(read_text(bytes([0x03, 0x00, 0x05, 0x00, 0x21, 0xFF]))) == 2
+
+# Section 2's 64 bytes at 0xF1C hold the first scene of each 8 KB block of SCENE.BIN (BATINI.X finds a scene's block
+# by them), FF after the last: a block's header has an offset per scene, FF for none.
+block = lambda count: b"".join(n.to_bytes(4, "little") if n < count else b"\xff" * 4 for n in range(16)).ljust(8192)
+assert scene_table(block(12) + block(6) + block(16)) == bytes([0, 12, 18]) + b"\xff" * 61
 
 # A BIN-GZ archive packs back to the same sections, ending in a zero length.
 sections = [(0, bytes(range(256))), (9, section)]

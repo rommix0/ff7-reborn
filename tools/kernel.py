@@ -5,8 +5,9 @@ per string.
   python tools/kernel.py build kernel assets
 
 build writes the new KERNEL.BIN into every disc folder under assets (all three discs carry the same one) and puts its
-size in YAMADA.BIN and files.txt, keeping the first original of each as .orig (copy those back to undo). In the text,
-{XX ...} is any
+size in YAMADA.BIN and files.txt, keeping the first original of each as .orig (copy those back to undo); its table of
+where each battle scene sits is made from that folder's SCENE.BIN (tools/scene.py builds that). In the text, {XX ...}
+is any
 byte by its hex: control codes with their arguments ({EB 00 05} is an item's name, {F8 02} a colour) and the few
 characters a text file would show ambiguously ({5B} is "{"). A table's "_name" comes from the names file and build
 ignores it.
@@ -152,6 +153,26 @@ def pack_kernel(sections: list[tuple[int, bytes]]) -> bytes:
     return bytes(out + b"\0\0")
 
 
+def fields_json(data: bytes, fields: list, skip: range = range(0)) -> dict:
+    """A record's named fields (little-endian), then each byte no field covers as unknown_XX."""
+    record, covered = {}, set(skip)
+    for offset, length, field in fields:
+        record[field] = int.from_bytes(data[offset:offset + length], "little")
+        covered.update(range(offset, offset + length))
+    record.update((f"unknown_{i:02X}", data[i]) for i in range(len(data)) if i not in covered)
+    return record
+
+
+def fields_raw(record: dict, size: int, fields: list) -> bytearray:
+    data = bytearray(size)
+    for offset, length, field in fields:
+        data[offset:offset + length] = record[field].to_bytes(length, "little")
+    for key, value in record.items():
+        if key.startswith("unknown_"):
+            data[int(key[8:], 16)] = value
+    return data
+
+
 def dump(disc: Path, out: Path):
     sections = [raw for _, raw in bingz((disc / "INIT/KERNEL.BIN").read_bytes())]
     out.mkdir(parents=True, exist_ok=True)
@@ -165,14 +186,8 @@ def dump(disc: Path, out: Path):
         else:
             size, names, fields = LAYOUTS[n]
             labels = [decode(s) for s in read_text(sections[names])]
-            table = []
-            for k in range(len(raw) // size):
-                record, covered = {"_name": labels[k]}, set()
-                for offset, length, field in fields:
-                    record[field] = int.from_bytes(raw[k * size + offset:k * size + offset + length], "little")
-                    covered.update(range(offset, offset + length))
-                record.update((f"unknown_{i:02X}", raw[k * size + i]) for i in range(size) if i not in covered)
-                table.append(record)
+            table = [{"_name": labels[k], **fields_json(raw[k * size:(k + 1) * size], fields)}
+                     for k in range(len(raw) // size)]
         path.with_suffix(".json").write_text(json.dumps(table, indent=1, ensure_ascii=False) + "\n", "utf-8")
 
 
@@ -195,15 +210,7 @@ def read_dump(folder: Path) -> list[tuple[int, bytes]]:
             raw = bytes.fromhex("".join(table["bytes"]))
         else:
             size, _, fields = LAYOUTS[n]
-            raw = bytearray()
-            for record in table:
-                data = bytearray(size)
-                for offset, length, field in fields:
-                    data[offset:offset + length] = record[field].to_bytes(length, "little")
-                for key, value in record.items():
-                    if key.startswith("unknown_"):
-                        data[int(key[8:], 16)] = value
-                raw += data
+            raw = b"".join(fields_raw(record, size, fields) for record in table)
         if len(raw) != SIZES[n]:
             raise SystemExit(f"{path.with_suffix('.json')}: {len(raw)} bytes, the game's table is {SIZES[n]}")
         sections.append((n, bytes(raw)))
@@ -213,30 +220,61 @@ def read_dump(folder: Path) -> list[tuple[int, bytes]]:
     return sections
 
 
+def scene_table(scene_bin: bytes) -> bytes:
+    """Section 2's 64 bytes at 0xF1C: the first scene of each 8 KB block of SCENE.BIN, FF after the last."""
+    starts, first = [], 0
+    for block in range(0, len(scene_bin), 8192):
+        starts.append(first)
+        first += sum(scene_bin[block + 4 * i:block + 4 * i + 4] != b"\xff" * 4 for i in range(16))
+    return bytes(starts).ljust(64, b"\xff")
+
+
+def backup(disc: Path, name: str):
+    original = disc / (name + ".orig")
+    if not original.exists():
+        original.write_bytes((disc / name).read_bytes())
+
+
+def replace(disc: Path, name: str, data: bytes) -> int:
+    """Writes a disc file, keeping its first original, and its size in files.txt (the PC port maps sectors to files
+    by it); on the disc it can grow into the free sectors before the next file. Returns its sector."""
+    files = (disc / "files.txt").read_text().splitlines()
+    rows = [line.split(maxsplit=3) for line in files]
+    lba = next(int(r[0]) for r in rows if r[3] == name)
+    room = (min(int(r[0]) for r in rows if int(r[0]) > lba) - lba) * 2048
+    if len(data) > room:
+        raise SystemExit(f"{disc / name}: {len(data)} bytes; the disc has room for {room}")
+    backup(disc, name)
+    backup(disc, "files.txt")
+    (disc / name).write_bytes(data)
+    (disc / "files.txt").write_text("".join((f"{r[0]} {len(data)} {r[2]} {r[3]}" if r[3] == name else line) + "\n"
+                                            for r, line in zip(rows, files)))
+    print(f"{disc / name}: {len(data)} bytes")
+    return lba
+
+
+def install(disc: Path, sections: list[tuple[int, bytes]]):
+    """KERNEL.BIN into a disc folder, its scene table made from the SCENE.BIN there (BATINI.X finds a scene's block
+    by it), and its size in YAMADA.BIN too (the game reads it by that sector and size)."""
+    battle = bytearray(sections[2][1])
+    battle[0xF1C:0xF5C] = scene_table((disc / "BATTLE/SCENE.BIN").read_bytes())
+    kernel = pack_kernel(sections[:2] + [(2, bytes(battle))] + sections[3:])
+    lba = replace(disc, "INIT/KERNEL.BIN", kernel)
+    backup(disc, "INIT/YAMADA.BIN")
+    yamada = bytearray((disc / "INIT/YAMADA.BIN").read_bytes())
+    entry = next(i for i in range(0, len(yamada), 8) if int.from_bytes(yamada[i:i + 4], "little") == lba)
+    yamada[entry + 4:entry + 8] = len(kernel).to_bytes(4, "little")
+    (disc / "INIT/YAMADA.BIN").write_bytes(yamada)
+
+
+def discs(assets: Path) -> list[Path]:
+    return sorted(p for p in assets.iterdir() if (p / "INIT/KERNEL.BIN").exists())
+
+
 def build(folder: Path, assets: Path):
-    kernel = pack_kernel(read_dump(folder))
-    for disc in sorted(p for p in assets.iterdir() if (p / "INIT/KERNEL.BIN").exists()):
-        # The game reads KERNEL.BIN by YAMADA.BIN's sector and size, and the PC port maps sectors to files by
-        # files.txt; on the disc it can grow into the free sectors before the next file.
-        files = (disc / "files.txt").read_text().splitlines()
-        rows = [line.split(maxsplit=3) for line in files]
-        lba = next(int(r[0]) for r in rows if r[3] == "INIT/KERNEL.BIN")
-        room = (min(int(r[0]) for r in rows if int(r[0]) > lba) - lba) * 2048
-        if len(kernel) > room:
-            raise SystemExit(f"{disc}: KERNEL.BIN is {len(kernel)} bytes; the disc has room for {room}")
-        for name in ("INIT/KERNEL.BIN", "INIT/YAMADA.BIN", "files.txt"):
-            original = disc / (name + ".orig")
-            if not original.exists():
-                original.write_bytes((disc / name).read_bytes())
-        (disc / "INIT/KERNEL.BIN").write_bytes(kernel)
-        yamada = bytearray((disc / "INIT/YAMADA.BIN").read_bytes())
-        entry = next(i for i in range(0, len(yamada), 8) if int.from_bytes(yamada[i:i + 4], "little") == lba)
-        yamada[entry + 4:entry + 8] = len(kernel).to_bytes(4, "little")
-        (disc / "INIT/YAMADA.BIN").write_bytes(yamada)
-        (disc / "files.txt").write_text("".join(
-            (f"{r[0]} {len(kernel)} {r[2]} {r[3]}" if r[3] == "INIT/KERNEL.BIN" else line) + "\n"
-            for r, line in zip(rows, files)))
-        print(f"{disc / 'INIT/KERNEL.BIN'}: {len(kernel)} bytes")
+    sections = read_dump(folder)
+    for disc in discs(assets):
+        install(disc, sections)
 
 
 def main():

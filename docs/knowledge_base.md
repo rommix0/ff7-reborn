@@ -127,6 +127,30 @@ A movie name found on several discs has the same contents on each, so the PC por
   to files by it); on the disc there are 17 sectors before `MINI/CHOCOBO.BIN`. Checked in the lab: a renamed Potion
   and its new help text show in the item menu, and a battle runs to the same frame, pixel for pixel.
 
+**`BATTLE/SCENE.BIN`** (`tools/scene.py` dumps it to a JSON file per scene and builds it back):
+- **Blocks:** 33 blocks of 8 KB, the same on all three discs. A block starts with 16 `u32` offsets in 4-byte words
+  (`FF` for none) and holds up to 16 gzip streams, one per scene, `FF` after them; the battle reads a block alone
+  (the trace's `SCENE.BIN +N` is 4 sectors a block). 256 scenes, 7,808 bytes each unpacked. Which block a scene is in
+  comes from `KERNEL.BIN` section 2 at `0xF1C`: the first scene of each block, `FF` after the last (`BATINI.X` reads
+  it), so the two files have to agree. Battle number N is scene N / 4, setup N % 4: the opening battle, `0x12C`, is
+  scene 75 (MP and Guard Hound) setup 0.
+- **A scene:** three `u16` enemy IDs (`FFFF` for none, then `FFFF`), four 20-byte setups (`0x008`), four 48-byte
+  cameras (`0x058`), 4 × 6 16-byte formation entries (`0x118`), three 184-byte enemy records (`0x298`), 32 attacks in
+  the kernel's 28-byte spell record (`0x4C0`), their `u16` IDs (`0x840`) and 32-byte names (`0x880`), then the AI
+  scripts (`0xC80` to the end). Names are 32 bytes, the text then `FF` to the end, in every scene. Scenes 0–2 number
+  their enemies (`…0(…)` to `…6(…)`) in bytes this font shows as accented letters. An enemy record starts with its
+  name; the battle copies them to
+  `0x800F5F44`, where the battle text's `ED` insert takes names from.
+- **Enemy fields shown by the game** (the opening battle, two MPs, from a new game): with MP's `+0xA8` (`u32`) at
+  1,000, Cloud's EXP (`0x8009C774`) rose 2,000 instead of 32; `+0xAC` (`u32`) at 300 put 600 gil at `0x8009D7E0`
+  instead of 20; `+0x9E` (`u16`) at 7 gave the materia 14 AP instead of 4; `+0xA4` (`u32`) at 1 turned up as the
+  enemy's HP in the battle's copy (`0x800F5FE8`) and its actor (`0x800F85AC`). MP's record has level 2 at `+0x20`,
+  Guard Hound's 3, not shown yet.
+- **Rebuilding:** every scene dumps and builds back byte for byte, and packed in order they land in the original
+  blocks. `SCENE.BIN` can't grow: `BATRES.X` follows it on the disc. `build` remakes `KERNEL.BIN` in each disc folder
+  with the table for the new blocks, and the kernel tool takes the table from the folder's `SCENE.BIN` too, so
+  rebuilding either keeps them in step.
+
 ## 3. Code: what is recovered and what isn't
 
 The main exe `SCUS_941.63` is split with splat and `make` rebuilds it byte-identical (SHA1-checked) from asm plus the
@@ -836,6 +860,8 @@ same set). They give the original module and file split, and the staff folders b
   `tools/test_unpack.py` is the LZS self-check.
 - `tools/kernel.py`: `KERNEL.BIN` to editable files and back (§2, Text and `KERNEL.BIN`); `tools/test_kernel.py`
   checks the character set, the codes, the `F9` packing and its limits, and the archive.
+- `tools/scene.py`: `SCENE.BIN` to a JSON file per scene and back (§2, `BATTLE/SCENE.BIN`); `tools/test_scene.py`
+  checks the block packing, the scene table and the names.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
   frame); each in-memory one a silent 30 fps AVI, found by matching file sizes against `MOVIE_ID.BIN`. The JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
   exactly, so nothing is re-encoded. Checked on `MK8.STR` against ffmpeg's MDEC decoder: the planes agree to ±1
