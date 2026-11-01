@@ -51,6 +51,17 @@ memory or on the disc; the scene build remakes `KERNEL.BIN` too, which knows whe
 out yet are `unknown_XX`, and their values can still be changed; `docs/knowledge_base.md` (Text and `KERNEL.BIN`,
 `BATTLE/SCENE.BIN`) says what each named one does and how the text's `{XX}` codes work.
 
+The field maps (`FIELD/*.DAT`) hold the story: each map's scripts and dialogue. They dump to a JSON file per map:
+its entities, their scripts a line per operation (named as the game's own debug trace names them, operand bytes in
+hex, jumps to labels) and its dialogue. `build` writes only the maps that differ from the originals (into every
+disc folder, keeping `.orig` copies) and moves `FIELD.BIN`'s table of where each map lies to match. A longer line
+may need its window made wider: the `wsize` before its `mes`.
+
+```bash
+python tools/field.py dump "assets/Final Fantasy VII (USA) (Disc 1)" field
+python tools/field.py build field assets
+```
+
 Disassemble the music and sound effects (AKAO sequences):
 
 ```bash

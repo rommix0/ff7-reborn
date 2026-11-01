@@ -204,6 +204,38 @@ A movie name found on several discs has the same contents on each, so the PC por
   with the table for the new blocks, and the kernel tool takes the table from the folder's `SCENE.BIN` too, so
   rebuilding either keeps them in step.
 
+**`FIELD/*.DAT`, the maps** (`tools/field.py` dumps each map's scripts and dialogue to a JSON file and builds them
+back):
+- **Loading:** `FIELD.BIN` keeps a 24-byte entry per map at `0x800DA5B8` (file offset `0x3A5B8`): sector and size of
+  its `.DAT`, `.MIM` and `.BSX`, by map number. `func_800A1368` unpacks the `.MIM` (LZS) to `0x80128000` and the
+  `.DAT` to `0x80114FE4`, so a map unpacks to at most 77,852 bytes (`FRCYO`, the biggest, is 77,776). The `.DAT`
+  starts with seven pointers into that copy, one per section; they're 4-aligned. The exe reads `FIELD.BIN` itself
+  by a sector and size of its own (`D_80048D2C`), but gzip stops at the end of its stream, so a rebuilt one padded
+  to the old size reads the same (level 9 packs the image 82 bytes smaller than the original).
+- **Section 1, the scripts** (`func_800BA534` checks it, `func_800BA7C4` and `func_800BAF54` set the entities up):
+  `+0` version 2 and 5, `+2` entity count, `+3` model count, `+4` the dialogue's offset (0 for none), `+6` the count of
+  music blocks, `+8` a `u16` the field keeps; entity names (8 bytes each) from `+0x20`, then a `u32` offset per music
+  block, then 32 `u16` script offsets per entity, then the scripts. Each entity runs from its own position
+  (`D_800831FC`, an offset from the section, `D_8009C6DC`); several slots point at one script, and in `JUNIN2` two
+  entities share one.
+- **The interpreter:** `D_800E0228` holds a handler per operation. Each handler shows its name through the debug
+  printer `func_800BEAD4(name, bytes)` (the names in `FIELD.BIN`'s rodata; `tools/field.py` reads them from there)
+  and moves the entity's position on itself, by the operation's length. Lengths come from those moves:
+  `spcal` (`0F`) by its sub-code (`F5`–`FF`), `kawai` (`28`) by its own length byte; 13 codes have no handler of their
+  own ("Bad Event code!"). Jumps: `skip`/`lskip` (`10`/`11`), the `if` family (`14`–`19`), `key!`/`keyon`/`keyof`
+  (`30`–`32`) and `prtyq`/`membq` (`CB`/`CC`) count forward from their operand, `back`/`lback` (`12`/`13`) back from
+  the operation. Every script on all three discs (2,109 maps, 144,180 scripts) decodes exactly to the next one's
+  start, all 122,658 jumps land on an operation, and 1,854 of them on the end of their own script.
+- **Dialogue:** a `u16` count, an offset per string from the table, the strings ending `FF`. The field's text parser
+  (`func_800D5C9C`) switches on `E0`–`FF`: `EA`–`F2` are names and take nothing, `FA`–`FD` take one byte, `FE` a
+  sub-code (`D2`–`E9`; `DD` waits on two more bytes, `DE`, `DF`, `E1` and `E2` insert numbers). An argument can be
+  `FF`, so a string runs to the next one's offset. Some maps have bytes nothing points at after the strings (12 KB in
+  the `BLIN66` maps, an old table), strings that share an offset, separate empty ones, or a pointer with no room for
+  a count behind it; a rebuild keeps all of it, and every map dumps and builds back byte for byte.
+- **Checked in the lab:** Barret's "C'mon newcomer. Follow me." in `MD1STIN`, made longer, showed in the opening
+  (the map 28 bytes bigger, `FIELD.BIN`'s entry moved with it), cut off by its window until the `wsize` before the
+  `mes` was made wider in the script.
+
 ## 3. Code: what is recovered and what isn't
 
 The main exe `SCUS_941.63` is split with splat and `make` rebuilds it byte-identical (SHA1-checked) from asm plus the
@@ -915,6 +947,8 @@ same set). They give the original module and file split, and the staff folders b
   checks the character set, the codes, the `F9` packing and its limits, and the archive.
 - `tools/scene.py`: `SCENE.BIN` to a JSON file per scene and back (§2, `BATTLE/SCENE.BIN`); `tools/test_scene.py`
   checks the block packing, the scene table and the names.
+- `tools/field.py`: each map's scripts and dialogue to a JSON file and back (§2, `FIELD/*.DAT`), with an LZS packer;
+  `tools/test_field.py` checks the disassembler, the names, the section layout and the packer.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
   frame); each in-memory one a silent 30 fps AVI, found by matching file sizes against `MOVIE_ID.BIN`. The JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
   exactly, so nothing is re-encoded. Checked on `MK8.STR` against ffmpeg's MDEC decoder: the planes agree to ±1

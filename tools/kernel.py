@@ -55,12 +55,14 @@ TEXT_SPACE = 0x8006947C - 0x80063690
 ARGS = {**dict.fromkeys(range(0xEA, 0xF2), 2), 0xF8: 1, **dict.fromkeys(range(0xFA, 0xFF), 1)}
 
 
-def decode(text: bytes) -> str:
-    """A string's bytes (no FF) as text: Mac OS Roman less 0x20, codes from 0xE0 as {XX ...} with their arguments."""
+def decode(text: bytes, args: dict | None = None) -> str:
+    """A string's bytes (no FF) as text: Mac OS Roman less 0x20, codes from 0xE0 as {XX ...} with their arguments
+    (ARGS unless given; field text has its own)."""
+    args = ARGS if args is None else args
     out, i = [], 0
     while i < len(text):
         c = text[i]
-        n = 1 + ARGS.get(c, 0)
+        n = 1 + args.get(c, 0)
         char = bytes([c + 0x20]).decode("mac_roman") if c < 0xE0 else ""
         out.append(char if char and char.isprintable() and char != "{" else
                    "{" + " ".join(f"{b:02X}" for b in text[i:i + n]) + "}")
