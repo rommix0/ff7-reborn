@@ -65,6 +65,25 @@ python tools/field.py dump "assets/Final Fantasy VII (USA) (Disc 1)" field
 python tools/field.py build field assets
 ```
 
+The shops (`MENU/SHOPMENU.MNU`): what each of the 80 sells (by inventory number or materia, names shown), the price
+of every item and materia, the shops' titles and the clerks' lines, in one JSON file:
+
+```bash
+python tools/shop.py dump "assets/Final Fantasy VII (USA) (Disc 1)" shops.json
+python tools/shop.py build shops.json assets
+```
+
+The world map's event scripts (inside `WORLD/WM*.TXZ`): what happens where on the world map, the scripted battles
+among it. A JSON file per set (the main world, `WMB`, `WMC`) lists the scripts by key and the code a line per
+operation, as `scene.py`'s AI does (`push story`, `push #1000`, `ge`, `ifnot L0026`, `push #324`, `battle`):
+
+```bash
+python tools/world.py dump "assets/Final Fantasy VII (USA) (Disc 1)" world
+python tools/world.py build world assets
+```
+
+The containers are packed back to back, so an edit can grow a set's packed size by only a few dozen bytes.
+
 Disassemble the music and sound effects (AKAO sequences):
 
 ```bash

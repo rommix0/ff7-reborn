@@ -257,6 +257,49 @@ back):
   (the map 28 bytes bigger, `FIELD.BIN`'s entry moved with it), cut off by its window until the `wsize` before the
   `mes` was made wider in the script.
 
+**`MENU/SHOPMENU.MNU`, the shops** (`tools/shop.py` dumps them to a JSON file and builds them back): the module runs
+from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
+- `0x42C8`: 9 shop titles, 20 bytes each ("Item Shop", "Weapon Shop", ...); `0x437C`: two sets of 10 clerk lines, 46
+  bytes each (the second in dialect; no shop uses it). Text ends `FF` unless it fills its slot, then zeros.
+- `0x4714`: 80 shops of 84 bytes (`func_801D0FE0` picks one): a title, a set of lines, a `u16` count, then 10
+  entries of a `u16` kind (0 an inventory number, 1 a materia; `func_801D11A4`), 2 zero bytes and a `u32` id.
+- `0x6854`: a `u32` price per inventory number (0–319), and from `+0x600` per materia (`func_801D10B0`); the rest is
+  `FF`. Of the 165 inventory numbers no shop sells, 89 cost 2 and 23 cost 0.
+- Checked in the lab: shop 1 retitled "Lab Shop", stocked with a Potion, an Elixir and materia 49, the Potion priced
+  7 and the Elixir 1234, opened from `MD1STIN` after the opening movie; its buy list showed all of it, Fire at its
+  own 600.
+
+**The world map's event scripts** (`tools/world.py` dumps them to JSON files and builds them back):
+- **Where:** section 4 of each `WORLD/WM*.TXZ` (LZS; a `u32` count of 12, then 12 offsets counted from byte 4).
+  `func_800A0D2C` copies its `0x7000` bytes to `D_800D05EC`. `WM0`–`WMA` and their `S` versions carry one set, `WMB`
+  and `WMC` one each, the same on all three discs. The loose `WM0`–`WM3.EV` match none of them (older copies; nothing
+  reads them).
+- **Table:** 256 entries of a `u16` key and a word number from the code at `+0x400`. `func_800AB6E4` searches
+  entries 1–255 by key (sorted; unused `FFFF 0000`; entry 0 `0 0`), and several keys can share a script. A key below
+  `0x4000` is system script N (0 at load; 2 whenever the system thread's script ends, so it runs over and over);
+  `0x4000 | entity << 8 | fn` an entity's function; `0x8000 | (x + 36z) << 4 | (t - 3)` a map block's (`func_800ABA78`).
+- **The machine** (`func_800AD63C`): a stack of 4 values, `u16` words.
+  - Below `0x100` an operator (`func_800ABFC0`): `neg`, `not`, `mul`, `add`, `sub`, `shl`, `shr`, the signed
+    comparisons, `eq`, `ne`, `and`, `or`, logical `land`/`lor`, `set` (assign); 18–1B take an entity and give
+    something measured to it.
+  - `0x100` empties the stack; `0x101`–`0x1FF` push the next word, the opcode its type (`func_800ABB24`): kind `110`
+    the value itself, `114` a bit, `118` a byte, `11C` an `s16` at that address; the low two bits the area: 0 the save
+    data at `0x8009D288` (all five banks, so the field's variable names apply), 1–2 a 64-byte scratch area, 3 one of 21
+    special values (the entity's block and position, direction, its id, ...).
+  - `0x200` goto, `0x201` jump if zero (word numbers from the code's start), `0x203` return (to a caller, or the end),
+    `0x204 + N` run function N of the entity on the stack.
+  - `0x300`–`0x355` commands, their arguments popped (none inline); `0x317` starts battle N (`func_800A3F4C`).
+  - Only pushes and jumps take a second word, so every script disassembles linearly; all three sets assemble back
+    byte for byte.
+- **Building:** a container is packed again only from the flag byte before its scripts (LZS only looks back), within
+  3 bytes of the original's size; the containers sit back to back, with 47 to 1,967 bytes left in their last sectors.
+  `WORLD.BIN` keeps a sector and size per container (`0x800C73E4`, the `S` ones `0x800C744C`), but the CD layer only
+  takes the sector count from the size (`cd.c`), and `WORLD.BIN` gzips back 41 bytes bigger than it was, so it changes
+  only if a count does.
+- **Checked in the lab:** `push #324`, `battle` at the start of system script 2 opened battle `0x144` (Guard Scorpion)
+  ten frames after the world map loaded; at the start of script 0 (still loading) the world map stopped on its whole
+  map instead. A word added to script 0 moved every label after it and the world map ran as before.
+
 ## 3. Code: what is recovered and what isn't
 
 The main exe `SCUS_941.63` is split with splat and `make` rebuilds it byte-identical (SHA1-checked) from asm plus the
@@ -970,6 +1013,10 @@ same set). They give the original module and file split, and the staff folders b
   checks the block packing, the scene table and the names.
 - `tools/field.py`: each map's scripts and dialogue to a JSON file and back (§2, `FIELD/*.DAT`), with an LZS packer;
   `tools/test_field.py` checks the disassembler, the names, the section layout and the packer.
+- `tools/shop.py`: `SHOPMENU.MNU`'s shops, titles, clerk lines and prices to a JSON file and back (§2,
+  `MENU/SHOPMENU.MNU`); `tools/test_shop.py` checks the layout and its limits.
+- `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
+  a repacker that keeps an LZS stream up to a change; `tools/test_world.py` checks the encoding, the table and it.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
   frame); each in-memory one a silent 30 fps AVI, found by matching file sizes against `MOVIE_ID.BIN`. The JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
   exactly, so nothing is re-encoded. Checked on `MK8.STR` against ffmpeg's MDEC decoder: the planes agree to ±1

@@ -426,10 +426,13 @@ def dat_raw(dat: bytes, sec1: bytes) -> bytes:
     return header + sec1 + dat[at[1]:]
 
 
-def lzs_pack(data: bytes) -> bytes:
+def lzs_pack(data: bytes, start: int = 0) -> bytes:
     """LZSS as unpack.lzs reads it: a flag byte per eight items (1 a literal), a reference 12 bits of window position
-    and 4 of length less 3. Greedy, the longest match in the window."""
-    out, chains, i = bytearray(), {}, 0
+    and 4 of length less 3. Greedy, the longest match in the window. From start on, the bytes before it already
+    in the window (a stream cut at a flag byte goes on from there)."""
+    out, chains, i = bytearray(), {}, start
+    for k in range(max(0, start - (4096 - 18)), start):
+        chains.setdefault(data[k:k + 3], []).append(k)
     while i < len(data):
         flags = len(out)
         out.append(0)
@@ -501,13 +504,19 @@ def build(folder: Path, assets: Path):
             lba = kernel.replace(disc, name, data)
             entry = next(at for at in range(MAPS, len(image), 24) if u32(image, at) == lba)  # map: .DAT, .MIM, .BSX
             image[entry + 4:entry + 8] = len(data).to_bytes(4, "little")
-        if bytes(image) == module(disc):
-            continue
-        old = (disc / "FIELD/FIELD.BIN").read_bytes()
-        packed = old[:8] + gzip.compress(bytes(image), 9, mtime=0)
-        if len(packed) > len(old):  # the exe reads it by its original size
-            raise SystemExit(f"{disc}: FIELD.BIN packs to {len(packed)} bytes, more than its {len(old)}")
-        kernel.replace(disc, "FIELD/FIELD.BIN", packed.ljust(len(old), b"\0"))
+        repack_module(disc, "FIELD/FIELD.BIN", bytes(image))
+
+
+def repack_module(disc: Path, name: str, image: bytes):
+    """A gzip module (8-byte header) with a new image, if it changed; padded to its old size, which the exe reads it
+    by (gzip stops at the end of its stream)."""
+    old = (disc / name).read_bytes()
+    if image == gzip.decompress(old[8:]):
+        return
+    packed = old[:8] + gzip.compress(image, 9, mtime=0)
+    if len(packed) > len(old):
+        raise SystemExit(f"{disc / name} packs to {len(packed)} bytes, more than its {len(old)}")
+    kernel.replace(disc, name, packed.ljust(len(old), b"\0"))
 
 
 def main():
