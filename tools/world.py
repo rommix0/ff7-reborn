@@ -482,8 +482,11 @@ def world_models(blob: bytes, base: int, at: int) -> list[dict]:
                         texture_byte += 1
                     polygons.append(polygon)
                     r += size
+            # As many texture words as the polygons name (model_packets takes the byte's low 4 bits): a part's table
+            # can end the section (WMC.TXZ's).
+            n_textures = max((p["texture"] & 0xF for p in polygons if "texture" in p), default=-1) + 1
             parts.append({"on": on, "bone": bone, "vertices": vertices, "polygons": polygons,
-                          "textures": list(struct.unpack_from("<16I", blob, d + textures_at)) if textures_at else []})
+                          "textures": list(struct.unpack_from(f"<{n_textures}I", blob, d + textures_at))})
         out.append({"mode": mode, "angles": (ax, ay, az), "bones": bones, "anims": anims, "parts": parts})
     return out
 

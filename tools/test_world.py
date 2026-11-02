@@ -231,6 +231,14 @@ struct.pack_into("<I12h4B3I", blob, 0x180, 0, 0, 0, 0, 0, 80, 0, 0, 0, 0, 80, 0,
 cloud = world_models(bytes(blob), BASE, 0)[0]
 assert cloud["bones"] == [(-10, -1, 1)] and cloud["parts"][0]["vertices"] == [(0, 0, 0), (10, 0, 0), (0, 10, 0)]
 assert cloud["anims"][0]["statics"] == [20] and cloud["parts"][0]["polygons"][0]["kind"] == "G3"
+# A part's texture words are as many as its texture bytes name (their low 4 bits): WMC.TXZ's section 0 ends 12 words
+# after one part's table. Here an FT3 (corners, a colour, its UVs' numbers), its UVs, texture byte 1, then 2 words.
+short = bytearray(blob[:0x1B8])
+struct.pack_into("<8B", short, 0x60 + 0x14, 0, 0, 0, 1, 0, 0, 0, 0)
+struct.pack_into("<4H", short, 0x60 + 0x1E, 0x1C, 0x28, 0x30, 0x2E)
+struct.pack_into("<4B2I3HB", short, 0x180 + 0x1C, 0, 1, 2, 0, 0x05332211, 0x00020100, 0, 0, 0, 1)
+struct.pack_into("<2I", short, 0x180 + 0x30, 0x11, 0x22)
+assert world_models(bytes(short), BASE, 0)[0]["parts"][0]["textures"] == [0x11, 0x22]
 # Posed (func_800C1490): the root turned by its angles (x 0 here) and then 90° about x, so the bone runs along y; a
 # bone's translation is its length plus its animation's along its own z.
 assert pose(cloud, [[4096, 0, 0], [0, 4096, 0], [0, 0, 4096]], (0, 0, 1000), 0, 0, (0, 0, 0)) == [
