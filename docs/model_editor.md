@@ -162,8 +162,9 @@ The PS1 view is the exact one.
      where its start-up code puts them at a chosen point of the story, drawn into the same ordering table.
    - **Battle models** (in the Models tab): every party member (with any of their 16 weapons) and enemy, posed by
      the battle's animations; their colours come lit in the files.
-   - **Battles** (a tab of their own): each battle's stage, party and enemies from the setup's cameras, drawn by
-     `pc/gpu.c` in the battle's lists and order; no shadows yet.
+   - **Battles** (a tab of their own): each battle's stage, party and enemies, drawn by `pc/gpu.c` in the battle's
+     lists and order, played at 15 frames a second from the opening camera (or a setup camera), with shadows,
+     idle animations and moving stages.
 5. **Textures and palettes:** image replacement, palette editing; then glTF export/import if wanted.
 
 ## Open

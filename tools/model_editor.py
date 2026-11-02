@@ -1,13 +1,13 @@
 """The field viewer (the model editor to be): open the party's, each map's and the battle's models, turn them about,
 play their animations, shaded and textured as the game draws them; each map as it starts, its background and
 characters drawn by the port's GPU, with its walkmesh, exits, triggers, arrows and markers over it; and each battle,
-its stage, party and enemies as the battle sets them up.
+its stage, party and enemies as the battle sets them up, played from its opening camera.
 
   pip install -r tools/requirements-editor.txt
   python tools/model_editor.py assets
   python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --shot cloud.png
   python tools/model_editor.py assets --model ENEMY6/CLOUD.LZS:3 --shot battle_cloud.png
-  python tools/model_editor.py assets --battle 0x12C --party CLOUD --shot battle.png
+  python tools/model_editor.py assets --battle 0x12C --party CLOUD --camera -1 --frame 30 --shot battle.png
   python tools/model_editor.py assets --map MD1STIN --story 1 --shot md1stin.png
 
 A character on a map (MD1STIN.BSX:0) has that map's lights, textures and animations added to its own; on its own
@@ -551,7 +551,7 @@ class Ps1View:
         return (c << 3 | c >> 2).astype(np.uint8)
 
     def battle(self, vram_: np.ndarray, packets: list[list[int]]) -> np.ndarray | None:
-        """A battle's packets (battle_scene) drawn as BATTLE.X's draw environment has it: dithered, clipped to rows
+        """A battle's packets (Battle.packets) drawn as BATTLE.X's draw environment has it: dithered, clipped to rows
         8-165 (the menu covers the rest)."""
         if not self.gpu:
             return None
@@ -671,72 +671,100 @@ def map_shot(disc: Path, name: str, out: Path, story: int):
     write_png(out, rgb)
 
 
-def battle_scene(disc: Path, number: int, camera: int = 0, party: tuple = ("CLOUD",),
-                 frames: dict | None = None) -> tuple[np.ndarray, list]:
-    """Battle number (SCENE.BIN's scene number // 4, setup number % 4) as BATTLE.X sets it up, seen from the setup's
-    camera: its stage (location 0-49 in STAGE1, 50-89 in STAGE2, D_800E7D98's files), the party (ENEMY6 files) and
-    the enemies where placement puts them, each in its battle stance (animation 0; frames, if given, the frame for
-    an actor), its TIM loaded as func_800D2980 loads it. Returns VRAM and the packets in drawing order: the far
-    layer (16 depths), the backdrop (the last linked first), then the main ordering table (avsz >> 2), the stage's
-    linked before the actors'."""
-    raw = scene.read_scenes((disc / "BATTLE/SCENE.BIN").read_bytes())[number // 4]
-    table = scene.scene_json(raw)
-    setup = table["setups"][number % 4]
-    location = setup["location"]
-    stage = battle.stage_json(lzs((disc / f"STAGE{1 if location < 50 else 2}/STAGE{location:02d}.LZS").read_bytes()))
-    out = vram(disc, None)
+class Battle:
+    """Battle number (SCENE.BIN's scene number // 4, setup number % 4) as BATTLE.X sets it up: its stage (location
+    0-49 in STAGE1, 50-89 in STAGE2, D_800E7D98's files), the party (ENEMY6 files) and the enemies where placement
+    puts them, each one's TIM loaded as func_800D2980 loads it. Loaded once; packets() draws a frame."""
 
-    def put(blocks: list):
-        for x, y, w, h, data in blocks:
-            out[y:y + h, x:x + w] = np.frombuffer(data, "<u2").reshape(h, w)
+    def __init__(self, disc: Path, number: int, party: tuple = ("CLOUD",)):
+        self.table = scene.scene_json(scene.read_scenes((disc / "BATTLE/SCENE.BIN").read_bytes())[number // 4])
+        self.setup = setup = self.table["setups"][number % 4]
+        location = setup["location"]
+        stage = battle.stage_json(lzs((disc / f"STAGE{1 if location < 50 else 2}/STAGE{location:02d}.LZS")
+                                      .read_bytes()))
+        self.vram = vram(disc, None)
+        loads = [(None, None, stage)]
+        self.module = battle.module(disc)
+        places = battle.placement(self.module, setup, len(party))
+        for slot, (name, place) in enumerate(zip(party, places)):
+            loads.append((slot, place, battle.moved(battle.model_json(lzs((disc / f"ENEMY6/{name}.LZS")
+                                                                          .read_bytes()), True),
+                                                    (0, 0x10, 0x11)[slot], 3 * slot)))
+        enemies = [(k, e) for k, e in enumerate(setup["formation"]) if e["enemy_id"] != 0xFFFF]
+        for (k, enemy), place in zip(enemies, places[len(party):]):
+            path = next(disc.glob(f"ENEMY[1-6]/ENEMY{enemy['enemy_id']:03d}.LZS"))
+            page = (0x13 if location == 0x4E else 0x12) + self.table["enemy_ids"].index(enemy["enemy_id"])
+            loads.append((4 + k, place, battle.moved(battle.model_json(lzs(path.read_bytes()), False), page,
+                                                     3 * (4 + k))))
+        self.actors = []  # (actor, place, model, shadow size)
+        for actor, place, loaded in loads:
+            for x, y, w, h, data in loaded["tim"]:
+                self.vram[y:y + h, x:x + w] = np.frombuffer(data, "<u2").reshape(h, w)
+            if actor is not None:
+                self.actors.append((actor, place, Model(loaded["bones"], loaded["parts"], loaded["animations"],
+                                                         None, [], 0, self.vram), loaded["shadow"]))
+        self.stage, self.opening = stage, []
+        self.sections = {k: Model([{"length": 0, "parent": -1}], [part], [], None, [], 0, self.vram)
+                         for k, part in stage["parts"].items()}
 
-    put(stage["tim"])
-    places = battle.placement(battle.module(disc), setup, len(party))
-    actors = []
-    for slot, (name, place) in enumerate(zip(party, places)):
-        loaded = battle.moved(battle.model_json(lzs((disc / f"ENEMY6/{name}.LZS").read_bytes()), True),
-                              (0, 0x10, 0x11)[slot], 3 * slot)
-        actors.append((slot, loaded, place))
-    enemies = [(k, e) for k, e in enumerate(setup["formation"]) if e["enemy_id"] != 0xFFFF]
-    for (k, enemy), place in zip(enemies, places[len(party):]):
-        path = next(disc.glob(f"ENEMY[1-6]/ENEMY{enemy['enemy_id']:03d}.LZS"))
-        page = (0x13 if location == 0x4E else 0x12) + table["enemy_ids"].index(enemy["enemy_id"])
-        actors.append((4 + k, battle.moved(battle.model_json(lzs(path.read_bytes()), False), page, 3 * (4 + k)), place))
-    turn, shift = battle.look_at(*[[c[f"{p}{a}"] for a in "xyz"] for p in ("", "target_")
-                                  for c in [setup["cameras"][camera]]])
-    turn, shift = np.array(turn, np.float32) / 4096, np.array(shift, np.float32)
-    linked = []  # (layer, bucket, words): far 0, backdrop 1, main 2
+    def camera(self, k: int, frame: int = 0) -> tuple[list[int], list[int]]:
+        """The setup's camera k's eye and target, or (k -1) the opening's as battle frame frame is drawn: the camera
+        after the frame before (func_800B9568 draws before the camera moves)."""
+        if k < 0:
+            if len(self.opening) < frame:
+                self.opening = battle.opening(self.module, self.setup, frame + 150)
+            return self.opening[max(frame - 1, 0)]
+        c = self.setup["cameras"][k]
+        return [c["x"], c["y"], c["z"]], [c["target_x"], c["target_y"], c["target_z"]]
 
-    def link(m: Model, posed: list[np.ndarray], layers: list[str]):
-        screen, depth = [], []
-        for verts in posed:
-            v = verts @ turn.T + shift
-            z = np.maximum(v[:, 2], 1)
-            # the GTE's 512 projection about (160, 120), truncated, its screen x, y held to -1024..1023
-            screen.append(np.clip(np.floor(np.stack([160 + 512 * v[:, 0] / z, 120 + 512 * v[:, 1] / z], 1)),
-                                  -1024, 1023).astype(int))
-            depth.append(v[:, 2])
-        for rank, (layer, down) in enumerate((("far", 10), ("backdrop", None), ("main", 2))):
-            some = SimpleNamespace(polygons=[p for p in m.polygons if layers[p[0]] == layer])
+    def packets(self, eye, target, frame: int = 0, frames: dict | None = None) -> list[list[int]]:
+        """The packets of battle frame frame seen from eye to target: the stage as stage_draws moves it, each actor
+        in its battle stance (animation 0) at that frame (frames, if given, its frame by actor) with its shadow. In
+        drawing order: the far layer, the backdrop (the last linked first), the shadows (subtracted: a draw mode of
+        blend 2 before them, of 1 after, func_800B8360), then the main ordering table (avsz >> 2), the stage's
+        linked before the actors'."""
+        turn, shift = battle.look_at(eye, target)
+        turn, shift = np.array(turn, np.float32) / 4096, np.array(shift, np.float32)
+        linked = []  # (list, bucket, words): far 0, backdrop 1, shadows 2, main 3
+
+        def link(m: Model, posed: list[np.ndarray], rank: int, down: int | None):
+            screen, depth = [], []
+            for verts in posed:
+                v = verts @ turn.T + shift
+                z = np.maximum(v[:, 2], 1)
+                # the GTE's 512 projection about (160, 120), truncated, its screen x, y held to -1024..1023
+                screen.append(np.clip(np.floor(np.stack([160 + 512 * v[:, 0] / z, 120 + 512 * v[:, 1] / z], 1)),
+                                      -1024, 1023).astype(int))
+                depth.append(v[:, 2])
             # rtpt's divide overflows nearer than H / 2: such polygons are dropped
             linked.extend((rank, 0 if down is None else otz >> down, words)
-                          for otz, words, _ in polygon_packets(some, screen, depth, 256))
+                          for otz, words, _ in polygon_packets(m, screen, depth, 256))
 
-    scenery = Model([{"length": 0, "parent": -1}], [m["part"] for m in stage["models"]], [], None, [], 0, out)
-    link(scenery, scenery.posed(None, 0), [m["layer"] for m in stage["models"]])
-    for actor, loaded, ((x, y, z), facing) in actors:
-        put(loaded["tim"])
-        m = Model(loaded["bones"], loaded["parts"], loaded["animations"], None, [], 0, out)
-        anim = next((a for a in m.anims if a), None)
-        frame = (frames or {}).get(actor, 0) % anim["frames"] if anim else 0
-        place = np.array(model.rotation(0, facing / 16, 0), np.float32)
-        link(m, [v @ place.T + np.array([x, y, z], np.float32) for v in m.posed(anim, frame)], ["main"] * len(m.parts))
-    order = sorted(range(len(linked)), key=lambda i: (linked[i][0], -linked[i][1], -i))
-    return out, [linked[i][2] for i in order]
+        ranks = {"far": 0, "backdrop": 1, "main": 3}
+        for k, layer, down, (rx, ry, rz), position in battle.stage_draws(self.stage["type"], self.stage["first"],
+                                                                           len(self.stage["parts"]) + 1, frame):
+            m = self.sections[k]
+            spin = np.array(model.rotation(rx / 16, ry / 16, rz / 16), np.float32)
+            link(m, [m.vertices[0] @ spin.T + np.array(position, np.float32)], ranks[layer], down)
+        for actor, ((x, y, z), facing), m, size in self.actors:
+            anim = next((a for a in m.anims if a), None)
+            at = ((frames or {}).get(actor, frame) % anim["frames"]) if anim else 0
+            place = np.array(model.rotation(0, facing / 16, 0), np.float32)
+            link(m, [v @ place.T + np.array([x, y, z], np.float32) for v in m.posed(anim, at)], 3, 2)
+            disc = Model([{"length": 0, "parent": -1}],
+                         [battle.shadow(self.module, model.pose(m.bones, anim, at)[0][1], size)], [], None, [], 0,
+                         self.vram)
+            link(disc, [disc.vertices[0] @ place.T + np.array([x, 0, z], np.float32)], 2, None)
+        order = sorted(range(len(linked)), key=lambda i: (linked[i][0], -linked[i][1], -i))
+        out = [linked[i][2] for i in order]
+        shadows = [i for i, k in enumerate(order) if linked[k][0] == 2]
+        at = shadows[0] if shadows else next((i for i, k in enumerate(order) if linked[k][0] == 3), len(out))
+        return out[:at] + [[0xE1000640]] + out[at:at + len(shadows)] + [[0xE1000620]] + out[at + len(shadows):]
 
 
-def battle_shot(disc: Path, number: int, camera: int, party: tuple, out: Path):
-    rgb = Ps1View().battle(*battle_scene(disc, number, camera, party))
+def battle_shot(disc: Path, number: int, camera: int, frame: int, party: tuple, out: Path):
+    b = Battle(disc, number, party)
+    rgb = Ps1View().battle(b.vram, b.packets(*b.camera(camera, frame), frame))
     if rgb is None:
         raise SystemExit("the PS1 view's library isn't built: make editor")
     write_png(out, rgb)
@@ -764,7 +792,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
              "distance": 1.0, "filter": "", "map_filter": "", "map_zoom": 2.0, "layers": {0, 1, 2, 3},
              "overlays": {"walkmesh", "exits", "triggers", "arrows", "markers"}, "vram": "model", "story": 0,
              "characters": True, "battle": battles[0][0] if start_battle is None else start_battle,
-             "battle_filter": "", "camera": 0, "party": "CLOUD,BARRETT,TIFA", "battle_picture": None}
+             "battle_filter": "", "camera": -1, "party": "CLOUD,BARRETT,TIFA", "battle_picture": None,
+             "battle_frame": 0.0, "battle_play": True, "battle_drawn": None}
 
     def choose(name: str):
         state["choice"], state["model"] = name, load(disc, name)
@@ -867,27 +896,43 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         for number, label in battles:
             chosen = number == state["battle"]
             if state["battle_filter"].upper() in label.upper() and imgui.selectable(label, chosen)[0]:
-                state["battle"], state["camera"], state["battle_picture"] = number, 0, None
+                state["battle"], state["camera"], state["battle_picture"] = number, -1, None
+                state["battle_frame"], state["battle_play"] = 0.0, True
         imgui.end_child()
         imgui.same_line()
         table = scenes[state["battle"] // 4]
         setup = table["setups"][state["battle"] % 4]
         party = tuple(n for n in state["party"].upper().replace(" ", "").split(",") if n in party_files)[:3]
-        if state["battle_picture"] is None:  # drawn again only when something changes
-            rgb = state["ps1view"].battle(*battle_scene(disc, state["battle"], state["camera"], party))
-            state["vram"] = "battle"
+        if state["battle_picture"] is None:  # loaded again only when the battle or party changes
+            state["battle_obj"] = Battle(disc, state["battle"], party)
+            state["battle_picture"] = state["renderer"].ctx.texture((320, 240), 3)
+            state["battle_picture"].filter = (moderngl.NEAREST, moderngl.NEAREST)
+            state["battle_drawn"] = None
+        if state["battle_play"]:  # 15 battle frames a second (VSync(4), func_800D8A88)
+            state["battle_frame"] += imgui.get_io().delta_time * 15
+        frame, b = int(state["battle_frame"]), state["battle_obj"]
+        if state["battle_drawn"] != (frame, state["camera"]) or state["vram"] != "battle":
+            rgb = state["ps1view"].battle(b.vram, b.packets(*b.camera(state["camera"], frame), frame))
+            state["vram"], state["battle_drawn"] = "battle", (frame, state["camera"])
             if rgb is None:
                 imgui.text_wrapped("The battle view draws with the PS1 view's library. Build it with: make editor")
                 return
-            state["battle_picture"] = state["renderer"].ctx.texture((320, 240), 3, np.ascontiguousarray(rgb).tobytes())
-            state["battle_picture"].filter = (moderngl.NEAREST, moderngl.NEAREST)
+            state["battle_picture"].write(np.ascontiguousarray(rgb).tobytes())
         imgui.image(imgui.ImTextureRef(state["battle_picture"].glo), imgui.ImVec2(640, 480))
         imgui.same_line()
         imgui.begin_child("battle info", imgui.ImVec2(0, 0))
         imgui.text(f"stage {setup['location']:02d}, layout {setup['layout']}, camera script {setup['camera_script']}")
+        _, state["battle_play"] = imgui.checkbox("play", state["battle_play"])
+        imgui.same_line()
+        imgui.set_next_item_width(200)
+        changed, f = imgui.slider_int("battle frame", frame, 0, 600)
+        if changed:
+            state["battle_frame"], state["battle_play"] = float(f), False
+        if imgui.radio_button("opening", state["camera"] == -1):
+            state["camera"] = -1
         for k, camera in enumerate(setup["cameras"]):
             if camera["x"] != -1 and imgui.radio_button(f"camera {k}", state["camera"] == k):
-                state["camera"], state["battle_picture"] = k, None
+                state["camera"] = k
         imgui.set_next_item_width(200)
         entered, state["party"] = imgui.input_text("party", state["party"], imgui.InputTextFlags_.enter_returns_true)
         if entered:
@@ -1001,18 +1046,19 @@ def main():
     ap.add_argument("--model", help="NAME.BCX, MAP.BSX:N or ENEMYn/NAME.LZS to start on (with --shot, the one to "
                                     "draw)")
     ap.add_argument("--anim", type=int, default=0)
-    ap.add_argument("--frame", type=int, default=0)
+    ap.add_argument("--frame", type=int, default=0, help="the animation's frame, or with --battle the battle's")
     ap.add_argument("--yaw", type=float, default=0.6)
     ap.add_argument("--map", help="a map (MD1STIN) to start on, or with --shot to draw")
     ap.add_argument("--story", type=int, default=0, help="with --map --shot, the story point the map starts at")
     ap.add_argument("--battle", type=lambda s: int(s, 0), help="a battle (0x12C) to start on, or with --shot to draw")
-    ap.add_argument("--camera", type=int, default=0, help="with --battle --shot, the setup's camera (0-3)")
+    ap.add_argument("--camera", type=int, default=0,
+                    help="with --battle --shot, the setup's camera (0-3), or -1 its opening at battle frame --frame")
     ap.add_argument("--party", default="CLOUD", help="with --battle --shot, the party's ENEMY6 files (CLOUD,TIFA)")
     ap.add_argument("--shot", type=Path, help="draw the model (or the map, or the battle) to this PNG and quit")
     args = ap.parse_args()
     disc = next(p for p in sorted(args.assets.iterdir()) if (p / "FIELD/FIELD.BIN").exists())
     if args.shot and args.battle is not None:
-        battle_shot(disc, args.battle, args.camera, tuple(args.party.upper().split(",")), args.shot)
+        battle_shot(disc, args.battle, args.camera, args.frame, tuple(args.party.upper().split(",")), args.shot)
     elif args.shot and args.map:
         map_shot(disc, args.map.upper(), args.shot, args.story)
     elif args.shot:

@@ -168,7 +168,9 @@ def model_json(d: bytes, party: bool, weapon: int = 0) -> dict:
         held = s[k + plus] if weapon_bones and k + plus < texture and len(s[k + plus]) > 4 else None
         anims.append(frames_json(animation(s[k], len(bones) - (weapon_bones or 0)),
                                  animation(held, weapon_bones) if held else None))
-    return {"bones": bones, "parts": parts, "animations": anims, "tim": tim(s[texture])}
+    # the shadow's size across, along and its z offset from the root (section 1 +6, +8, +0xA; func_800B4E30)
+    return {"bones": bones, "parts": parts, "animations": anims, "tim": tim(s[texture]),
+            "shadow": struct.unpack_from("<3h", s[1], 6)}
 
 
 def files(disc: Path) -> list[Path]:
@@ -178,32 +180,66 @@ def files(disc: Path) -> list[Path]:
 
 def stage_json(d: bytes) -> dict:
     """A stage (STAGEn/STAGEnn.LZS, location nn): section 0 a type and a first section, the models (parts in world
-    coordinates) and the TIM last. func_800B9568 draws a model in one of three lists: the far layer (16 coarse
-    depths) first, then the backdrop (one list, the last linked drawn first), then the main ordering table with the
-    actors. Type 1 (most stages) puts section 1 and 5 up to first in the backdrop, 2-4 in the far layer; type 5 the
-    same with the backdrop's in the main table. Types 0, 2, 3 and 4 (a train, an elevator shaft, two with spinning
-    parts) move some of their models each frame; they're drawn where they start (type 4's spinning ones 2500 up)."""
+    coordinates) by section, and the TIM last. stage_draws says where each is drawn."""
     s = sections(d)
-    kind, first = s[0][0], s[0][1]
-    out = {"type": kind, "models": [], "tim": tim(s[-1])}
-    for k in range(1, len(s) - 1):
-        match kind:
-            case 1 | 5:
-                far = 2 <= k <= 4
-                layer = "far" if far else "backdrop" if kind == 1 and k < first else "main"
-            case 0:
-                layer = "far" if 2 <= k <= 4 else "main"
-            case 3:
-                layer = "backdrop" if k == 1 else "far" if k <= 4 else "main"
-            case 4:
-                layer = "far" if k <= 5 else "backdrop"
-            case _:
-                layer = "main"
-        part = part_json(s[k], 0, 0)
-        if kind == 4 and k >= 6:
-            part["vertices"] = [[x, y - 2500, z] for x, y, z in part["vertices"]]
-        out["models"].append({"section": k, "layer": layer, "part": part})
-    return out
+    return {"type": s[0][0], "first": s[0][1], "parts": {k: part_json(s[k], 0, 0) for k in range(1, len(s) - 1)},
+            "tim": tim(s[-1])}
+
+
+def s16(v: int) -> int:
+    return (v + 0x8000 & 0xFFFF) - 0x8000
+
+
+def stage_draws(kind: int, first: int, count: int, frame: int) -> list[tuple[int, str, int | None, tuple, tuple]]:
+    """What func_800B9568 draws of a stage with count sections in battle frame frame (15 a second, from 0): each a
+    section, its list, the shift from avsz to its slot (None: the backdrop's one list), a rotation x, y, z (4096 a
+    turn) and a position. The lists are drawn in order: the far layer (>> 10, or >> 11), the backdrop (the last
+    linked first), the shadows, the main ordering table (>> 2). Type 1 (most stages) puts section 1 and 5 up to
+    first in the backdrop, 2-4 in the far layer, the rest on the main table; type 5 the same with the backdrop's on
+    the main table. The others move entries each frame (func_800BA11C, func_800BA24C, func_800BA2BC), counted from
+    the battle's first frame; a value changed after drawing shows the frame after."""
+    still = (0, 0, 0)
+    main, far = ("main", 2), ("far", 10)
+    match kind:
+        case 1 | 5:
+            back = ("backdrop", None) if kind == 1 else main
+            return ([(1, *back, still, still)] + [(k, *far, still, still) for k in (2, 3, 4)]
+                    + [(k, *back, still, still) for k in range(5, first)]
+                    + [(k, *main, still, still) for k in range(first, count)])
+        case 0:  # a train: the carriage jolts, sections 8-10 drawn 8 times scroll by in z
+            n = frame - 1
+            jolt = 0 if frame == 0 else -40 * (n % 4 == 0) - 80 * (n % 32 == 16)
+            out = [(k, *main, still, (0, jolt, 0)) for k in (1, 5, 6, 7, 11)] + [(k, *far, still, still)
+                                                                                 for k in (4, 3, 2)]
+            for entry in range(2, 10):
+                reset = s16(30000 - 10000 * (entry - 2))
+                # func_800B430C starts entries 2-7 at their reset, 8 at 9's and leaves 9 at 0
+                z = reset if entry < 8 else s16(30000 - 70000) if entry == 8 else 0
+                for _ in range(frame):  # drawn, then: back to reset at reset + 10000, on 1000
+                    z = s16((reset if z == s16(reset + 10000) else z) + 1000)
+                out += [(k, *main, still, (0, 0, z)) for k in (8, 9, 10)]
+            return out
+        case 2:  # an elevator shaft: the walls scroll up, the cars bob
+            wall = 0 if frame == 0 else -100 * ((frame - 1) % 125 + 1)
+            bob = []
+            for counter in (0, 16):
+                y = 0
+                for _ in range(frame):
+                    y += -25 if counter < 16 else 25
+                    counter = counter - 1 & 31
+                bob.append(y)
+            return ([(k, *main, still, (0, bob[0], 0)) for k in (1, 7)] + [(k, *main, still, (0, bob[1], 0))
+                                                                         for k in (2, 8)]
+                    + [(k, *main, still, (0, wall, 0)) for k in (3, 4, 5, 9, 10)] + [(6, *main, still, still)]
+                    + [(k, *main, still, (0, wall + 12500, 0)) for k in (3, 4, 5, 9, 10)])
+        case 3:  # three parts spin about y
+            return ([(1, "backdrop", None, still, still)] + [(k, *far, still, still) for k in (2, 3, 4)]
+                    + [(k, *main, (0, (frame + 1) * turn, 0), still) for k, turn in ((5, 1), (6, 2), (7, 4))])
+        case 4:  # three rings spin about z, 2500 up
+            return ([(k, "far", 11, still, still) for k in (1, 5)] + [(k, *far, still, still) for k in (2, 3, 4)]
+                    + [(k, "backdrop", None, (0, 0, (frame + 1) * turn), (0, -2500, 0))
+                       for k, turn in ((6, 8), (7, 6), (8, 4))])
+    return [(k, *main, still, still) for k in range(1, count)]
 
 
 def moved(table: dict, page: int, rows: int) -> dict:
@@ -226,6 +262,18 @@ def moved(table: dict, page: int, rows: int) -> dict:
 def module(disc: Path) -> bytes:
     """BATTLE.X as it runs at 0x800A0000 (gzip after an 8-byte header)."""
     return gzip.decompress((disc / "BATTLE/BATTLE.X").read_bytes()[8:])
+
+
+SHADOW = 0x800EA294  # BATTLE.X's shadow: a disc of radius 900 at y 0, 16 Gouraud triangles, grey 200 in the middle
+
+
+def shadow(module: bytes, root: tuple, size: tuple) -> dict:
+    """An actor's shadow as func_800BA598 draws it: the disc scaled by the model's size across and along, at its
+    root's x and z (plus the offset; at the actor's own place if that's -1), on the floor. Drawn subtracted."""
+    part = part_json(module, SHADOW - 0x800A0000, 0)
+    across, along, offset = size
+    x, z = (0, 0) if offset == -1 else (root[0], root[2] + offset)
+    return part | {"vertices": [[x + vx * across / 4096, 0, z + vz * along / 4096] for vx, _, vz in part["vertices"]]}
 
 
 PARTY_THREE, PARTY_TWO, PARTY_FACING = 0x800E8E84, 0x800E8F28, 0x800E8F94  # BATTLE.X tables, per layout
@@ -283,3 +331,85 @@ def look_at(eye, target) -> tuple[list[list[int]], list[int]]:
     x = normal(op(z, [0, -4096, 0]))
     rows = [x, normal(op(z, x)), z]
     return rows, [-(sum(r[k] * eye[k] for k in range(3)) >> 12) for r in rows]
+
+
+OPENINGS = 0x800E9E5C, 0x800E9FF8  # BATTLE.X's eye and target scripts by a setup's camera_script (103)
+
+
+def rcos(a: int) -> int:
+    """libgte's rcos, from its quarter-wave table, round(4096 sin(i pi / 2048)) for i 0-1024."""
+    q, r = divmod(a & 4095, 1024)
+    sin = [round(4096 * math.sin(i * math.pi / 2048)) for i in (r, 1024 - r)]
+    return [sin[1], -sin[0], -sin[1], sin[0]][q]
+
+
+def opening(module: bytes, setup: dict, ticks: int) -> list[tuple[list[int], list[int]]]:
+    """The camera's eye and target after each of the first ticks battle frames: the setup's camera_script run as
+    func_800BC81C runs it, each frame the target's script, then the eye's (func_800BEA38, func_800BCB1C), then the
+    eases they started (func_800C0630: f from 0 to n - 2 on rcos's curve, the exact place on the nth run). The
+    opening scripts set a point (F9, FA), take the current camera (D9; at the start the setup's camera 0 here),
+    choose a setup camera (DD), ease to it (E2) or to a point (E6) over n frames, set a wait (F5), wait (F4) and end
+    (FF). DA-DC switch an ease between rcos's curve and a straight line."""
+    cameras = [([c["x"], c["y"], c["z"]], [c["target_x"], c["target_y"], c["target_z"]])
+               for c in setup["cameras"]]
+    codes = [module[struct.unpack_from("<I", module, table - 0x800A0000 + 4 * setup["camera_script"])[0]
+                    - 0x800A0000:] for table in OPENINGS]
+    target, eye = ({"pos": list(cameras[0][k]), "pc": 0, "wait": 0, "linear": False} for k in (1, 0))
+    state = {"camera": 0}
+    eases = []  # [channel, start, end, frames, f, step]
+    out = []
+
+    def run(ch: dict, code: bytes, k: int):
+        while True:
+            op = code[ch["pc"]]
+            ch["pc"] += 1
+            args = code[ch["pc"]:]
+            if op in (0xF9, 0xFA):
+                ch["pos"] = list(struct.unpack_from("<3h", args))
+                ch["pc"] += 6
+            elif op in (0xE2, 0xE6):
+                end, n = ((cameras[state["camera"]][k], args[0]) if op == 0xE2
+                          else (list(struct.unpack_from("<3h", args)), args[6]))
+                ch["pc"] += 1 if op == 0xE2 else 7
+                eases[:] = [e for e in eases if e[0] is not ch]
+                eases.append([ch, list(ch["pos"]), list(end), n, 0, ch["linear"]])
+            elif op == 0xE1:
+                ch["pos"] = list(cameras[state["camera"]][k])
+            elif op == 0xDD:
+                state["camera"] = args[0]
+                ch["pc"] += 1
+            elif op == 0xD9:
+                ch["pos"] = list(out[-1][k] if out else cameras[0][k])
+            elif op in (0xDA, 0xDB, 0xDC):
+                ch["linear"] = op == 0xDB if k == 0 else op == 0xDC if op != 0xDA else ch["linear"]
+            elif op in (0xD5, 0xD6, 0xD7):  # sounds and effects
+                ch["pc"] += {0xD5: 2, 0xD6: 0, 0xD7: 2}[op]
+            elif op == 0xF5:
+                ch["wait"] = args[0]
+                ch["pc"] += 1
+            elif op == 0xF4 and ch["wait"]:
+                ch["wait"] -= 1
+                ch["pc"] -= 1
+                return
+            elif op != 0xF4:  # FF, or any other: the frame ends here
+                ch["pc"] -= op == 0xFF
+                return
+
+    for _ in range(ticks):
+        run(target, codes[1], 1)
+        run(eye, codes[0], 0)
+        for ease in list(eases):
+            ch, a, b, n, f, linear = ease
+            if n - f <= 1:
+                ch["pos"] = list(b)
+                eases.remove(ease)
+                continue
+            if linear:
+                ch["pos"] = [p + int(((y - x) + (1 if y >= x else -1)) * 16 / n) // 16
+                             for p, x, y in zip(ch["pos"], a, b)]
+            else:
+                w = rcos(int((f << 11) / n) + 0x800) + 4096
+                ch["pos"] = [s16(x + int(w * (y - x) / 8192)) for x, y in zip(a, b)]
+            ease[4] += 1
+        out.append((list(eye["pos"]), list(target["pos"])))
+    return out

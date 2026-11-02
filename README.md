@@ -85,8 +85,8 @@ the view, a PS1 view draws it with the PC port's own GPU (`make editor` builds t
 Maps tab draws a map as it starts at a point of the story (`--story`): its background and the characters its
 start-up scripts place, with that GPU, the walkmesh, exits (with where they lead), triggers, arrows and markers
 over it, layers and tile groups (doors, lights, animations) to turn on and off. Its Battles tab draws any battle
-as it stands once the opening camera settles (or from the setup's other cameras): the stage, the party you name and
-the enemies where the game puts them:
+and plays it at the game's 15 frames a second: the opening camera's flight, the stage, the party you name and the
+enemies where the game puts them, in their battle stances, with their shadows and the stage's moving parts:
 
 ```bash
 pip install -r tools/requirements-editor.txt
@@ -94,7 +94,7 @@ make editor
 python tools/model_editor.py assets
 python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --shot cloud.png
 python tools/model_editor.py assets --model ENEMY6/CLOUD.LZS:3 --shot battle_cloud.png
-python tools/model_editor.py assets --battle 0x12C --party CLOUD --shot battle.png
+python tools/model_editor.py assets --battle 0x12C --party CLOUD --camera -1 --frame 30 --shot battle.png
 python tools/model_editor.py assets --map MD1STIN --story 1 --shot md1stin.png
 ```
 

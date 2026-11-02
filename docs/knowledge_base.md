@@ -502,12 +502,33 @@ N % 4):
   - `func_800B9568` draws each into one of three lists, drawn in this order: the far layer (16 coarse depths), the
     backdrop (one list, so the last linked is drawn first), then the main ordering table, which the actors share.
   - Type 1 (83 of the 90 stages on disc 1): section 1 and 5 up to first in the backdrop, 2-4 the far layer, first
-    on the main table. Type 5 is type 1 with the backdrop's sections on the main table. Types 0 (a train), 2 (an
-    elevator shaft), 3 and 4 move models every frame (`func_800BA11C`, `func_800BA2BC`): scrolled, bobbing or
-    spinning; type 4's spinning ones hang 2500 up.
+    on the main table. Type 5 is type 1 with the backdrop's sections on the main table.
+  - The other types move models each battle frame, through transform entries (`D_800F8158`, 10 of them, each a
+    rotation and a position under the camera). A change made after drawing shows the next frame.
+    - Type 0, a train: the carriage jolts 40 up every 4 frames and 120 every 32 (`func_800BA24C`). Sections 8-10
+      are drawn 8 times, on entries 2-9, each moving 1000 a frame in z and wrapping as a `s16` from its start
+      back to it at +10000 (`func_800BA11C`; entries 8 and 9 start off that pattern, so 9 sweeps the whole range).
+    - Type 2, an elevator shaft: its walls drop 100 a frame over 125 frames, drawn twice, 12500 apart; its two
+      cars bob 25 a frame, 16 frames each way, in opposite phase (`func_800BA2BC`).
+    - Type 3: three parts turn about y by 1, 2 and 4 a frame. Type 4: three rings, 2500 up in the backdrop, turn
+      about z by 8, 6 and 4; its far layer is coarser (`>> 11`) for two sections.
   - A stage is unlit and nothing in one on disc 1 is semi-transparent.
-- **The camera** (`func_800D85B0`, each frame): the eye and target from the camera scripts (`CAMDAT*.LZS`, or
-  `BATTLE.X`'s own for a setup's `camera_script`), which ease to the setup's camera 0 as the battle opens.
+- **Timing:** a battle frame is 4 video frames (`VSync(4)` in `func_800D8A88`, from `func_800B37EC`), 15 a
+  second. Each actor steps its animation one frame per battle frame, looping cleanly.
+- **The camera scripts** (`func_800BC81C`, each battle frame): three channels, each a script for the target
+  (`func_800BEA38`), then the eye (`func_800BCB1C`), then up to 16 tasks (the eases they start), then the camera
+  takes a channel's eye and target (`func_800BC8B0`).
+  - At the start a setup's `camera_script` picks `BATTLE.X`'s own pair of scripts (`D_800E9E5C`, `D_800E9FF8`,
+    103 of each). They set a point (`F9`, `FA`), choose a setup camera (`DD`), take the current camera (`D9`), ease
+    to the setup camera (`E2` n) or to a point (`E6` n), wait (`F5` n, then `F4`), and end (`FF`, held). Most ease
+    from far off to camera 0 over 60 frames.
+  - An ease (`func_800C0630`) runs first in the frame that starts it: f from 0 to n - 2, a + ((rcos(f·2048 / n +
+    2048) + 4096)(b - a) / 8192) (C division), then the exact point. libgte's `rcos` is a quarter-wave table,
+    round(4096 sin(i π / 2048)) for i 0-1024.
+  - After that the camera holds; an attack starts one of the `CAMDAT*.LZS` scripts (by the setup's layout: 0, 1
+    and 8 CAMDAT0, 2 CAMDAT1, 3-7 CAMDAT2; 4 linked pointers to the eye and target tables), and returning halves
+    the way back each frame. Those use opcodes that follow actors, not decoded here.
+- **The camera matrix** (`func_800D85B0`, each battle frame), from the eye and target:
   - z = `VectorNormal(target - eye)` (its z nudged off 0), x = `VectorNormal(z x (0, -4096, 0))`, y =
     `VectorNormal(z x x)`, the products by the GTE's `op` (>> 12); the rows x, y, z; the translation
     -(R eye >> 12). View space: x right, y down, z ahead.
@@ -524,6 +545,12 @@ N % 4):
   - The party's places come from `BATTLE.X`'s tables by layout: 3 members `D_800E8E84`, 1 the same with x 0, 2
     `D_800E8F28`. The back row moves 0x204 back. Their facings come from `D_800E8F94` (0 in layout 2).
   - An actor's node is `RotMatrixYXZ` of its turn under the camera; its bones hang on it.
+- **Shadows** (`func_800BA598`, after each actor): `BATTLE.X`'s own model at `D_800EA294`, a disc of radius 900
+  at y 0 in 16 Gouraud triangles, grey 200 in the middle fading to 6 at the rim. It's scaled by the model's size
+  across and along (its section 1 `+6`, `+8`) and put at the root's x and z plus an offset (`+0xA`; -1: at the
+  actor's place), on the floor. It goes in a list of its own, drawn after the backdrop and before the main table,
+  between two draw modes: blend 2 (subtract) before, 1 after (`func_800B8360`). So the floor's main sections and
+  the actors draw over it.
 - **Textures** (`func_800D2980`): a party member's TIM goes a texture page word of 0, 0x10 or 0x11 on by slot, an
   enemy model's of 0x12 + its place in the scene (0x13 + at location 0x4E). The polygons' page words get the same
   addition, and each actor's palettes sit 3 rows apiece from row 480 (`func_800C62F4`).
@@ -534,8 +561,12 @@ N % 4):
     in mid fly-in and in Cloud's spell.
   - The stage's packets match the game's in position and colour.
   - Drawn by the port's GPU, 99.1% of the 3D area outside the actors is the same pixel for pixel. With each
-    actor at its frame in RAM the whole area is 91.2%: the rest is the actors' shadows (a list of their own, not
-    traced) and a level or two of colour from posing in floating point.
+    actor at its frame in RAM and the shadows, the whole area is 93.7%; the rest is a pixel or a level or two of
+    colour from posing in floating point (most of it along Cloud's sword).
+  - The opening camera played from the setup's script gives the game's eye and target exactly at every dumped
+    frame (battle frames 5, 15, 50 and 68). Drawn at battle frames 38 and 48 it matches the lab frames 13660 and
+    13700, mid fly-in, for 99.4% and 98.3% of the stage's pixels: lab frame 13508 + 4k shows battle frame k.
+  - Not checked in the lab: the moving stages (types 0, 2, 3, 4), the attack cameras.
 
 **`MENU/SHOPMENU.MNU`, the shops** (`tools/shop.py` dumps them to a JSON file and builds them back): the module runs
 from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
@@ -1318,8 +1349,9 @@ same set). They give the original module and file split, and the staff folders b
   backgrounds are `pc/gpu.c` as a library (`make editor`, with `tools/ps1gpu.c`); `tools/test_model_editor.py`
   checks the texture words, packets, the background's draw order, the projection and how a map starts.
 - `tools/battle.py`: the battle's models (§2, `ENEMY1..6/*.LZS`) as the field's shapes, its stages, places and
-  camera, for the viewer; `tools/test_battle.py` checks the animation bitstream, the layouts, posing, loading
-  places, the stage's lists and the camera's integers.
+  camera, shadows and opening camera scripts, for the viewer; `tools/test_battle.py` checks the animation
+  bitstream, the layouts, posing, loading places, the stage's lists and motion, shadows, the camera's integers and
+  the opening's eases.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
   a repacker that keeps an LZS stream up to a change; `tools/test_world.py` checks the encoding, the table and it.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
