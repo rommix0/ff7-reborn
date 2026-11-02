@@ -10,7 +10,7 @@ as WORLD.BIN draws it round any point, with an overview of the whole map to pick
   python tools/model_editor.py assets --model ENEMY6/CLOUD.LZS:3 --shot battle_cloud.png
   python tools/model_editor.py assets --battle 0x12C --party CLOUD --camera -1 --frame 30 --shot battle.png
   python tools/model_editor.py assets --map MD1STIN --story 1 --shot md1stin.png
-  python tools/model_editor.py assets --world 0 --at 185636,123325 --shot midgar.png
+  python tools/model_editor.py assets --world 0 --at 185636,123325 --view 1 --shot midgar.png
 
 A character on a map (MD1STIN.BSX:0) has that map's lights, textures and animations added to its own; on its own
 (CLOUD.BCX) it shows its colours unlit and untextured. A battle model (ENEMY6/CLOUD.LZS, :N its weapon N; enemies
@@ -18,8 +18,9 @@ listed with their names) comes lit and textured from its own file. Drag to turn 
 starts as its start-up code sets it at a point of the story (other saved variables 0): where its characters stand,
 which tile groups show. The player and party members the code doesn't place aren't drawn. The Maps tab turns
 layers, overlays, characters and groups on and off. Walkmesh edges are green, walls white, exits red, triggers yellow,
-arrows cyan, markers magenta. The World tab's camera turns with its yaw and pitch (the game's own, round the player,
-isn't traced yet), and the terrain takes the plain light (the scripts' light zones tint it near some places).
+arrows cyan, markers magenta. The World tab draws the world map as the game does with its camera settled at a yaw and
+view mode (L2/R2): sky, terrain, light zones, the party leader standing at the point (idle) and its shadow; models
+other than the party leader and the minimap aren't drawn.
 """
 import argparse
 import ctypes
@@ -45,7 +46,6 @@ BCX = ["CLOUD", "EARITH", "BALLET", "TIFA", "RED", "CID", "YUFI", "KETCY", "VINC
 VIEW = 512  # the view's size in pixels
 DITHER = [-4, 0, -3, 1, 2, -2, 3, -1, -3, 1, -4, 0, 3, -1, 2, -2]  # the GPU's 4x4 dither, rows
 FOV = np.radians(25)  # half the view's angle, both views
-PITCH = 2597  # the world map's camera in the lab near Midgar: x turned so (cos, sin) ~ (-2727, -3052)/4096
 PACKETS = {"GT4": 0x3C, "GT3": 0x34, "FT4": 0x2C, "FT3": 0x24, "F3": 0x20, "F4": 0x28, "G3": 0x30, "G4": 0x38}
 LIBRARY = Path(__file__).resolve().parent.parent / "build/editor"  # make editor
 CONTAINERS = {0: "WM0", 2: "WMB", 3: "WMC"}  # the textures each world map takes (func_800A460C: map kind + 9)
@@ -795,18 +795,28 @@ def battle_shot(disc: Path, number: int, camera: int, frame: int, party: tuple, 
 
 class WorldMap:
     """World map kind (0 the world, 2 and 3 the two that tile parts of it) at map_stage stage: its meshes, its
-    container's textures in VRAM, and the light WORLD.BIN gives it (func_800AF110). view() draws its terrain round a
-    point, overview() all of it from above."""
+    container's textures in VRAM and light zones, the camera's tables and the light WORLD.BIN gives it
+    (func_800AF110), and the party leader (WM{leader}.BSZ: func_800B69A4 loads it at 0x8014A600, its images to VRAM).
+    view() draws it round a point as the game does, overview() all of it from above."""
 
-    def __init__(self, disc: Path, kind: int, stage: int = 0):
+    def __init__(self, disc: Path, kind: int, stage: int = 0, leader: int = 0):
         self.kind = kind
         self.meshes = world.map_meshes((disc / f"WORLD/WM{kind}.MAP").read_bytes(), kind, stage)
-        self.table, images = world.textures(lzs((disc / f"WORLD/{CONTAINERS[kind]}.TXZ").read_bytes()))
+        image = lzs((disc / f"WORLD/{CONTAINERS[kind]}.TXZ").read_bytes())
+        self.table, images = world.textures(image)
+        at = world.section_at(image)
+        self.zones = world.light_zones(world.scripts_json(image[at:at + world.SIZE])["code"])
         self.vram = np.zeros((512, 1024), np.uint16)
         for x, y, w, h, data in images:
             self.vram[y:y + h, x:x + w] = np.frombuffer(data, "<u2").reshape(h, w)
-        module = (disc / "WORLD/WORLD.BIN").read_bytes()
-        self.module = gzip.decompress(module[8:])
+        self.module = gzip.decompress((disc / "WORLD/WORLD.BIN").read_bytes()[8:])
+        exe = next(disc.glob("SCUS_941.6*")).read_bytes()
+        self.sines = list(struct.unpack_from("<8192h", exe, 0x8004BC98 - 0x80010000 + 0x800))  # libgte's table
+        bsz = lzs((disc / f"WORLD/WM{leader}.BSZ").read_bytes())
+        self.leader = world.world_models(bsz, 0x8014A600, 4 + struct.unpack_from("<I", bsz, 4)[0])[0]
+        self.leader_lit = False
+        for x, y, w, h, data in world.model_images(bsz, 4 + struct.unpack_from("<I", bsz, 8)[0]):
+            self.vram[y:y + h, x:x + w] = np.frombuffer(data, "<u2").reshape(h, w)
 
     def word(self, address: int, n: int = 1, kind: str = "h") -> tuple:
         return struct.unpack_from(f"<{n}{kind}", self.module, address - 0x800A0000)
@@ -818,32 +828,51 @@ class WorldMap:
             return 0
         return min(m["vertices"], key=lambda v: abs(v[0] - (x & 0x1FFF)) + abs(v[2] - (z & 0x1FFF)))[1]
 
-    def view(self, ps1: Ps1View, x: int, z: int, yaw: int, pitch: int, distance: int = 10000) -> np.ndarray | None:
-        """The terrain round (x, z) as func_800A71E8 draws it through the GTE, the camera distance in front of it
-        turned by yaw then pitch (4096 a turn), H 400, the curve at 5000 and (map 2) the fog from 0x3E80: the values
-        WORLD.BIN set in the lab near Midgar (D_800C65EC, D_800E5678, D_800BD138)."""
+    def view(self, ps1: Ps1View, x: int, z: int, yaw: int, mode: int = 0) -> np.ndarray | None:
+        """The world round (x, z) as it draws a frame with the camera settled in view mode (0-3; the tilt and distance
+        D_800C6628 and D_800C6638 give) at yaw (4096 a turn): the sky (not on map 2), then the terrain through the
+        GTE, then (not on map 2) the party leader standing there facing away from the camera (frame 0 of animation
+        0, as func_800AAB18 places the player) and its shadow; nothing past ordering table entry 2500 (DrawOTag
+        starts there). Lit and coloured by the light zones at the point; H, the curve (5000) and (map 2) the fog as
+        WORLD.BIN sets them (func_800A0D2C), the screen's centre row 120 in view 0 and 160 in the others
+        (func_800A2088)."""
         if not ps1.gpu:
             return None
-        gte = ps1.gpu
-        a, b = yaw * np.pi / 2048, pitch * np.pi / 2048
-        turn = (np.array([[1, 0, 0], [0, np.cos(b), -np.sin(b)], [0, np.sin(b), np.cos(b)]])
-                @ np.array([[np.cos(a), 0, np.sin(a)], [0, 1, 0], [-np.sin(a), 0, np.cos(a)]]))
-        light = self.word(0x800C6828 if self.kind == 2 else 0x800C6808, 10, "H")
-        colour = self.word(0x800C6848, 10, "H")
+        gte, height = ps1.gpu, self.ground(x, z)
+        tilt, distance = self.word(0x800C6628 + 4 * mode, 1, "i")[0], self.word(0x800C6638 + 4 * mode, 1, "i")[0]
+        _, rows = world.camera(self.sines, self.word(0x800BE1E8, 512, "H"), tilt, distance, height, yaw)
+        rotation = [v for row in rows for v in row]
+        if not self.leader_lit:  # once, as the game does at load
+            count = (len(self.module) - (0x800C7938 - 0x800A0000)) // 8
+            world.light_model(gte, self.leader, [self.word(0x800C7938 + 8 * i, 3) for i in range(count)])
+            self.leader_lit = True
+        light, top, bottom = world.zone_colours(self.zones, (x, height, z), self.word(0x800C6848, 9)[0:7:3],
+                                                self.word(0x800C6768, 3, "B"), self.word(0x800C676C, 3, "B"))
+        matrix = self.word(0x800C6828 if self.kind == 2 else 0x800C6808, 10, "H")
         for i in range(5):
-            gte.gte_write_ctrl(8 + i, light[2 * i] | light[2 * i + 1] << 16)
-            gte.gte_write_ctrl(16 + i, colour[2 * i] | colour[2 * i + 1] << 16)
+            gte.gte_write_ctrl(8 + i, matrix[2 * i] | matrix[2 * i + 1] << 16)
+            gte.gte_write_ctrl(16 + i, 0)
+        gte.gte_write_ctrl(16, light[0] & 0xFFFF)
+        gte.gte_write_ctrl(17, (light[1] & 0xFFFF) << 16)
+        gte.gte_write_ctrl(19, light[2] & 0xFFFF)
         for i, c in enumerate((0x20, 0x20, 0x30) if self.kind == 2 else (0x40, 0x40, 0x40)):
             gte.gte_write_ctrl(13 + i, c << 4)
             gte.gte_write_ctrl(21 + i, 0)
         gte.gte_write_ctrl(24, 160 << 16)
-        gte.gte_write_ctrl(25, 120 << 16)
+        gte.gte_write_ctrl(25, (160 if mode else 120) << 16)
         gte.gte_write_ctrl(26, self.word(0x800C65EC, 1, "i")[0])
-        packets = world.terrain_packets(gte, self.meshes, self.table, [round(4096 * c) for c in turn.flatten()],
-                                        (0, 0, distance), (x, self.ground(x, z), z), 5000,
-                                        0x3E80 if self.kind == 2 else 0)
+        sky = [] if self.kind == 2 else world.sky_packets(gte, self.sines, rotation, (0, 0, distance), height, yaw,
+                                                          0, 5000, top, bottom, world.sky_scroll(0, 0, yaw, 5000)[0])
+        packets = [p for p in world.terrain_packets(gte, self.meshes, self.table, rotation, (0, 0, distance),
+                                                    (x, height, z), 5000, 0x3E80 if self.kind == 2 else 0)
+                   if p[0] <= 2500]
+        if self.kind != 2:
+            bones = world.pose(self.leader, rows, (0, 0, distance // 4), 0, 0, (0xC0, yaw >> 4 & 0xFF, 0))
+            packets += [p for p in world.model_packets(gte, self.leader, bones) if p[0] <= 2500]
+            packets.append(world.shadow_packet(gte, self.sines, rotation, (0, 0, distance), (0, 0), height, height,
+                                               yaw + 0x800, (100, 100), 0x20, (0x18, 0x38, 15, 15)))
         order = sorted(range(len(packets)), key=lambda i: (-packets[i][0], -i))
-        return ps1.world(self.vram, [packets[i][1] for i in order])
+        return ps1.world(self.vram, sky + [packets[i][1] for i in order])
 
     def overview(self, ps1: Ps1View) -> np.ndarray | None:
         """The whole map from above, 16 pixels a mesh (north up), its textures unlit, drawn by the port's GPU in two
@@ -867,10 +896,10 @@ class WorldMap:
         return out
 
 
-def world_shot(disc: Path, kind: int, at: tuple[int, int], yaw: int, out: Path):
-    """The terrain round at, the overview beside it (halved) with at marked."""
+def world_shot(disc: Path, kind: int, at: tuple[int, int], yaw: int, mode: int, out: Path):
+    """The world round at, the overview beside it (halved) with at marked."""
     wm, ps1 = WorldMap(disc, kind), Ps1View()
-    picture = wm.view(ps1, at[0], at[1], yaw, PITCH)
+    picture = wm.view(ps1, at[0], at[1], yaw, mode)
     if picture is None:
         raise SystemExit("the PS1 view's library isn't built: make editor")
     small = wm.overview(ps1)[::2, ::2].copy()
@@ -903,7 +932,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
              "battle_filter": "", "camera": -1, "party": "CLOUD,BARRETT,TIFA", "battle_picture": None,
              "battle_frame": 0.0, "battle_play": True, "battle_drawn": None,
              "world_kind": 0 if start_world is None else start_world, "world_stage": 0, "world": None,
-             "world_at": [185636, 123325], "world_yaw": 0, "world_pitch": PITCH, "world_drawn": None}
+             "world_at": [185636, 123325], "world_yaw": 0, "world_view": 0, "world_leader": 0,
+             "world_drawn": None}
 
     def choose(name: str):
         state["choice"], state["model"] = name, load(disc, name)
@@ -1057,9 +1087,10 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
 
     def world_gui():
         wm = state["world"]
-        if wm is None or (wm.kind, state["world_stage"]) != (state["world_kind"], state["world_stage_loaded"]):
-            wm = state["world"] = WorldMap(disc, state["world_kind"], state["world_stage"])
-            state["world_stage_loaded"], state["world_drawn"] = state["world_stage"], None
+        wanted = (state["world_kind"], state["world_stage"], state["world_leader"])
+        if wm is None or state["world_loaded"] != wanted:
+            wm = state["world"] = WorldMap(disc, *wanted)
+            state["world_loaded"], state["world_drawn"] = wanted, None
             for key in ("world_picture", "world_overview"):
                 state[key] = state["renderer"].ctx.texture((320, 224) if key == "world_picture" else (576, 448), 3)
                 state[key].filter = (moderngl.NEAREST, moderngl.NEAREST)
@@ -1069,9 +1100,9 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
                 return
             state["world_overview"].write(np.ascontiguousarray(overview).tobytes())
         x, z = state["world_at"]
-        drawn = (x, z, state["world_yaw"], state["world_pitch"])
+        drawn = (x, z, state["world_yaw"], state["world_view"])
         if state["world_drawn"] != drawn or state["vram"] != "world":
-            rgb = wm.view(state["ps1view"], x, z, state["world_yaw"], state["world_pitch"])
+            rgb = wm.view(state["ps1view"], x, z, state["world_yaw"], state["world_view"])
             state["vram"], state["world_drawn"] = "world", drawn
             state["world_picture"].write(np.ascontiguousarray(rgb).tobytes())
         imgui.image(imgui.ImTextureRef(state["world_picture"].glo), imgui.ImVec2(640, 448))
@@ -1094,7 +1125,9 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         imgui.set_next_item_width(200)
         _, state["world_yaw"] = imgui.slider_int("yaw", state["world_yaw"], 0, 4095)
         imgui.set_next_item_width(200)
-        _, state["world_pitch"] = imgui.slider_int("pitch", state["world_pitch"], 2048, 3072)
+        _, state["world_view"] = imgui.slider_int("view (L2/R2)", state["world_view"], 0, 3)
+        imgui.set_next_item_width(200)
+        _, state["world_leader"] = imgui.slider_int("leader (WMn.BSZ)", state["world_leader"], 0, 2)
         imgui.text(f"at {x}, {z} (mesh {x >> 13}, {z >> 13}; ground {wm.ground(x, z)})")
         imgui.end_group()
 
@@ -1213,11 +1246,12 @@ def main():
     ap.add_argument("--party", default="CLOUD", help="with --battle --shot, the party's ENEMY6 files (CLOUD,TIFA)")
     ap.add_argument("--world", type=int, help="a world map (0, 2, 3) to start on, or with --shot to draw")
     ap.add_argument("--at", default="185636,123325", help="with --world --shot, the point (x,z) to draw round")
+    ap.add_argument("--view", type=int, default=0, help="with --world --shot, the camera's view mode (0-3)")
     ap.add_argument("--shot", type=Path, help="draw the model (or the map, battle or world) to this PNG and quit")
     args = ap.parse_args()
     disc = next(p for p in sorted(args.assets.iterdir()) if (p / "FIELD/FIELD.BIN").exists())
     if args.shot and args.world is not None:
-        world_shot(disc, args.world, tuple(int(n) for n in args.at.split(",")), int(args.yaw), args.shot)
+        world_shot(disc, args.world, tuple(int(n) for n in args.at.split(",")), int(args.yaw), args.view, args.shot)
     elif args.shot and args.battle is not None:
         battle_shot(disc, args.battle, args.camera, args.frame, tuple(args.party.upper().split(",")), args.shot)
     elif args.shot and args.map:

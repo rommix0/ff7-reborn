@@ -1,9 +1,12 @@
+import math
 import struct
 
 from field import lzs_pack, repack
 from unpack import lzs
-from world import (BLOCK, CODE, SIZE, assemble, disassemble, file_block, map_meshes, mesh, scripts_json, scripts_raw,
-                   terrain_packets, textures, zone_colour)
+from world import (BLOCK, CODE, SIZE, assemble, camera, disassemble, file_block, light_zones, map_meshes, mesh,
+                   scripts_json, scripts_raw, sky_packets, sky_scroll, terrain_packets, textures, Zone,
+                   zone_colours, world_models, pose, light_model, model_packets, shadow_packet,
+                   model_images)
 
 
 def words(*ws: int) -> bytes:
@@ -94,13 +97,40 @@ assert table == list(range(512)) and images == [(1, 2, 2, 1, struct.pack("<2H", 
 
 
 # Light zones (func_800AF3A4): one within its inner reach (here 1·1024, by x + y + z distances, wrapping round the
-# world) sets light 0's colour to 7× its own; between that and its outer reach (2·1024 further) the colour fades to
-# the base one; past it, the base. The last zone in reach wins.
-base = (1774, 1774, 1774)
-zone = (1000, 0, 0, 10, 20, 30, 2, 1)
-assert [zone_colour([zone], (x, 0, 0), base) for x in (1500, 1000 + 1024 + 1024, 1000 + 3072, 0x48000 - 24)] == [
-    (70, 140, 210), (1774 // 2 + 35, 887 + 70, 887 + 105), base, (70, 140, 210)]
-assert zone_colour([zone, (0, 0, 0, 1, 1, 1, 2, 1)], (500, 0, 0), base) == (7, 7, 7)
+# world) sets light 0's colour to 7× its own and the sky's top and bottom to its own; between that and its outer
+# reach (2·1024 further) they fade to the base ones; past it, the base. The last zone in reach wins.
+base = ((1774, 1774, 1774), (0, 0, 255), (250, 255, 255))
+zone = Zone(1000, 0, 0, (10, 20, 30), (200, 100, 0), (0, 0, 40), 2, 1)
+assert [zone_colours([zone], (x, 0, 0), *base) for x in (1500, 1000 + 1024 + 1024, 1000 + 3072, 0x48000 - 24)] == [
+    ((70, 140, 210), (200, 100, 0), (0, 0, 40)), ((922, 957, 992), (100, 50, 127), (125, 127, 147)), base,
+    ((70, 140, 210), (200, 100, 0), (0, 0, 40))]
+other = Zone(0, 0, 0, (1, 1, 1), (1, 1, 1), (1, 1, 1), 2, 1)
+assert zone_colours([zone, other], (500, 0, 0), *base) == ((7, 7, 7), (1, 1, 1), (1, 1, 1))
+
+
+# The zones are what the point_ commands set (func_800AF1A8 onward, each popping its arguments in push order):
+# point_select N, on; point_block and point_pos (x, z: high and low 13 bits); point_rgb1, 2 and 3 (red, green, blue:
+# light, sky top, sky bottom); point_range (outer, inner). A select of -1 leaves on as it was; zones left off aren't
+# lights.
+code = ["reset", "push #1", "push #1", "point_select", "reset", "push #22", "push #14", "point_block", "reset",
+        "push #5381", "push #5345", "point_pos", "reset", "push #60", "push #90", "push #100", "point_rgb1", "reset",
+        "push #12", "push #10", "point_range", "push #0", "push #0", "push #65", "point_rgb2", "push #145",
+        "push #255", "push #190", "point_rgb3", "reset", "push #3", "push #0", "point_select", "push #9", "push #9",
+        "point_block"]
+assert light_zones(code) == [Zone(22 * 8192 + 5381, 0, 14 * 8192 + 5345, (60, 90, 100), (0, 0, 65), (145, 255, 190),
+                                  12, 10)]
+
+# The camera (func_800A1DF0): a view's tilt and distance (D_800C6628, D_800C6638), the eye that tilt puts the
+# distance away, and its height over the focus's give the pitch through the arctangent table D_800BE1E8; the
+# rotation is RotMatrix(pitch, yaw, 0) after the roll. RotMatrix's sines here are round(4096 sin).
+sines = [v for i in range(4096) for v in (round(4096 * math.sin(i * math.pi / 2048)),
+                                          round(4096 * math.cos(i * math.pi / 2048)))]
+arctan = list(range(512))
+# Tilted 45°, 1000 away: the eye is at y -708, z 707. t = (16·-708 - height) · 256 / (16·707), held to 0-511.
+assert camera(sines, arctan, 512, 1000, 0, 0) == (0x800, [[4096, 0, 0], [0, -4096, 0], [0, 0, -4096]])
+assert [camera(sines, arctan, 512, 1000, h, 0)[0] for h in (-20000, -100000)] == [0x800 + 196, 0x800 + 511]
+assert camera(sines, arctan, 512, 1000, 0, 1024)[1][0] == [0, 0, 4096]
+assert camera(sines, arctan, 512, 1000, 0, 0, 1024)[1] == [[0, 4096, 0], [4096, 0, 0], [0, 0, -4096]]
 
 
 def s16(x: int) -> int:
@@ -139,6 +169,10 @@ class Gte:
             self.data[24] = ((x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)) & 0xFFFFFFFF
         elif op == 0x0D80420:
             self.data[20:23] = [self.data[6] & 0xFF000000 | -vector(i)[1] >> 5 & 0xFF for i in range(3)]
+        elif op == 0x158002D:  # avsz3: the average here
+            self.data[7] = sum(self.data[17:20]) // 3
+        elif op == 0x108041B:  # nccs: the normal's x as red
+            self.data[22] = self.data[6] & 0xFF000000 | vector(0)[0] & 0xFF
 
 
 # Vertex 2 is at depth 31000: (7750 - 5000) >> 6 = 42 and |0 - 160| >> 5 = 5, so it drops 47² = 2209, to y -2159:
@@ -152,4 +186,69 @@ packets = terrain_packets(Gte(), {(0, 0): flat}, tex, rotation=[4096, 0, 0, 0, 4
                           translation=(0, 0, 0), focus=(0, 0, 0), curve=5000)
 assert packets == [(1937, [0x34000080, 0, 0x798F0000, 0x34000000, 0xF7910000, 0x00170800, 0x34000040, 500,
                            0x00050008])]
+
+
+# The sky (func_800AE638, func_800AEA48, linked by func_800A141C): the horizon is where a point 0x4000 ahead of the
+# focus lands, plus 26 rows (here the stand-in GTE puts it at row 0). The gradient (no dither) runs from 24 rows above
+# the screen to it; the clouds, a strip 64 rows high 63 rows above it ((5000 >> 8) + 44), scrolled: two quads (u from
+# 0xC0 - scroll and from 0) or, from scroll 0xC0, three. Drawn last linked first.
+def xy(x: int, y: int) -> int:
+    return (y & 0xFFFF) << 16 | x & 0xFFFF
+
+
+identity = [4096, 0, 0, 0, 4096, 0, 0, 0, 4096]
+sky = sky_packets(Gte(), sines, identity, (0, 0, 0), 0, 0, 0, 5000, (0, 0, 65), (145, 255, 190))
+assert sky == [[0xE1000000, 0], [0x38410000, xy(-20, -24), 0x410000, xy(340, -24), 0xBEFF91, xy(-20, 26), 0xBEFF91,
+                                 xy(340, 26)], [0xE1000200, 0],
+               [0x2E404040, xy(64, -61), 0x7B0FC000, xy(320, -61), 0x39C0FF, xy(64, 3), 0xFF00, xy(320, 3), 0xFFFF],
+               [0x2E404040, xy(0, -61), 0x7B0FC0C0, xy(64, -61), 0x39C0FF, xy(0, 3), 0xFFC0, xy(64, 3), 0xFFFF]]
+clouds = sky_packets(Gte(), sines, identity, (0, 0, 0), 0, 0, 0, 5000, (0, 0, 0), (0, 0, 0), 200)[3:]
+assert [(p[1] & 0xFFFF, p[2] & 0xFF, p[4] & 0xFF) for p in clouds] == [(264, 0, 55), (8, 0, 255), (0, 247, 255)]
+# The scroll follows the yaw: (yaw - last) · curve / 10000 off the scroll (wrapping at 256), last moved by as much.
+assert sky_scroll(0, 0, 100, 5000) == (206, 100) and sky_scroll(0, 0, 4000, 5000) == (48, 4000)
+
+# A model section (WM0.BSZ's section 0, a container's section 0): a count, a pointer to the first 0x24-byte header and
+# a size; every pointer is already where the file loads (here 0x80100000). A header: on, mode, bone, part and
+# animation counts, root angles, the load scale at 0x16 (0x200: a length or vertex v becomes v · 0x200 >> 12), the
+# parts' and animations' offsets from the base pointer at 0x1C; the bones (s16 length, s8 parent, a byte) at the base.
+# An animation: frames, then counts and offsets of its s16 tracks, s16 statics and byte (angle) tracks, and its data:
+# a word, then per bone a byte of flags (bits 0-2: angle x, y, z from a track; 4-6: translation x, y, z from one),
+# 3 angles (256ths) or track numbers, 3 translation numbers (0xFF none). A part: on, bone, vertex count, 0, its counts
+# of GT4, GT3, FT4, FT3, F3, F4, G3, G4, its polygons', UVs', textures' and texture bytes' offsets, the packet size
+# and its data: a word, the vertices, the polygons (corners, then colours: RGB and a normal number).
+BASE = 0x80100000
+blob = bytearray(0x200)
+struct.pack_into("<3I", blob, 0, 1, BASE + 12, 0x200)
+struct.pack_into("<4B4b", blob, 12, 1, 0xFF, 1, 1, 1, 0, 0, 0)
+struct.pack_into("<hHHI", blob, 12 + 0x16, 0x200, 0x10, 0x40, BASE + 0x60)
+struct.pack_into("<hbB", blob, 0x60, -80, -1, 1)  # one bone, -80 long
+struct.pack_into("<H4B3HI", blob, 0x60 + 0x40, 1, 1, 0, 1, 0, 0, 0x10, 0, BASE + 0x100)
+struct.pack_into("<I8B", blob, 0x100, 0, 0, 0, 0, 0, 0xFF, 0xFF, 0, 0)  # bone 0: z from static 0
+struct.pack_into("<h", blob, 0x110, 160)
+struct.pack_into("<4B8B2x5HI", blob, 0x60 + 0x10, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 28, 0, 0, 0, 0x1C, BASE + 0x180)
+struct.pack_into("<I12h4B3I", blob, 0x180, 0, 0, 0, 0, 0, 80, 0, 0, 0, 0, 80, 0, 0, 0, 1, 2, 0,
+                 0x05332211, 0x05332211, 0x05665544)
+cloud = world_models(bytes(blob), BASE, 0)[0]
+assert cloud["bones"] == [(-10, -1, 1)] and cloud["parts"][0]["vertices"] == [(0, 0, 0), (10, 0, 0), (0, 10, 0)]
+assert cloud["anims"][0]["statics"] == [20] and cloud["parts"][0]["polygons"][0]["kind"] == "G3"
+# Posed (func_800C1490): the root turned by its angles (x 0 here) and then 90° about x, so the bone runs along y; a
+# bone's translation is its length plus its animation's along its own z.
+assert pose(cloud, [[4096, 0, 0], [0, 4096, 0], [0, 0, 4096]], (0, 0, 1000), 0, 0, (0, 0, 0)) == [
+    ([[4096, 0, 0], [0, 0, 4096], [0, -4096, 0]], [0, 10, 1000])]
+# Lit once at load (func_800B6724): each colour through NCCS with its normal (here a stand-in that gives the normal's
+# x as red), the normal number kept.
+light_model(Gte(), cloud, [(7, 0, 0)] * 256)
+assert cloud["parts"][0]["polygons"][0]["colours"] == [0x05000007] * 3
+# Drawn (func_800C0B48): the part's vertices projected, a polygon facing the camera linked at its average depth.
+drawn = model_packets(Gte(), cloud, [([[4096, 0, 0], [0, 4096, 0], [0, 0, 4096]], [0, 0, 0])])
+assert drawn == [(1000, [0x30000007, xy(0, 0), 0x000007, xy(10, 0), 0x000007, xy(0, 10)])]
+# The shadow (func_800B5C7C, func_800B59F4): a quad of the given half sizes at the ground, turned by the yaw, a
+# subtracting texture (palette 0x7CC4, page 0x59) over the rectangle given, linked at its nearest corner.
+assert shadow_packet(Gte(), sines, identity, (0, 0, 0), (0, 0), 0, 307, 0, (100, 100), 0x20, (0x18, 0x38, 15, 15)) \
+    == (56, [0x2E202020, xy(-100, 307), 0x7CC43818, xy(100, 307), 0x593827, xy(-100, 307), 0x4718, xy(100, 307),
+             0x4727])
+# A model section's images (WM0.BSZ's section 1, func_800C0808): a count at 4, then w, h, x, y and an offset from
+# the section's start per image.
+images = bytes(4) + bytes([1, 0, 0, 0]) + struct.pack("<4HI", 2, 1, 768, 256, 20) + struct.pack("<2H", 7, 8)
+assert model_images(images, 0) == [(768, 256, 2, 1, struct.pack("<2H", 7, 8))]
 print("ok")

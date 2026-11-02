@@ -87,8 +87,9 @@ start-up scripts place, with that GPU, the walkmesh, exits (with where they lead
 over it, layers and tile groups (doors, lights, animations) to turn on and off. Its Battles tab draws any battle
 and plays it at the game's 15 frames a second: the opening camera's flight, the stage, the party you name and the
 enemies where the game puts them, in their battle stances, with their shadows and the stage's moving parts. Its World
-tab draws the world map's terrain round any point as the game draws it (each `map_stage`, and the two maps that tile
-parts of the world), beside an overview of the whole map to pick the point on:
+tab draws the world map round any point as the game draws it: the sky, the terrain (each `map_stage`, and the two maps
+that tile parts of the world) in its light zones' colours, the party leader (Cloud, Tifa or Cid) with a shadow, from
+the camera's view modes; beside an overview of the whole map to pick the point on:
 
 ```bash
 pip install -r tools/requirements-editor.txt
@@ -98,7 +99,7 @@ python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --
 python tools/model_editor.py assets --model ENEMY6/CLOUD.LZS:3 --shot battle_cloud.png
 python tools/model_editor.py assets --battle 0x12C --party CLOUD --camera -1 --frame 30 --shot battle.png
 python tools/model_editor.py assets --map MD1STIN --story 1 --shot md1stin.png
-python tools/model_editor.py assets --world 0 --at 185636,123325 --shot midgar.png
+python tools/model_editor.py assets --world 0 --at 185636,123325 --view 1 --shot midgar.png
 ```
 
 The shops (`MENU/SHOPMENU.MNU`): what each of the 80 sells (by inventory number or materia, names shown), the price

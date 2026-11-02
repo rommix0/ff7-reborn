@@ -16,8 +16,10 @@ had: there's room for a few dozen packed bytes more in the tightest (WM1.TXZ).
 import argparse
 import gzip
 import json
+import math
 import struct
 from pathlib import Path
+from typing import NamedTuple
 
 import field
 import kernel
@@ -269,19 +271,401 @@ def map_meshes(data: bytes, kind: int, stage: int = 0) -> dict[tuple[int, int], 
     return out
 
 
-def zone_colour(zones: list[tuple], position: tuple, base: tuple) -> tuple[int, int, int]:
-    """Light 0's colour (the colour matrix's first column) at position as func_800AF3A4 sets it each frame: a zone
-    (x, y, z, its red, green and blue, and its outer and inner reach in 1024s; the scripts' point_ commands set 16 at
-    D_8010B178) within its inner reach (x + y + z distances, round the world) gives 7× its colour, fading to the base
-    colour (D_800C6848's) at its outer reach past that. The last zone in reach wins."""
-    out = base
-    for x, y, z, red, green, blue, outer, inner in zones:
-        dx, dz = abs(position[0] - x), abs(position[2] - z)
+class Zone(NamedTuple):
+    """A light zone as the scripts' point_ commands set it (one of 16 at D_8010B178): where, its light colour and the
+    sky's top and bottom colours (red, green, blue), and its outer and inner reach in 1024s."""
+    x: int
+    y: int
+    z: int
+    light: tuple
+    top: tuple
+    bottom: tuple
+    outer: int
+    inner: int
+
+
+def zone_colours(zones: list[Zone], position: tuple, light: tuple, top: tuple,
+                 bottom: tuple) -> tuple[tuple, tuple, tuple]:
+    """Light 0's colour (the colour matrix's first column) and the sky gradient's top and bottom colours at position,
+    as func_800AF3A4 sets them each frame from the base ones (D_800C6848's, D_800C6768, D_800C676C): within a zone's
+    inner reach (x + y + z distances, round the world) light 0 is 7× the zone's light and the sky the zone's colours,
+    fading back to the base ones at its outer reach past that. The last zone in reach wins."""
+    out = light, top, bottom
+    for zone in zones:
+        dx, dz = abs(position[0] - zone.x), abs(position[2] - zone.z)
         dx, dz = 0x48000 - dx if dx > 0x23FFF else dx, 0x38000 - dz if dz > 0x1BFFF else dz
-        near, reach = max(dx + abs(position[1] - y) + dz - (inner << 10), 0), outer << 10
+        near, reach = max(dx + abs(position[1] - zone.y) + dz - (zone.inner << 10), 0), zone.outer << 10
         if near < reach:
-            out = tuple(b * near // reach + c * (reach - near) * 7 // reach for b, c in zip(base, (red, green, blue)))
+            far = reach - near
+            out = (tuple(b * near // reach + c * far * 7 // reach for b, c in zip(light, zone.light)),
+                   *(tuple((b * near + c * far) // reach for b, c in zip(base, mine))
+                     for base, mine in ((top, zone.top), (bottom, zone.bottom))))
     return out
+
+
+def light_zones(code: list[str]) -> list[Zone]:
+    """The light zones a script set's code sets up, read straight through: system script 0 sets them with constants
+    (point_select N, on; point_block and point_pos, x and z; point_rgb1, 2 and 3; point_range, outer and inner;
+    func_800AF1A8 onward). Zones left off are points the scripts measure to, not lights."""
+    zones, chosen, pushed = {}, None, []
+    for line in code:
+        if line.startswith("push #"):
+            pushed.append(int(line[6:]))
+            continue
+        args, pushed = pushed, []
+        if line == "point_select" and len(args) == 2:
+            chosen = zones.setdefault(args[0], {"x": 0, "z": 0, "on": 0, "range": (0, 0),
+                                                **{k: (0, 0, 0) for k in ("point_rgb1", "point_rgb2", "point_rgb3")}})
+            chosen["on"] = chosen["on"] if args[1] == 0xFFFF else args[1]
+        elif chosen is None or len(args) < 2:
+            continue
+        elif line == "point_block":
+            chosen["x"], chosen["z"] = args[0] << 13 | chosen["x"] & 0x1FFF, args[1] << 13 | chosen["z"] & 0x1FFF
+        elif line == "point_pos":
+            chosen["x"] = chosen["x"] & ~0x1FFF | args[0] & 0x1FFF
+            chosen["z"] = chosen["z"] & ~0x1FFF | args[1] & 0x1FFF
+        elif line in ("point_rgb1", "point_rgb2", "point_rgb3") and len(args) == 3:
+            chosen[line] = tuple(args)
+        elif line == "point_range":
+            chosen["range"] = tuple(args)
+    return [Zone(z["x"], 0, z["z"], z["point_rgb1"], z["point_rgb2"], z["point_rgb3"], *z["range"])
+            for _, z in sorted(zones.items()) if z["on"]]
+
+
+def rot_matrix(sines: list[int], x: int, y: int, z: int) -> list[list[int]]:
+    """libgte's RotMatrix in its own integer steps; sines is its table (D_8004BC98: sin, cos per 4096th of a turn)."""
+    def sin_cos(angle: int) -> tuple[int, int]:
+        i = 2 * (abs(angle) & 0xFFF)
+        return -sines[i] if angle < 0 else sines[i], sines[i + 1]
+
+    (sx, cx), (sy, cy), (sz, cz) = sin_cos(x), sin_cos(y), sin_cos(z)
+    a, b = cz * -sy >> 12, sz * -sy >> 12
+    return [[cz * cy >> 12, -(sz * cy) >> 12, sy],
+            [(sz * cx >> 12) - (a * sx >> 12), (cz * cx >> 12) + (b * sx >> 12), -(cy * sx) >> 12],
+            [(sz * sx >> 12) + (a * cx >> 12), (cz * sx >> 12) - (b * cx >> 12), cy * cx >> 12]]
+
+
+def camera(sines: list[int], arctan: list[int], tilt: int, distance: int, height: int, yaw: int,
+           roll: int = 0) -> tuple[int, list[list[int]]]:
+    """The camera's pitch and rotation (D_800E56D8, D_800E5698) as func_800A1DF0 builds them: the eye tilt (4096 a
+    turn) up from straight behind, distance away (a view's D_800C6628 and D_800C6638), over the focus at height (y)
+    gives the pitch through arctan (WORLD.BIN's D_800BE1E8, 512 entries) plus 0x800; then RotMatrix(pitch, yaw, 0)
+    turned by the roll."""
+    tilted = rot_matrix(sines, tilt, 0, 0)
+    eye_y, eye_z = tilted[1][2] * distance >> 12, tilted[2][2] * distance >> 12
+    over, under = (eye_y * 16 - height) << 8, eye_z * 16
+    t = abs(over) // abs(under) * (-1 if (over < 0) != (under < 0) else 1)  # C's division
+    pitch = arctan[min(max(t, 0), 0x1FF)] + 0x800
+    a, b = rot_matrix(sines, 0, 0, roll), rot_matrix(sines, pitch, yaw, 0)
+    return pitch, [[sum(a[i][k] * b[k][j] for k in range(3)) >> 12 for j in range(3)] for i in range(3)]
+
+
+def sky_scroll(scroll: int, last: int, yaw: int, curve: int) -> tuple[int, int]:
+    """The clouds' scroll (D_8010AE44) and the yaw it was last moved for (D_8010AE48) after a frame at yaw
+    (func_800AEA48): the turn since, the short way round, times curve / 10000 off the scroll (wrapping at 256)."""
+    yaw = s16(yaw)
+    yaw = yaw - 0x1000 if yaw - last > 0x800 else yaw + 0x1000 if last - yaw > 0x800 else yaw
+    step = int((yaw - last) * curve / 10000)
+    scroll -= step
+    scroll = scroll + 256 if scroll < 0 else scroll - 256 if scroll > 255 else scroll
+    return scroll, (last + int(step * 10000 / curve)) & 0xFFF
+
+
+def sky_packets(gte, sines: list[int], rotation: list[int], translation: tuple, height: int, yaw: int, roll: int,
+                curve: int, top: tuple, bottom: tuple, scroll: int = 0) -> list[list[int]]:
+    """The sky as the world draws it behind everything (linked at the far entry, 2500), in drawing order: a draw mode
+    without dither, the gradient (func_800AE638) from 24 rows above the screen down to the horizon in the top and
+    bottom colours, dither back on, and the clouds (func_800AEA48): a strip of the texture at palette 0x7B0F, page
+    0x39 (0xA9 on GPU types 1 and 2), grey 0x40, semi-transparent, 64 rows high, (curve >> 8) + 44 rows over the
+    horizon, scrolled. The horizon is where a point 0x4000 ahead of the focus (turned by -yaw, at the camera's height)
+    lands, plus 26 rows. Map 2 has no sky."""
+    for i in range(4):
+        gte.gte_write_ctrl(i, rotation[2 * i] & 0xFFFF | (rotation[2 * i + 1] & 0xFFFF) << 16)
+    gte.gte_write_ctrl(4, rotation[8] & 0xFFFF)
+    ahead = [sum(r * v for r, v in zip(row, (0, -height, -0x4000))) >> 12
+             for row in rot_matrix(sines, 0, -yaw, 0)]  # func_800AE0BC
+    for i, t in enumerate(translation):
+        gte.gte_write_ctrl(5 + i, t)
+    put_vector(gte, 0, ahead[0], -height, ahead[2])  # func_800A1FAC keeps the camera's height
+    gte.gte_cmd(0x0480012)
+    for i in range(3):
+        gte.gte_write_ctrl(5 + i, gte.gte_read(25 + i))
+    put_vector(gte, 0, 0, 0, 0)
+    gte.gte_cmd(0x0180001)
+    horizon = (gte.gte_read(14) >> 16) + 26  # D_8010B080, from the row as an unsigned 16 bits
+    turn = rot_matrix(sines, 0, 0, roll)
+
+    def place(x: int, y: int, tx: int, ty: int) -> int:  # MVMVA of RotMatrix(0, 0, roll) and (tx, ty)
+        px, py = [((t << 12) + row[0] * x + row[1] * s16(y)) >> 12 for t, row in zip((tx, ty), turn)]
+        return (py & 0xFFFF) << 16 | px & 0xFFFF
+
+    def colour(rgb: tuple) -> int:
+        return rgb[0] | rgb[1] << 8 | rgb[2] << 16
+
+    up = -(horizon & 0xFFFF) - 24
+    gradient = [0x38000000 | colour(top), place(-180, up, 160, horizon), colour(top), place(180, up, 160, horizon),
+                colour(bottom), place(-180, 0, 160, horizon), colour(bottom), place(180, 0, 160, horizon)]
+    row = horizon - ((max(curve, 1) >> 8) + 0x2C)
+    xs = [-160, scroll - 0x160, scroll - 0x60, 160]
+    points = [(place(x, row - 0x40, 160, 40), place(x, row, 160, 40)) for x in xs]
+
+    def quad(left: int, right: int, u0: int, u1: int) -> list[int]:
+        (a, b), (c, d) = points[left], points[right]
+        return [0x2E404040, a, 0x7B0FC000 | u0 & 0xFF, c, 0x390000 | 0xC000 | u1 & 0xFF, b, 0xFF00 | u0 & 0xFF, d,
+                0xFF00 | u1 & 0xFF]
+
+    if scroll < 0xC0:
+        clouds = [quad(0, 2, -0x40 - scroll, 0xFF), quad(2, 3, 0, ~scroll)]
+    else:
+        clouds = [quad(0, 1, -0x41 - scroll, 0xFF), quad(1, 2, 0, 0xFF), quad(2, 3, 0, ~scroll)]
+    return [[0xE1000000, 0], gradient, [0xE1000200, 0]] + clouds[::-1]  # DR_MODEs: a mode and no window
+
+
+# A part's polygon kinds in their order: (record bytes, corners, colours, textured, packet code)
+KINDS_3D = {"GT4": (0x18, 4, 4, True, 0x3C), "GT3": (0x14, 3, 3, True, 0x34), "FT4": (0xC, 4, 1, True, 0x2C),
+            "FT3": (0xC, 3, 1, True, 0x24), "F3": (8, 3, 1, False, 0x20), "F4": (8, 4, 1, False, 0x28),
+            "G3": (0x10, 3, 3, False, 0x30), "G4": (0x14, 4, 4, False, 0x38)}
+# The light func_800B6724 bakes a model in (func_800C31F0): a back colour, three grey lights and their directions.
+MODEL_BACK = 0x40
+MODEL_LIGHTS = ((0x6E, (-659, 411, 4034)), (0xAA, (1536, -3349, -1839)), (0x3C, (-2920, -1474, -2484)))
+# The posing's sines and cosines per 256th of a turn: WORLD.BIN's D_800C7538 is this, truncated.
+ANGLES = [(int(4096 * math.sin(k * math.pi / 128)), int(4096 * math.cos(k * math.pi / 128))) for k in range(256)]
+
+
+def world_models(blob: bytes, base: int, at: int) -> list[dict]:
+    """The models of a model section at offset at of blob, which loads at base (WM0-2.BSZ's section 0 for the party
+    leader, at 0x8014A600; a container's section 0 for the rest, at 0x8013A800: every pointer in them is already a
+    RAM address). The section: a count, a pointer to the first 0x24-byte header, a size. Scaled as func_800C1D58
+    scales them at load (v · the header's scale >> 12, 0x200 for all: a length, a translation or a vertex)."""
+    def at_(pointer: int) -> int:
+        return pointer - base
+
+    count, first = struct.unpack_from("<2I", blob, at)
+    out = []
+    for header in range(at_(first), at_(first) + 0x24 * count, 0x24):
+        _, mode, n_bones, n_parts, n_anims, ax, ay, az = struct.unpack_from("<Bb6B", blob, header)
+        scale, parts_at, anims_at, model_base = struct.unpack_from("<hHHI", blob, header + 0x16)
+        bones_at = at_(model_base)
+        bones = [(struct.unpack_from("<h", blob, bones_at + 4 * i)[0] * scale >> 12,
+                  struct.unpack_from("<b", blob, bones_at + 4 * i + 2)[0], blob[bones_at + 4 * i + 3])
+                 for i in range(n_bones)]
+        anims = []
+        for k in range(n_anims):
+            frames, _, n16, n_static, n8, off16, off_static, off8, data = struct.unpack_from(
+                "<H4B3HI", blob, bones_at + anims_at + 16 * k)
+            d = at_(data)
+            anims.append({"frames": frames, "records": [blob[d + 4 + 8 * i:d + 12 + 8 * i] for i in range(n_bones)],
+                          "tracks": [[v * scale >> 12 for v in struct.unpack_from(f"<{frames}h", blob,
+                                                                                    d + off16 + 2 * frames * i)]
+                                     for i in range(n16)],
+                          "statics": [v * scale >> 12 for v in struct.unpack_from(f"<{n_static}h", blob,
+                                                                                   d + off_static)],
+                          "angles": [list(blob[d + off8 + frames * i:d + off8 + frames * (i + 1)]) for i in range(n8)]})
+        parts = []
+        for k in range(n_parts):
+            q = bones_at + parts_at + 0x20 * k
+            on, bone, n_vertices = blob[q], blob[q + 1], blob[q + 2]
+            counts = blob[q + 4:q + 12]
+            polys_at, uvs_at, textures_at, bytes_at = struct.unpack_from("<4H", blob, q + 0xE)
+            d = at_(struct.unpack_from("<I", blob, q + 0x18)[0])
+            vertices = [tuple(c * scale >> 12 for c in struct.unpack_from("<3h", blob, d + 4 + 8 * i))
+                        for i in range(n_vertices)]
+            polygons, r, texture_byte = [], d + polys_at, d + bytes_at
+            for (kind, (size, n, n_colours, textured, code)), many in zip(KINDS_3D.items(), counts):
+                for _ in range(many):
+                    words = struct.unpack_from(f"<{1 + n_colours + textured}I", blob, r)
+                    polygon = {"kind": kind, "corners": [words[0] >> 8 * i & 0xFF for i in range(n)],
+                               "colours": list(words[1:1 + n_colours])}
+                    if textured:
+                        polygon["uvs"] = [u16(blob, d + uvs_at + 2 * (words[-1] >> 8 * i & 0xFF)) for i in range(n)]
+                        polygon["texture"] = blob[texture_byte]
+                        texture_byte += 1
+                    polygons.append(polygon)
+                    r += size
+            parts.append({"on": on, "bone": bone, "vertices": vertices, "polygons": polygons,
+                          "textures": list(struct.unpack_from("<16I", blob, d + textures_at)) if textures_at else []})
+        out.append({"mode": mode, "angles": (ax, ay, az), "bones": bones, "anims": anims, "parts": parts})
+    return out
+
+
+def model_images(blob: bytes, at: int) -> list[tuple[int, int, int, int, bytes]]:
+    """A model section's images as func_800C0808 loads them (WM0-2.BSZ's section 1): a count at 4, then per image w,
+    h, x, y and the pixels' offset from the section's start."""
+    out = []
+    for i in range(blob[at + 4]):
+        w, h, x, y, offset = struct.unpack_from("<4HI", blob, at + 8 + 12 * i)
+        out.append((x, y, w, h, blob[at + offset:at + offset + 2 * w * h]))
+    return out
+
+
+def pose(model: dict, rotation: list[list[int]], translation: tuple, anim: int, frame: int,
+         root: tuple | None = None) -> list[tuple[list[list[int]], list[int]]]:
+    """Each bone's rotation and translation for frame of anim as func_800C1490 poses it under rotation and
+    translation (the camera's for the model's place: func_800A36AC): the root turned by root's angles (256ths of a
+    turn; func_800AAB18 gives x 0xC0, the facing >> 4) and a quarter turn about x, or (None, as the load-time
+    lighting does) rotation and translation themselves; each bone turned y, x, z by its angles and moved along its
+    own z by its length plus its translation. All in the GTE's integer steps."""
+    def saturate(v: int) -> int:
+        return max(-0x8000, min(0x7FFF, v))
+
+    def turn(m: list[list[int]], c: list[int]) -> list[int]:  # MVMVA: (m · c) >> 12
+        return [saturate(sum(m[r][i] * c[i] for i in range(3)) >> 12) for r in range(3)]
+
+    def local(ax: int, ay: int, az: int) -> tuple:  # the columns of Ry · Rx · Rz
+        (sx, cx), (sy, cy), (sz, cz) = ANGLES[ax], ANGLES[ay], ANGLES[az]
+        p, q = s16(sx * sy >> 12), s16(sx * cy >> 12)
+        return ([s16(sz * p + cz * cy >> 12), s16(sz * cx >> 12), s16(sz * q + cz * -sy >> 12)],
+                [s16(cz * p + sz * -cy >> 12), s16(cz * cx >> 12), s16(cz * q + sz * sy >> 12)],
+                [s16(cx * sy >> 12), -sx, s16(cx * cy >> 12)], (sx, cx, sy, cy))
+
+    def columns(m: list[list[int]], cols: list) -> list[list[int]]:
+        cols = [turn(m, c) for c in cols]
+        return [[cols[c][r] for c in range(3)] for r in range(3)]
+
+    if root is None:
+        root_r, root_t = rotation, list(translation)
+    else:
+        c0, c1, _, (sx, cx, sy, cy) = local(*root)
+        root_r = columns(rotation, [c0, [s16(-cx * sy >> 12), sx, s16(-cx * cy >> 12)], c1])
+        root_t = [saturate(t) for t in translation]
+    a = model["anims"][anim]
+    out = []
+    for (length, parent, _), record in zip(model["bones"], a["records"]):
+        pr, pt = (root_r, root_t) if parent < 0 else out[parent]
+        angles = [a["angles"][record[1 + k]][frame] if record[0] & 1 << k else record[1 + k] for k in range(3)]
+        c0, c1, c2, _ = local(*angles)
+        v = [0, 0, length]
+        for k in range(3):
+            index = record[4 + k]
+            if record[0] & 0x10 << k:
+                v[k] += a["tracks"][index][frame]
+            elif index != 0xFF:
+                v[k] += a["statics"][index]
+        v = [s16(c) for c in v]
+        out.append((columns(pr, [c0, c1, c2]),
+                    [saturate(pt[k] + (sum(pr[k][i] * v[i] for i in range(3)) >> 12)) for k in range(3)]))
+    return out
+
+
+def set_matrix(gte, rotation: list[list[int]], translation: list[int] | None = None, at: int = 0):
+    flat = [v for row in rotation for v in row]
+    for i in range(4):
+        gte.gte_write_ctrl(at + i, flat[2 * i] & 0xFFFF | (flat[2 * i + 1] & 0xFFFF) << 16)
+    gte.gte_write_ctrl(at + 4, flat[8] & 0xFFFF)
+    for i, t in enumerate(translation or []):
+        gte.gte_write_ctrl(at + 5 + i, t)
+
+
+def light_model(gte, model: dict, normals: list[tuple]):
+    """Bakes the model's colours as func_800B6724 does once at load: posed at frame 0 of animation 0 under no
+    camera, each part's colours through NCCS with its normal (WORLD.BIN's table D_800C7938, by the colour word's
+    top byte, which stays), lights MODEL_LIGHTS turned with the part's bone, the back colour MODEL_BACK."""
+    bones = pose(model, [[4096, 0, 0], [0, 4096, 0], [0, 0, 4096]], (0, 0, 0), 0, 0)
+    set_matrix(gte, [[c << 4 for c, _ in MODEL_LIGHTS]] * 3, None, 16)
+    for i in range(3):
+        gte.gte_write_ctrl(13 + i, MODEL_BACK << 4)
+    for part in model["parts"]:
+        r = bones[part["bone"]][0]
+        set_matrix(gte, [[sum(d[k] * r[k][j] for k in range(3)) >> 12 for j in range(3)] for _, d in MODEL_LIGHTS],
+                   None, 8)
+        for polygon in part["polygons"]:
+            for i, colour in enumerate(polygon["colours"]):
+                put_vector(gte, 0, *normals[colour >> 24])
+                gte.gte_write(6, colour)
+                gte.gte_cmd(0x108041B)
+                polygon["colours"][i] = gte.gte_read(22)
+
+
+def model_packets(gte, model: dict, bones: list, index: int = 0) -> list[tuple[int, list[int]]]:
+    """The packets of a model's parts as func_800C0B48 draws them (mode -1: each part under its bone's matrix), with
+    the ordering table bucket each is linked at: the vertices projected (rtpt in threes, then rtps), a polygon
+    facing the camera (nclip > 0) linked at its average depth (avsz3; a quad's four depths over 16). Textures as
+    func_800BFCAC builds them: a texture byte per polygon (texture word 0-15, 0x10 semi-transparent, 0x60 blend), the
+    word's palette and page (kinds 0 and 1 move both by the model's index: the party leader is 0). For the port's
+    GPU type (3; 1 and 2 pack the page otherwise)."""
+    gte.gte_write_ctrl(29, 0x155)  # ZSF3, as InitGeom sets it
+    out = []
+    for part in model["parts"]:
+        if not part["on"]:
+            continue
+        set_matrix(gte, *bones[part["bone"]])
+        screen, vertices = [], part["vertices"]
+        whole = len(vertices) - len(vertices) % 3
+        for i in range(0, whole, 3):
+            for k in range(3):
+                put_vector(gte, 2 * k, *vertices[i + k])
+            gte.gte_cmd(0x0280030)
+            screen += [(gte.gte_read(12 + k), gte.gte_read(17 + k)) for k in range(3)]
+        for v in vertices[whole:]:
+            put_vector(gte, 0, *v)
+            gte.gte_cmd(0x0180001)
+            screen.append((gte.gte_read(14), gte.gte_read(19)))
+        for polygon in part["polygons"]:
+            corners = polygon["corners"]
+            for k in range(3):
+                gte.gte_write(12 + k, screen[corners[k]][0])
+            gte.gte_cmd(0x1400006)
+            facing = gte.gte_read(24)
+            if not facing or facing & 0x80000000:
+                continue
+            if len(corners) == 4:
+                depth = sum(screen[c][1] for c in corners) >> 4
+            else:
+                for k in range(3):
+                    gte.gte_write(17 + k, screen[corners[k]][1])
+                gte.gte_cmd(0x158002D)
+                depth = gte.gte_read(7)
+            size, n, n_colours, textured, code = KINDS_3D[polygon["kind"]]
+            colours = [c & 0xFFFFFF for c in polygon["colours"]]
+            uvs = [0] * n
+            if textured:
+                byte = polygon["texture"]
+                t = part["textures"][byte & 0xF]
+                kind = t & 0x3F
+                du, dv = {0: (index % 4 * 64, index // 4 * 32), 1: (index % 8 * 32, index // 8 * 32)}.get(kind, (0, 0))
+                uvs = [(uv + du) & 0xFF | ((uv >> 8) + dv & 0xFF) << 8 for uv in polygon["uvs"]]
+                uvs[0] |= (((t >> 22 & 0x1FF) + (index if kind != 2 else 0)) << 6 | t >> 16 & 0x3F) << 16
+                uvs[1] |= ((t & 0xC0) << 1 | byte & 0x60 | (t >> 12 & 1) << 4 | t >> 8 & 0xF) << 16
+                code |= 2 if byte & 0x10 else 0
+            words = []
+            for k, c in enumerate(corners):
+                if k < n_colours:
+                    words.append(colours[k] | (code << 24 if k == 0 else 0))
+                words.append(screen[c][0])
+                if textured:
+                    words.append(uvs[k])
+            out.append((depth, words))
+    return out
+
+
+def shadow_packet(gte, sines: list[int], rotation: list[int], translation: tuple, offset: tuple, height: int,
+                  ground: int, yaw: int, size: tuple, grey: int, rect: tuple) -> tuple[int, list[int]]:
+    """An entity's shadow (func_800B59F4 as func_800B5C7C calls it): a quad size[0] by size[1] (half) at the ground
+    under it, turned by its yaw under the camera, offset (x, z) from the focus at the camera's height; a
+    subtracting texture (palette 0x7CC4, page 0x59; 0x129 on GPU types 1 and 2) over rect (u, v, w, h) in grey,
+    linked at its nearest corner's depth >> 4. For a standing entity the game's grey is 0x20 and the size 100 by 100
+    (both shrink as it rises: func_800B5C7C)."""
+    camera_r = [rotation[0:3], rotation[3:6], rotation[6:9]]
+    turn = rot_matrix(sines, 0, yaw, 0)
+    turned = [[max(-0x8000, min(0x7FFF, sum(camera_r[i][k] * turn[k][j] for k in range(3)) >> 12)) for j in range(3)]
+              for i in range(3)]  # MulRotMatrix0
+    set_matrix(gte, camera_r, list(translation))
+    put_vector(gte, 0, offset[0], -height, offset[1])  # func_800A1FAC
+    gte.gte_cmd(0x0480012)
+    set_matrix(gte, turned, [gte.gte_read(25 + i) for i in range(3)])
+    corners = [(-size[0], ground, -size[1]), (size[0], ground, -size[1]), (-size[0], ground, size[1])]
+    for k, v in enumerate(corners):
+        put_vector(gte, 2 * k, *v)
+    gte.gte_cmd(0x0280030)
+    points = [gte.gte_read(12 + k) for k in range(3)]
+    depths = [gte.gte_read(17 + k) for k in range(3)]
+    put_vector(gte, 0, size[0], ground, size[1])
+    gte.gte_cmd(0x0180001)
+    points.append(gte.gte_read(14))
+    depths.append(gte.gte_read(19))
+    u, v, w, h = rect
+    return min(depths) >> 4, [0x2E000000 | grey * 0x10101, points[0], 0x7CC40000 | v << 8 | u, points[1],
+                              0x590000 | v << 8 | u + w, points[2], (v + h) << 8 | u, points[3], (v + h) << 8 | u + w]
 
 
 def put_vector(gte, reg: int, x: int, y: int, z: int):

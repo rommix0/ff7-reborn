@@ -664,18 +664,88 @@ from `0x801D0000` as the file is, the same on all three discs. A field script op
     `D_800C6828`; back colour 64, map 2 (32, 32, 48)); a `POLY_GT3` with the texture word's palette and page, linked
     at its farthest corner's SZ >> 4. Map 2 has fog: past SZ `0x3E80` the palette moves down a row per 8 of depth
     (`D_800BD138`; at most 15).
-  - Light zones (`func_800AF3A4`, before the draw): 16 at `D_8010B178`, `0x24` bytes (x, y, z; red, green, blue at
-    `+0x10`; on at `+0x13`; outer and inner reach in 1024s at `+0x1C`, `+0x20`), set by the scripts' `point_`
-    commands. Within a zone's inner reach (x + y + z distances from the player, round the world) light 0's colour
-    is 7× the zone's; it fades back to `D_800C6848`'s 1774 at the outer reach past that. The last zone in reach wins.
+  - The frame is linked into a reverse ordering table and `DrawOTag` starts at entry 2500 (`func_800A141C`), so
+    anything linked deeper is never drawn: the world's far limit.
   - The world draws a 320×224 picture at row 8 of VRAM (draw offset (0, 8)), dithered, on black.
-- **Checked against the lab** (near Midgar, frame 3300 of a new game warped to the world map): the 16 meshes in RAM
-  are the decoded ones byte for byte, the texture table is `D_800BD148`'s and the images are in VRAM. The terrain
-  drawn from the dump's camera, focus and light zones (Midgar's, (60, 90, 100), with Cloud inside it) is 213
-  packets, each word for word in the game's packet buffers, which hold 5 more: Cloud's mesh under him again, darker
-  (`func_800B3418`, not traced). Drawn by the port's GPU, every pixel outside Cloud and the minimap is the frame's.
-  - Not checked: maps 2 and 3, the camera's own rotation and distance (`D_800E5698` is built elsewhere, not traced;
-    10000 in front of the focus in the lab), the sky, the models on the map.
+- **The camera** (`func_800A1DF0`, each frame, given the yaw):
+  - A view mode (L2/R2, `D_800E5648`) sets a tilt and a distance (`D_800C6628`, `D_800C6638`: 1500 and 10000 in view
+    0, 1800 and 7000, 7000, 4000 in views 1-3) that `func_800A3304` eases toward (`D_800E5610`, `D_800E5614`, 7/8
+    or 3/4 of the old each frame), and a screen centre row (`func_800A2088`: 120 in view 0, else 160) eased into
+    `D_800E55F0`. The loader starts at 1500, 10000 and 160 (`func_800A0D2C`).
+  - The eye: `RotMatrix(tilt, 0, 0)` turns (0, 0, distance); its y · 16 less the focus's height, · 256, over its
+    z · 16 (C division, held to 0-511) indexes the arctangent table `D_800BE1E8`; plus `0x800` that's the pitch
+    (`D_800E56D8`).
+  - The rotation `D_800E5698` = `RotMatrix(0, 0, roll)` · `RotMatrix(pitch, yaw, 0)` (`MulMatrix0`; roll
+    `D_800E5654`), the translation `D_800E56B8` (0, 0, distance).
+  - libgte's `RotMatrix` reads its own sine table (`D_8004BC98` in the exe, 4096 sine and cosine pairs; not
+    round(4096 sin) in 1944 entries) and multiplies in fixed steps; `tools/world.py` (`rot_matrix`, `camera`) does
+    the same and gets the dump's matrix exactly.
+- **Light zones** (`func_800AF3A4`, before the draw): 16 at `D_8010B178`, `0x24` bytes: x, y, z; the light's red,
+  green, blue at `+0x10` (`point_rgb1`), on at `+0x13`; the sky's top colour at `+0x14` (`point_rgb2`) and bottom
+  at `+0x18` (`point_rgb3`); outer and inner reach in 1024s at `+0x1C`, `+0x20` (`point_range` outer, inner).
+  - The script commands pop their arguments in push order: `point_select` (zone, on; -1 keeps on), `point_block` and
+    `point_pos` (x and z, their high and low 13 bits), the colours (red, green, blue), `point_range`.
+  - System script 0 sets them with constants: `WM0`'s turns on zones 0-2 (Midgar's at (185605, 120033): light (60,
+    90, 100), sky (0, 0, 65) over (145, 255, 190)), `WMB`'s one white zone; the others stay off, points the scripts
+    measure distances to (`point_distance`).
+  - Within a zone's inner reach (x + y + z distances from the player, round the world) light 0's colour (the colour
+    matrix's first column) is 7× the zone's and the sky the zone's colours; they fade back to the base ones
+    (`D_800C6848`'s 1774, `D_800C6768` blue (0, 0, 255) over `D_800C676C` (250, 255, 255)) at the outer reach past
+    that. The last zone in reach wins.
+- **The sky** (not on map 2; `D_800E55F4`), linked at entry 2500 so it's drawn first:
+  - The horizon (`func_800AE638`): a point 0x4000 ahead of the focus at the camera's height, turned by -yaw, lands
+    on a screen row; that + 26 is `D_8010B080`.
+  - The gradient: a `POLY_G4` (`D_800C6770`, one per buffer) from 24 rows above the screen to the horizon, top
+    colour over bottom, turned by the roll about the screen's centre column; drawn without dither (a draw mode packet
+    before it, dither back on after).
+  - The clouds (`func_800AEA48`): grey `0x40` semi-transparent quads of a texture strip (palette `0x7B0F`, page
+    `0x39`; `0xA9` on GPU types 1 and 2), 64 rows high, (curve >> 8) + 44 rows above the horizon, the whole screen
+    wide: two quads, or three once the scroll `D_8010AE44` reaches `0xC0`. Turning the camera scrolls them: the yaw
+    turned since `D_8010AE48`, times the curve over 10000, off the scroll (wrapping at 256).
+  - A fourth quad (`D_800C67B8`, the sun or moon?) is drawn when `D_8010B174` is set; it wasn't in either lab frame.
+- **The party leader** (model ids 0-2: `WM0`, `WM1`, `WM2.BSZ`, Cloud, Tifa and Cid; `func_800B69A4` reads one to
+  `0x8014A600`, LZS):
+  - The file: 2 sections; section 0 the models (a count, a pointer to the first header, a size; every pointer already
+    a RAM address for that load address), section 1 the images (a count at 4, then w, h, x, y and an offset per
+    image; `func_800C0808` loads them). The other models (ids 3 up) are the container's section 0, at `0x8013A800`
+    (`func_800B6EFC`; not drawn in the lab frames, not checked).
+  - A model's 0x24-byte header is its instance: on, mode, bone, part and animation counts, root angles, a scale at
+    `0x16` (`0x200`), the parts' and animations' offsets from the base pointer at `0x1C`, the bone matrices at `0x20`.
+    At the base, 4 bytes a bone (s16 length, s8 parent, a byte: copy its matrix out).
+  - An animation, 16 bytes: frames, counts of s16 tracks, s16 statics and byte tracks, their offsets, and a pointer
+    to its data: a word, then 8 bytes a bone (flags: bits 0-2 an angle from a track, 4-6 a translation; three angles
+    in 256ths or track numbers; three translation numbers, `0xFF` none). Cloud has 22 bones, animation 0 (idle, 1
+    frame) and 1 (walking, 15).
+  - A part, 0x20 bytes: on, bone, vertex count; counts of `GT4`, `GT3`, `FT4`, `FT3`, `F3`, `F4`, `G3`, `G4`; the
+    offsets of its polygons, UVs, texture words and texture bytes; the bytes of packets per buffer; its data: a word,
+    the vertices, the polygons (corner numbers, colour words: RGB and a normal number on top, a UV numbers word).
+  - At load (`func_800BFBF0`, `func_800C1D58`): lengths, translations and vertices · scale >> 12; each part's packets
+    built twice (double-buffered, per model, not in the frame's packet buffers); then lit once (`func_800B6724`):
+    posed at frame 0 of animation 0 under no camera, each colour through `NCCS` with its normal (`D_800C7938`) and
+    three grey lights (`0x6E`, `0xAA`, `0x3C`) turned with the bone, back colour `0x40`; the normal number stays.
+  - Posing (`func_800C1490`): angles from a 256-entry table (`D_800C7538`, truncated 4096 sine and cosine); each bone
+    is its parent's matrix times Ry · Rx · Rz of its angles, moved along its z by its length plus its translations.
+    The root (the player's: x `0xC0`, y its facing >> 4) is turned a quarter about x under the camera, at its place
+    from the focus / 4 plus the camera's translation / 4 (`func_800A36AC`, `func_800AAB18`). The frame steps once a
+    tick while walking (`+0x53`).
+  - Drawing (`func_800C0B48`): per part under its bone's matrix, the vertices projected, a polygon facing the camera
+    (`nclip` > 0) linked at its average depth (`avsz3`; a quad's four over 16), no clipping. Textured ones take a
+    texture byte (word 0-15, `0x10` semi-transparent, `0x60` blend): the word's palette and page.
+- **Shadows** (`func_800B5C7C`, `func_800B59F4`): a subtracting textured quad (palette `0x7CC4`, page `0x59`) in the
+  entity, grey `0x20` and 100 by 100 (half) while it stands on the ground, smaller and paler as it rises, scaled per
+  model (a table); at the ground under it, turned by its facing + `0x800` under the camera; linked at its nearest
+  corner's depth >> 4. Cloud's texture rectangle is (24, 56) 15 by 15.
+- **Checked against the lab:**
+  - Near Midgar, frame 3300 of a new game warped to the world map, and the same at frame 3480 after R2 (view 1,
+    mid-turn), with the sky in sight: the 16 meshes in RAM are the decoded ones byte for byte, the texture table is
+    `D_800BD148`'s and the images (the container's and `WM0.BSZ`'s) are in VRAM.
+  - From each dump's camera state, `tools/world.py`'s sky, terrain (213 and 471 triangles), Cloud (built from
+    `WM0.BSZ`: scaled, lit, posed) and his shadow are the game's packets word for word (but for bits the GPU doesn't
+    read), and drawn by the port's GPU every pixel of both frames is the game's but the minimap (72 by 56 at
+    (228, 156)). The camera and zones rebuilt from their tables give the dumps' matrices and colours exactly, and the
+    viewer's frame for that spot, from the disc alone, is the lab's pixel for pixel but the minimap.
+  - The game's packet buffers hold 5 terrain triangles more than it links: they're never drawn.
+  - Not checked: maps 2 and 3, models other than the party leader, the minimap, the sun.
 
 ## 3. Code: what is recovered and what isn't
 
@@ -1403,9 +1473,10 @@ same set). They give the original module and file split, and the staff folders b
   bitstream, the layouts, posing, loading places, the stage's lists and motion, shadows, the camera's integers and
   the opening's eases.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
-  a repacker that keeps an LZS stream up to a change; the terrain (§2, `WORLD/WM*.MAP`): meshes, block swaps,
-  textures, light zones and the draw through the port's GTE; `tools/test_world.py` checks the encoding, the table,
-  the repacker, the map's layout, the zones and the draw with a stand-in GTE.
+  a repacker that keeps an LZS stream up to a change; the world map's frame (§2, `WORLD/WM*.MAP`): meshes, block
+  swaps, textures, light zones, the camera, the sky, the party leader's model (posed and lit) and shadows, drawn
+  through the port's GTE; `tools/test_world.py` checks the encoding, the table, the repacker, the map's layout, the
+  zones, the camera, the models and the draws with a stand-in GTE.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
   frame); each in-memory one a silent 30 fps AVI, found by matching file sizes against `MOVIE_ID.BIN`. The JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
   exactly, so nothing is re-encoded. Checked on `MK8.STR` against ffmpeg's MDEC decoder: the planes agree to ±1
@@ -1767,8 +1838,8 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     the title.
   - Checked in the lab against the manual: START cycles the map (small, large, none), L1/R1 turn, L2/R2 change the
     view, △ opens the menu ("Midgar Area"); escaping (L1+R1) returns to the same spot; walking north at Midgar enters
-    field 0xAA (`MDS5_5`). Swinging to the low view, a dark polygon crosses the screen for a few frames (unconfirmed:
-    likely a hill between camera and party, no reference to compare yet).
+    field 0xAA (`MDS5_5`). Swinging to the low view, a dark polygon crosses the screen: the game's own terrain, a
+    big triangle near the camera (it's in the game's ordering table, and `tools/world.py` draws it the same).
 - **Mini-games** (`MINI/*.BIN`, packed, each run at `0x800A0000`): a field asks for one with request `0xC`, the field
   to come back to as the request's ID, and `0x8009ACE6` saying which (0-6). The field module turns that into a main
   loop mode, and the main loop reads the file through its table at `0x80048D34` and calls the entry:
