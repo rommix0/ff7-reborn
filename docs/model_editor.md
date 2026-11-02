@@ -157,6 +157,8 @@ The PS1 view is the exact one.
      - faces show each list's second image (the field loads a blank first)
 4. **Editing:** vertex colours, vertices, UVs, bone poses and frames, undo, save. Lab check: an edit made in the
    editor shows in the game.
+   - **Maps** (a tab of their own): each map's background drawn by `pc/gpu.c` as the field links its tiles, the
+     walkmesh, exits, triggers and arrows projected over it with the map's camera.
 5. **Textures and palettes:** image replacement, palette editing; then glTF export/import if wanted.
 
 ## Open

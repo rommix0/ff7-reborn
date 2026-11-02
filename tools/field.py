@@ -8,7 +8,8 @@ line per operation (the field module's own name for it, then its operand bytes i
 dialogue in the text format tools/kernel.py describes. Operations are named from the disc's FIELD.BIN, op_XX where
 it has no name. Then the other sections:
   walkmesh    triangles (three x, y, z, w; z the height, w unread) and the neighbour across each edge (-1 a wall)
-  background  four layers of runs of tiles (one row each) and texture-page switches; a tile is
+  background  four layers of runs of tiles (one row each) and texture-page switches, each switch the page of the
+              tiles before it (the field draws a layer's list from its end); a tile is
               layer 1: x, y, u, v, palette
               layer 2: x, y, u, v, palette, page, depth, group, blended, state bits
               layers 3 and 4: x, y, u, v, palette, group, blended, state bits

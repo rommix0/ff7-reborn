@@ -282,6 +282,20 @@ A movie name found on several discs has the same contents on each, so the PC por
   - A tile in group g shows when g is 0 or when `D_8009ACE6[g]` and its state bits share a bit. `bgon`, `bgoff`
     and `bgclr` (`E0`, `E1`, `E4`) set and clear those bits.
   - The padding after the last tile isn't always zero; the build keeps it.
+  - **Draw order:** each slot of the ordering table draws the packet linked last first, and a layer's page switches
+    are linked in its list among its tiles. So a switch is the page of the tiles before it in the file: lists end
+    with one (`MD1STIN`'s layer 1, nine). Layer 3 is linked after layer 1 at the same slot, so it's drawn behind it.
+  - **The `.MIM`** (LZS, unpacked to `0x80128000`; `func_800A2D5C`): blocks of a `u32` length (with this 12-byte
+    head), x, y, w, h and the VRAM words, a 0 length after the last. The first is the palettes, `LoadImage`d at
+    (0, 480) 256×16 whatever its head says; then one or two 8-bit pages (`LoadTPage`), all at x 384 or more.
+    `TUNNEL_6`'s second block runs 18 KB past the file's end, so the game loads what lies after it in memory.
+  - **Checked:** `tools/model_editor.py` draws a map's background with the port's GPU this way. `MD1STIN`'s, cut
+    at the camera's place in a lab frame, matches the frame in 98.4% of its pixels, exactly; the rest are the
+    characters (the frame widens each 5-bit colour as `c << 3 | c >> 2`).
+- **Projection** (`func_800A41CC`): a field position (x, y, z; z up) goes through `RotTransPers` with section 4's
+  rotation and translation and a geometry offset of 0, so a 3D point lands at background pixel (x, y) × H / z. The
+  camera centres on the player's point so found, kept in section 5's scroll box. Walkmeshes drawn so lie on their
+  floors (`MD1STIN`, `FSHIP_2`, `GAMES`).
 - **Section 4, the camera:** `func_800AB2B4` points `D_80071E40` at it (or at a movie's camera).
   - A rotation (`s16` 3×3, 4.12) for `SetRotMatrix`; a word nothing reads (m[2][2] again in every map); a
     translation (`s32` ×3) for `SetTransMatrix`; an `s16` screen offset x and y (0 everywhere); the projection
@@ -1179,8 +1193,9 @@ same set). They give the original module and file split, and the staff folders b
   `MENU/SHOPMENU.MNU`); `tools/test_shop.py` checks the layout and its limits.
 - `tools/model.py`: the field's models (`.BCX`, `.BSX`) to JSON files and back (§2, `FIELD/*.BCX` and `.BSX`), with
   posing and the GTE's lighting; `tools/test_model.py` checks the layout, shared data, its limits, posing and light.
-- `tools/model_editor.py`: the model viewer (`docs/model_editor.md`); its PS1 view is `pc/gpu.c` as a library
-  (`make editor`, with `tools/ps1gpu.c`); `tools/test_model_editor.py` checks the texture words and packets.
+- `tools/model_editor.py`: the field viewer, models and maps (`docs/model_editor.md`); its PS1 view and the maps'
+  backgrounds are `pc/gpu.c` as a library (`make editor`, with `tools/ps1gpu.c`); `tools/test_model_editor.py`
+  checks the texture words, packets, the background's draw order and the projection.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
   a repacker that keeps an LZS stream up to a change; `tools/test_world.py` checks the encoding, the table and it.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per

@@ -1,12 +1,16 @@
-"""The field model editor (so far a viewer): open the party's and each map's models, turn them about, play their
-animations, shaded and textured as the game draws them.
+"""The field viewer (the model editor to be): open the party's and each map's models, turn them about, play their
+animations, shaded and textured as the game draws them; and each map's background, drawn by the port's GPU, with
+its walkmesh, exits, triggers and arrows over it.
 
   pip install -r tools/requirements-editor.txt
   python tools/model_editor.py assets
   python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --shot cloud.png
+  python tools/model_editor.py assets --map MD1STIN --shot md1stin.png
 
 A character on a map (MD1STIN.BSX:0) has that map's lights, textures and animations added to its own; on its own
-(CLOUD.BCX) it shows its colours unlit and untextured. Drag to turn the view, the wheel to zoom.
+(CLOUD.BCX) it shows its colours unlit and untextured. Drag to turn the view, the wheel to zoom. A map shows each
+tile group in its first state (the scripts pick the rest); the Maps tab turns layers, overlays and groups on and
+off. Walkmesh edges are green, walls white, exits red, triggers yellow.
 """
 import argparse
 import ctypes
@@ -222,6 +226,99 @@ def names(disc: Path) -> list[str]:
     return out
 
 
+def map_ids(disc: Path) -> list[str]:
+    """Each field id's map, from FIELD.BIN's table of where each map's .DAT, .MIM and .BSX lie."""
+    by_sector = {int(r[0]): r[3] for r in (line.split(maxsplit=3) for line in
+                                            (disc / "files.txt").read_text().splitlines())}
+    image, out = field.module(disc), []
+    while by_sector.get(field.u32(image, field.MAPS + 24 * len(out)), "").endswith(".DAT"):
+        out.append(Path(by_sector[field.u32(image, field.MAPS + 24 * len(out))]).stem)
+    return out
+
+
+class FieldMap:
+    """A map as the field draws it: its .MIM in VRAM (func_800A2D5C: a palette block LoadImage'd at (0, 480), one or
+    two 8-bit page blocks, each a u32 length and x, y, w, h), its background tiles and what it places in 3D."""
+
+    def __init__(self, disc: Path, name: str):
+        self.name = name
+        secs = field.split(lzs((disc / f"FIELD/{name}.DAT").read_bytes()))
+        self.background, self.camera = field.background_json(secs[2]), field.camera_json(secs[3])
+        self.walkmesh, self.map = field.walkmesh_json(secs[1]), field.map_json(secs[4])
+        self.vram, mim, at = np.zeros((512, 1024), np.uint16), lzs((disc / f"FIELD/{name}.MIM").read_bytes()), 0
+        while at + 12 <= len(mim) and field.u32(mim, at):
+            x, y, w, h = struct.unpack_from("<4H", mim, at + 4)
+            data = mim[at + 12:at + 12 + 2 * w * h].ljust(2 * w * h, b"\0")  # TUNNEL_6's ends early
+            self.vram[y:y + h, x:x + w] = np.frombuffer(data, "<u2").reshape(h, w)
+            at += field.u32(mim, at)
+        self.groups = sorted({(t[-3], t[-1]) for items in self.background["layers"][1:] for run in items
+                              if isinstance(run, list) for t in run if t[-3]})  # (group, state bit) pairs
+
+    def first_states(self) -> set[tuple[int, int]]:
+        """Each group's lowest state bit: something to show before the scripts pick (a group's states are often an
+        animation's frames, drawn over each other)."""
+        return {min(p for p in self.groups if p[0] == g) for g, _ in self.groups}
+
+    def packets(self, layers: set[int], shown: set[tuple[int, int]]) -> list[tuple[int, int, tuple | None, list]]:
+        """GPU packets as func_800A364C links them (slot, order, position, words): layer 1 and its page switches at
+        0xFFF, layer 2 each at its depth with its own page, layers 3 and 4 at 0xFFF and 1. A tile in a group shows
+        when one of its state bits is on. The field's sprites are raw-textured (code 65, 67 blended)."""
+        out = []
+        for layer, items in enumerate(self.background["layers"]):
+            if layer not in layers:
+                continue
+            slot = (0xFFF, 0, 0xFFF, 1)[layer]
+            for item in items:
+                if isinstance(item, dict):
+                    out.append((slot, len(out), None, [0xE1000400 | item["page"]]))
+                    continue
+                for t in item:
+                    if layer and t[-3] and (t[-3], t[-1]) not in shown:
+                        continue
+                    size, blend = (16 if layer < 2 else 32), (t[-2] if layer else 0)
+                    words = [(0x65 | blend << 1) << 24, 0, t[4] << 16 | t[3] << 8 | t[2], size << 16 | size]
+                    out.append((t[6] if layer == 1 else slot, len(out), (t[0], t[1]),
+                                [0xE1000400 | t[5]] + words if layer == 1 else words))
+        return out
+
+    def project(self, points: np.ndarray) -> np.ndarray:
+        """3D points to background pixels as func_800A41CC does: RotTransPers with the camera, offset 0."""
+        v = points @ (np.array(self.camera["rotation"]) / 4096).T + np.array(self.camera["translation"])
+        return v[:, :2] * self.camera["distance"] / np.maximum(v[:, 2:], 1)
+
+
+def draw_line(rgb: np.ndarray, a: np.ndarray, b: np.ndarray, color: tuple[int, int, int]):
+    if max(abs(a).max(), abs(b).max()) > 8192:  # a point near the camera projects far off the picture
+        return
+    n = int(max(abs(b - a))) + 1
+    xy = np.round(a + (b - a) * np.linspace(0, 1, n)[:, None]).astype(int)
+    keep = (xy[:, 0] >= 0) & (xy[:, 0] < rgb.shape[1]) & (xy[:, 1] >= 0) & (xy[:, 1] < rgb.shape[0])
+    rgb[xy[keep, 1], xy[keep, 0]] = color
+
+
+def overlay(rgb: np.ndarray, origin: tuple[int, int], fm: FieldMap, show: set[str]):
+    """The walkmesh (green, a wall edge white), exits (red), triggers (yellow) and arrows (cyan) on the background."""
+    o = np.array(origin)
+    if "walkmesh" in show:
+        for t in fm.walkmesh["triangles"]:
+            xy = fm.project(np.array([v[:3] for v in t["vertices"]], float)) - o
+            for k in range(3):
+                draw_line(rgb, xy[k], xy[(k + 1) % 3], (255, 255, 255) if t["neighbours"][k] < 0 else (0, 200, 0))
+    for key, color in (("exits", (255, 40, 40)), ("triggers", (255, 220, 0))):
+        if key in show:
+            for e in fm.map[key]:
+                if e:
+                    xy = fm.project(np.array(e["line"], float)) - o
+                    for d in (-1, 0, 1):
+                        draw_line(rgb, xy[0] + d, xy[1] + d, color)
+    if "arrows" in show:
+        for e, on in zip(fm.map["exits"], fm.map["arrows"]):
+            if e and on:
+                x, y = (fm.project(np.array(e["line"], float)).mean(0) - o).astype(int)
+                draw_line(rgb, np.array([x - 4, y - 6]), np.array([x, y]), (0, 255, 255))
+                draw_line(rgb, np.array([x + 4, y - 6]), np.array([x, y]), (0, 255, 255))
+
+
 class Renderer:
     """Draws a model into an offscreen picture the window shows (or a --shot saves)."""
 
@@ -326,8 +423,41 @@ class Ps1View:
         words = [0xE1000200, 0xE3000000, 0xE4000000 | 239 << 10 | 319, 0xE5000000, 0xE6000000,
                  0x02241F1F, 0, 240 << 16 | 320] + [w for _, _, ws in packets for w in ws]
         self.gpu.gpu_gp0_words((ctypes.c_uint32 * len(words))(*words), len(words))
+        return self.screen()
+
+    def screen(self) -> np.ndarray:
+        """The 320x240 corner of VRAM, each 5-bit colour widened as the port's window does."""
         c = self.vram[:240, :320].astype(np.uint32)
-        return np.stack([(c & 31) << 3, (c >> 5 & 31) << 3, (c >> 10 & 31) << 3], 2).astype(np.uint8)
+        c = np.stack([c & 31, c >> 5 & 31, c >> 10 & 31], 2)
+        return (c << 3 | c >> 2).astype(np.uint8)
+
+    def background(self, fm: FieldMap, layers: set[int], shown: set[tuple[int, int]]):
+        """The whole background, drawn a screen at a time at (0, 0) of VRAM (no .MIM lies left of x 384), the
+        packets from the far end of the ordering table, each slot's last linked first: so a page switch covers the
+        layer's tiles before it in the file. Returns the picture and the background position of its corner."""
+        if not self.gpu:
+            return None, (0, 0)
+        self.vram[:] = fm.vram
+        packets = sorted(fm.packets(layers, shown), key=lambda p: (-p[0], -p[1]))
+        tiles = [p[2] for p in packets if p[2]] or [(0, 0)]
+        x0, y0 = min(x for x, _ in tiles), min(y for _, y in tiles)
+        x1, y1 = max(x for x, _ in tiles) + 32, max(y for _, y in tiles) + 32
+        out = np.zeros((y1 - y0, x1 - x0, 3), np.uint8)
+        for cy in range(y0, y1, 240):
+            for cx in range(x0, x1, 320):
+                words = [0xE1000400, 0xE3000000, 0xE4000000 | 239 << 10 | 319, 0xE5000000, 0x02000000, 0,
+                         240 << 16 | 320]
+                for _, _, xy, w in packets:
+                    if xy is None:
+                        words += w
+                    elif cx - 32 < xy[0] < cx + 320 and cy - 32 < xy[1] < cy + 240:
+                        w = list(w)
+                        w[-3] = ((xy[1] - cy) & 0x7FF) << 16 | (xy[0] - cx) & 0x7FF
+                        words += w
+                self.gpu.gpu_gp0_words((ctypes.c_uint32 * len(words))(*words), len(words))
+                h, w = min(240, y1 - cy), min(320, x1 - cx)
+                out[cy - y0:cy - y0 + h, cx - x0:cx - x0 + w] = self.screen()[:h, :w]
+        return out, (x0, y0)
 
 
 def frame_view(m: Model) -> tuple[np.ndarray, float]:
@@ -367,14 +497,25 @@ def shot(disc: Path, name: str, anim: int, frame: int, out: Path, yaw: float):
     write_png(out, np.ascontiguousarray(picture))
 
 
-def run(disc: Path, start: str | None, frames: int | None = None):
+def map_shot(disc: Path, name: str, out: Path):
+    """A map's background (each group in its first state) with the walkmesh, exits, triggers and arrows over it."""
+    fm = FieldMap(disc, name)
+    rgb, origin = Ps1View().background(fm, {0, 1, 2, 3}, fm.first_states())
+    if rgb is None:
+        raise SystemExit("the PS1 view's library isn't built: make editor")
+    overlay(rgb, origin, fm, {"walkmesh", "exits", "triggers", "arrows"})
+    write_png(out, rgb)
+
+
+def run(disc: Path, start: str | None, start_map: str | None = None, frames: int | None = None):
     """The window; frames, if given, closes it after that many (to check it runs)."""
     from imgui_bundle import hello_imgui, imgui, immapp
 
-    models = names(disc)
+    models, maps, map_ids_ = names(disc), [p.stem for p in field.maps(disc)], map_ids(disc)
     state = {"choice": start or models[0], "frames": 0, "anim": 0, "frame": 0.0, "play": True, "yaw": 0.6,
              "pitch": 0.2, "zoom": 1.0, "ps1": True, "renderer": None, "model": None, "center": None,
-             "distance": 1.0, "filter": ""}
+             "distance": 1.0, "filter": "", "map_filter": "", "map_zoom": 2.0, "layers": {0, 1, 2, 3},
+             "overlays": {"walkmesh", "exits", "triggers", "arrows"}, "vram": "model"}
 
     def choose(name: str):
         state["choice"], state["model"] = name, load(disc, name)
@@ -383,12 +524,100 @@ def run(disc: Path, start: str | None, frames: int | None = None):
         state["center"], state["distance"] = frame_view(state["model"])
         state["anim"], state["frame"] = next((i for i, a in enumerate(state["model"].anims) if a), 0), 0.0
 
+    def redraw():
+        if state.get("picture"):
+            state["picture"].release()
+        state["picture"] = None
+
+    def choose_map(name: str):
+        state["map"] = FieldMap(disc, name)
+        state["shown"] = state["map"].first_states()
+        redraw()
+
+    def maps_gui():
+        imgui.begin_child("maps", imgui.ImVec2(220, 0))
+        _, state["map_filter"] = imgui.input_text("##mapfilter", state["map_filter"])
+        for name in maps:
+            if state["map_filter"].upper() in name and imgui.selectable(name, name == state["map"].name)[0]:
+                choose_map(name)
+        imgui.end_child()
+        imgui.same_line()
+        fm = state["map"]
+        if state["picture"] is None:  # drawn again only when something changes
+            rgb, state["origin"] = state["ps1view"].background(fm, state["layers"], state["shown"])
+            state["vram"] = "map"
+            if rgb is None:
+                imgui.text_wrapped("The map view draws with the PS1 view's library. Build it with: make editor")
+                return
+            overlay(rgb, state["origin"], fm, state["overlays"])
+            state["picture"] = state["renderer"].ctx.texture((rgb.shape[1], rgb.shape[0]), 3,
+                                                             np.ascontiguousarray(rgb).tobytes())
+            state["picture"].filter = (moderngl.NEAREST, moderngl.NEAREST)
+        picture, zoom = state["picture"], state["map_zoom"]
+        imgui.begin_child("background", imgui.ImVec2(-420, 0), 0, imgui.WindowFlags_.horizontal_scrollbar)
+        imgui.image(imgui.ImTextureRef(picture.glo), imgui.ImVec2(picture.width * zoom, picture.height * zoom))
+        if imgui.is_item_hovered():
+            io = imgui.get_io()
+            state["map_zoom"] = max(0.5, min(6.0, zoom * 1.1 ** io.mouse_wheel))
+            at = (io.mouse_pos - imgui.get_item_rect_min()) / zoom
+            state["cursor"] = (int(at.x) + state["origin"][0], int(at.y) + state["origin"][1])
+        imgui.end_child()
+        imgui.same_line()
+        imgui.begin_child("map info", imgui.ImVec2(0, 0))
+        changed = False
+        imgui.text("layers")
+        for layer in range(4):
+            imgui.same_line()
+            if imgui.checkbox(f"{layer + 1}", layer in state["layers"])[0]:
+                state["layers"] ^= {layer}
+                changed = True
+        for key in ("walkmesh", "exits", "triggers", "arrows"):
+            if imgui.checkbox(key, key in state["overlays"])[0]:
+                state["overlays"] ^= {key}
+                changed = True
+        imgui.text(f"at {state['cursor']}" if state.get("cursor") else "")
+        if fm.groups and imgui.collapsing_header("tile groups (state bits)"):
+            for g, bit in fm.groups:
+                if imgui.checkbox(f"group {g}: {bit:08b}", (g, bit) in state["shown"])[0]:
+                    state["shown"] ^= {(g, bit)}
+                    changed = True
+        if imgui.collapsing_header("exits", imgui.TreeNodeFlags_.default_open):
+            for i, e in enumerate(fm.map["exits"]):
+                if e:
+                    to = map_ids_[e["map"]] if e["map"] < len(map_ids_) else "?"
+                    imgui.text(f"{i}: {to} ({e['map']}) at {e['x']}, {e['y']}, triangle {e['triangle']}")
+        if imgui.collapsing_header("triggers"):
+            for i, t in enumerate(fm.map["triggers"]):
+                if t:
+                    imgui.text(f"{i}: group {t['group']} bit {t['bit']}, kind {t['kind']}, sound {t['sound']}")
+        imgui.end_child()
+        if changed:
+            redraw()
+
     def gui():
         if state["renderer"] is None:
             state["renderer"], state["ps1view"] = Renderer(moderngl.create_context()), Ps1View()
             state["screen"] = state["renderer"].ctx.texture((320, 240), 3)
             state["screen"].filter = (moderngl.NEAREST, moderngl.NEAREST)
             choose(state["choice"])
+            choose_map(start_map or maps[0])
+        if imgui.begin_tab_bar("views"):
+            if imgui.begin_tab_item("Models")[0]:
+                models_gui()
+                imgui.end_tab_item()
+            flags = imgui.TabItemFlags_.set_selected if start_map and state["frames"] == 0 else 0
+            if imgui.begin_tab_item("Maps", None, flags)[0]:
+                maps_gui()
+                imgui.end_tab_item()
+            imgui.end_tab_bar()
+        state["frames"] += 1
+        if frames and state["frames"] >= frames:
+            hello_imgui.get_runner_params().app_shall_exit = True
+
+    def models_gui():
+        if state["vram"] == "map":
+            state["ps1view"].upload(state["model"])
+            state["vram"] = "model"
         imgui.begin_child("models", imgui.ImVec2(220, 0))
         _, state["filter"] = imgui.input_text("##filter", state["filter"])
         for name in models:
@@ -440,12 +669,9 @@ def run(disc: Path, start: str | None, frames: int | None = None):
         _, state["ps1"] = imgui.checkbox("PS1 look (15-bit colour, dither, unwarped textures)", state["ps1"])
         imgui.text(f"{len(m.bones)} bones, {len(m.parts)} parts, {m.count // 3} triangles")
         imgui.end_group()
-        state["frames"] += 1
-        if frames and state["frames"] >= frames:
-            hello_imgui.get_runner_params().app_shall_exit = True
 
     params = hello_imgui.RunnerParams()
-    params.app_window_params.window_title = "FF7 field models"
+    params.app_window_params.window_title = "FF7 field viewer"
     params.app_window_params.window_geometry.size = (VIEW + 920, VIEW + 140)
     params.ini_folder_type = hello_imgui.IniFolderType.app_user_config_folder  # the window's layout, not in the repo
     params.callbacks.show_gui = gui
@@ -459,13 +685,16 @@ def main():
     ap.add_argument("--anim", type=int, default=0)
     ap.add_argument("--frame", type=int, default=0)
     ap.add_argument("--yaw", type=float, default=0.6)
-    ap.add_argument("--shot", type=Path, help="draw the model to this PNG and quit")
+    ap.add_argument("--map", help="a map (MD1STIN) to start on, or with --shot to draw")
+    ap.add_argument("--shot", type=Path, help="draw the model (or the map) to this PNG and quit")
     args = ap.parse_args()
     disc = next(p for p in sorted(args.assets.iterdir()) if (p / "FIELD/FIELD.BIN").exists())
-    if args.shot:
+    if args.shot and args.map:
+        map_shot(disc, args.map.upper(), args.shot)
+    elif args.shot:
         shot(disc, args.model or "CLOUD.BCX", args.anim, args.frame, args.shot, args.yaw)
     else:
-        run(disc, args.model)
+        run(disc, args.model, args.map.upper() if args.map else None)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import numpy as np
 
-from model_editor import Model, texture
+from model_editor import FieldMap, Model, Ps1View, texture
 
 # A texture word: kind (0, 1: in the model's slot of one of two areas, the palette in the slot's row; 2: where it
 # is), depth, texture page, palette x / 16 and y.
@@ -22,4 +22,30 @@ assert gt3 == (0, [0, 1, 2], 0x36, [0x808080, 0x404040, 0x202020],
                [(481 << 6 | 20) << 16 | 32, (12 | 1 << 4 | 1 << 5) << 16 | 39, 7 << 8 | 32])
 assert f4 == (0, [0, 1, 2, 3], 0x28, [0x0000FF], [])
 assert m.count == 3 + 6
+
+# A map's background as the field links it: layer 1 and its page switches at the far end of the ordering table,
+# layer 2 at each tile's depth with its own page; a tile in a group only when its state bit is shown; blended tiles
+# as code 67.
+fm = FieldMap.__new__(FieldMap)
+red, blue = 8 | 2 << 7, 9 | 2 << 7  # 15-bit pages at x 512 and 576
+fm.background = {"layers": [[[[0, 0, 0, 0, 0]], {"page": red}, [[16, 0, 0, 0, 0]], {"page": blue}],
+                            [[[0, 16, 0, 0, 0, blue, 7, 0, 1, 0], [16, 16, 0, 0, 0, blue, 7, 3, 0, 4]]], [], []]}
+fm.groups = [(3, 4)]
+fm.vram = np.zeros((512, 1024), np.uint16)
+fm.vram[:, 512:576], fm.vram[:, 576:640] = 0x001F, 0x7C00
+packets = fm.packets({0, 1, 2, 3}, set())
+assert [(slot, xy) for slot, _, xy, _ in packets] == [(0xFFF, (0, 0)), (0xFFF, None), (0xFFF, (16, 0)),
+                                                       (0xFFF, None), (7, (0, 16))]
+assert packets[4][3] == [0xE1000400 | blue, 0x67000000, 0, 0, 16 << 16 | 16]
+assert len(fm.packets({0, 1}, {(3, 4)})) == 6 and fm.first_states() == {(3, 4)}
+
+# Drawn from the far end, each slot's last linked first, a page switch covers the tiles before it in the list.
+ps1 = Ps1View()
+if ps1.gpu:
+    rgb, origin = ps1.background(fm, {0}, set())
+    assert origin == (0, 0) and tuple(rgb[8, 8]) == (255, 0, 0) and tuple(rgb[8, 24]) == (0, 0, 255)
+
+# 3D to background pixels: the camera's rotation (4.12) and translation, then x and y times H over the depth.
+fm.camera = {"rotation": [[4096, 0, 0], [0, 4096, 0], [0, 0, 4096]], "translation": [0, 0, 1000], "distance": 500}
+assert fm.project(np.array([[100.0, 50.0, 0.0]])).tolist() == [[50.0, 25.0]]
 print("ok")
