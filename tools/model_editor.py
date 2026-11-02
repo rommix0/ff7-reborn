@@ -798,9 +798,10 @@ class Battle:
         """The setup's camera k's eye and target, or (k -1) the opening's as battle frame frame is drawn: the camera
         after the frame before (func_800B9568 draws before the camera moves)."""
         if k < 0:
-            if len(self.opening) < frame:
-                self.opening = battle.opening(self.module, self.setup, frame + 150)
-            return self.opening[max(frame - 1, 0)]
+            at = max(frame - 1, 0)
+            if at >= len(self.opening):
+                self.opening = battle.opening(self.module, self.setup, at + 150)
+            return self.opening[at]
         c = self.setup["cameras"][k]
         return [c["x"], c["y"], c["z"]], [c["target_x"], c["target_y"], c["target_z"]]
 

@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
 import numpy as np
 
-from model_editor import FieldMap, Model, Ps1View, overlay, texture
+import battle
+from model_editor import Battle, FieldMap, Model, Ps1View, overlay, texture
 
 # A texture word: kind (0, 1: in the model's slot of one of two areas, the palette in the slot's row; 2: where it
 # is), depth, texture page, palette x / 16 and y.
@@ -81,4 +84,11 @@ if ps1.gpu:
     rgb = ps1.world(np.full((512, 1024), 0x7FFF, np.uint16), [red_square])
     assert rgb.shape == (224, 320, 3) and tuple(rgb[2, 4]) == (255, 0, 0) and not rgb[0, 0].any()
     assert ps1.vram[2, 4] == 0x7FFF and ps1.vram[10, 4] == 0x001F  # nothing drawn above row 8
+
+# The opening camera as battle frame k is drawn is the one after frame k - 1 (frame 0 draws the first), played as
+# far as it's asked for: a battle just picked draws frame 0 before anything has played. (Here a stand-in opening
+# whose camera after frame k is (k, k).)
+battle.opening = lambda module, setup, ticks: [([k], [k]) for k in range(ticks)]
+fresh = SimpleNamespace(opening=[], module=b"", setup={})
+assert Battle.camera(fresh, -1, 0) == ([0], [0]) and Battle.camera(fresh, -1, 200) == ([199], [199])
 print("ok")
