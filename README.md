@@ -91,7 +91,9 @@ plays an action (an enemy's attacks by name, or any actor's action script by num
 animations, the target's hurt, and the attack's camera (spell effects aren't drawn). Its World
 tab draws the world map round any point as the game draws it: the sky, the terrain (each `map_stage`, and the two maps
 that tile parts of the world) in its light zones' colours, the party leader (Cloud, Tifa or Cid) with a shadow, from
-the camera's view modes; beside an overview of the whole map to pick the point on:
+the camera's view modes, and any of its other models placed round the point (the Highwind, the Tiny Bronco, the
+submarine, chocobos and the rest, by the stage of the story's container); beside an overview of the whole map to pick
+the point on:
 
 ```bash
 pip install -r tools/requirements-editor.txt

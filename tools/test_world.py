@@ -6,7 +6,7 @@ from unpack import lzs
 from world import (BLOCK, CODE, SIZE, assemble, camera, disassemble, file_block, light_zones, map_meshes, mesh,
                    scripts_json, scripts_raw, sky_packets, sky_scroll, terrain_packets, textures, Zone,
                    zone_colours, world_models, pose, light_model, model_packets, shadow_packet,
-                   model_images)
+                   model_images, SLOTS, TINTS, entity_translation, model_slots, quarter, tinted)
 
 
 def words(*ws: int) -> bytes:
@@ -251,4 +251,20 @@ assert shadow_packet(Gte(), sines, identity, (0, 0, 0), (0, 0), 0, 307, 0, (100,
 # the section's start per image.
 images = bytes(4) + bytes([1, 0, 0, 0]) + struct.pack("<4HI", 2, 1, 768, 256, 20) + struct.pack("<2H", 7, 8)
 assert model_images(images, 0) == [(768, 256, 2, 1, struct.pack("<2H", 7, 8))]
+
+# The other models: a container's row of SLOTS gives each id 3-31 its header, 1-based (-1: none).
+module = bytearray(0x30000)
+module[SLOTS - 0x800A0000 + 32 + 3:SLOTS - 0x800A0000 + 32 + 6] = bytes([3, 0xFF, 1])
+assert model_slots(bytes(module), 1) == {3: 2, 5: 0}
+# A tint (TINTS: s16 r, g, b) added to every colour, each channel held to 0-255, the top byte kept.
+struct.pack_into("<3h", module, TINTS - 0x800A0000 + 8 * 4, 69, 17, -147)
+assert tinted(bytes(module), cloud, 4)["parts"][0]["polygons"][0]["colours"] == [0x0500114C] * 3
+# An entity's place (func_800AAB18, func_800A36AC): its offset from the focus (wrapped round the world: 0x30000 across
+# is -0x18000), y less the camera's height plus its lift, less the curve's drop, all in quarters toward 0, turned by
+# the camera and added to its translation in quarters. The drop (func_800AA8F8): with the stand-in, the point at
+# depth 31000 is (7750 - 5000)^2 >> 12 = 1846 past the curve, plus 100^2 >> 10 = 9, over 4: 463. The player has
+# no lift and no drop.
+assert [quarter(v) for v in (-5, 5, -463)] == [-1, 1, -115]
+assert entity_translation(Gte(), identity, (0, 0, 4000), 50, 5000, (100, 50, 30000)) == [25, -115, 8500]
+assert entity_translation(Gte(), identity, (0, 0, 4000), 50, 5000, (0x30000, 90, 0), 8, True) == [-0x6000, 10, 1000]
 print("ok")

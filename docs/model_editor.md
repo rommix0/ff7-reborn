@@ -168,7 +168,9 @@ The PS1 view is the exact one.
      (an enemy's attacks listed by name), the hurt it causes, and its attack camera (`CAMDAT`), not its effects.
    - **World** (a tab of its own): the world map (`WM0`, `WM2`, `WM3.MAP`, any `map_stage`) round a point picked on
      an overview of the whole map, drawn through the port's GTE and `pc/gpu.c` as `WORLD.BIN` draws it: sky, terrain,
-     light zones, the party leader (`WM0`-`WM2.BSZ`) and its shadow, from the camera's view modes.
+     light zones, the party leader (`WM0`-`WM2.BSZ`) and its shadow, from the camera's view modes, and the world's
+     other models (a container's, `WM0`-`WMA.TXZ`, and `WM3.BSZ`'s) placed round the point with their tints and
+     shadows.
 5. **Textures and palettes:** image replacement, palette editing; then glTF export/import if wanted.
 
 ## Open

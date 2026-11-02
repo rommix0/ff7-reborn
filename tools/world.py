@@ -559,8 +559,10 @@ def set_matrix(gte, rotation: list[list[int]], translation: list[int] | None = N
 def light_model(gte, model: dict, normals: list[tuple]):
     """Bakes the model's colours as func_800B6724 does once at load: posed at frame 0 of animation 0 under no
     camera, each part's colours through NCCS with its normal (WORLD.BIN's table D_800C7938, by the colour word's
-    top byte, which stays), lights MODEL_LIGHTS turned with the part's bone, the back colour MODEL_BACK."""
-    bones = pose(model, [[4096, 0, 0], [0, 4096, 0], [0, 0, 4096]], (0, 0, 0), 0, 0)
+    top byte, which stays), lights MODEL_LIGHTS turned with the part's bone, the back colour MODEL_BACK. A model
+    whose animation 0 is empty (WM3.BSZ's model 1) is posed by its first with frames: the game reads past its data."""
+    anim = next(k for k, a in enumerate(model["anims"]) if a["frames"])
+    bones = pose(model, [[4096, 0, 0], [0, 4096, 0], [0, 0, 4096]], (0, 0, 0), anim, 0)
     set_matrix(gte, [[c << 4 for c, _ in MODEL_LIGHTS]] * 3, None, 16)
     for i in range(3):
         gte.gte_write_ctrl(13 + i, MODEL_BACK << 4)
@@ -666,6 +668,67 @@ def shadow_packet(gte, sines: list[int], rotation: list[int], translation: tuple
     u, v, w, h = rect
     return min(depths) >> 4, [0x2E000000 | grey * 0x10101, points[0], 0x7CC40000 | v << 8 | u, points[1],
                               0x590000 | v << 8 | u + w, points[2], (v + h) << 8 | u, points[3], (v + h) << 8 | u + w]
+
+
+SLOTS = 0x800C7114  # WORLD.BIN: per container (WM0-WMA, WMB, WMC), 32 bytes: each model id's 1-based header, or -1
+
+
+def model_slots(module: bytes, container: int) -> dict[int, int]:
+    """Which model each id 3-31 is in the container's section 0 (func_800B6B28 fills D_801159E8 from SLOTS's row):
+    id: the header's index. Ids 0-2 are the party leader (WM0-WM2.BSZ), 32-42 WM3.BSZ's models 0-10."""
+    row = module[SLOTS - 0x800A0000 + 32 * container:SLOTS - 0x800A0000 + 32 * container + 32]
+    return {i: row[i] - 1 for i in range(3, 32) if 0 < row[i] < 0x80}
+
+
+TINTS = 0x800C70DC  # WORLD.BIN: 7 tints, s16 r, g, b and a pad (func_800B624C)
+
+
+def tinted(module: bytes, model: dict, k: int) -> dict:
+    """The model with tint k added to every colour, each channel held to 0-255 (func_800C2450's gpl on both of its
+    packet buffers; the top byte stays): spawning model 4, the wild chocobo, takes tint 0 (func_800A9334); command
+    0x34B gives model 19, the party's chocobo, tint n (4 yellow) and 0x34C model 13, the submarine, n + 5."""
+    tint = struct.unpack_from("<3h", module, TINTS - 0x800A0000 + 8 * k)
+
+    def add(c: int) -> int:
+        return c & 0xFF000000 | sum(max(0, min(255, (c >> 8 * i & 0xFF) + d)) << 8 * i for i, d in enumerate(tint))
+
+    return model | {"parts": [part | {"polygons": [poly | {"colours": [add(c) for c in poly["colours"]]}
+                                                    for poly in part["polygons"]]} for part in model["parts"]]}
+
+
+def quarter(v: int) -> int:
+    """C's division by 4, toward 0, as the place's quarters are taken."""
+    return -(-v >> 2) if v < 0 else v >> 2
+
+
+def curve_drop(gte, rotation: list[int], translation: tuple, height: int, dx: int, dz: int, curve: int) -> int:
+    """How far the world's curve lowers an entity at (dx, dz) from the focus (func_800AA8F8): its point at the
+    camera's height through rtps, then ((SZ >> 2) - curve)^2 >> 12 plus SX^2 >> 10 if the first is past the curve,
+    over 4. The offsets are taken as s16."""
+    flat = rotation
+    rows = [flat[0:3], flat[3:6], flat[6:9]]
+    shift = [t + (rows[k][1] * -height >> 12) for k, t in enumerate(translation)]  # RotTrans of (0, -H, 0)
+    set_matrix(gte, rows, shift)
+    put_vector(gte, 0, dx, 0, dz)
+    gte.gte_cmd(0x0180001)  # rtps
+    sx = s16(gte.gte_read(14))
+    v = (gte.gte_read(19) >> 2) - curve
+    return ((v * v >> 12) + (sx * sx >> 10) if v > 0 else 0) >> 2
+
+
+def entity_translation(gte, rotation: list[int], translation: tuple, height: int, curve: int, offset: tuple,
+                       lift: int = 0, player: bool = False) -> list[int]:
+    """The translation an entity's model is posed under (func_800AAB18, func_800A36AC): its offset (x, y, z) from
+    the focus (x and z wrapped round the world), y less the camera's height, plus its lift (+0x44) and less the
+    curve's drop (neither for the player), each in quarters; turned by the camera (MVMVA, >> 12) and added to its
+    translation in quarters."""
+    dx, y, dz = offset
+    dx = dx - 0x48000 if dx > 0x23FFF else dx + 0x48000 if dx < -0x24000 else dx
+    dz = dz - 0x38000 if dz > 0x1BFFF else dz + 0x38000 if dz < -0x1C000 else dz
+    drop = 0 if player else curve_drop(gte, rotation, translation, height, dx, dz, curve)
+    place = [quarter(dx), quarter(y - height + (0 if player else lift) - drop), quarter(dz)]
+    return [quarter(t) + (sum(rotation[3 * k + i] * s16(place[i]) for i in range(3)) >> 12)
+            for k, t in enumerate(translation)]
 
 
 def put_vector(gte, reg: int, x: int, y: int, z: int):

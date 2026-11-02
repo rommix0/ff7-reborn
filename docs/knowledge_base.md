@@ -764,8 +764,7 @@ from `0x801D0000` as the file is, the same on all three discs. A field script op
   `0x8014A600`, LZS):
   - The file: 2 sections; section 0 the models (a count, a pointer to the first header, a size; every pointer already
     a RAM address for that load address), section 1 the images (a count at 4, then w, h, x, y and an offset per
-    image; `func_800C0808` loads them). The other models (ids 3 up) are the container's section 0, at `0x8013A800`
-    (`func_800B6EFC`; not drawn in the lab frames, not checked).
+    image; `func_800C0808` loads them). The other models: see "the world's other models" below.
   - A model's 0x24-byte header is its instance: on, mode, bone, part and animation counts, root angles, a scale at
     `0x16` (`0x200`), the parts' and animations' offsets from the base pointer at `0x1C`, the bone matrices at `0x20`.
     At the base, 4 bytes a bone (s16 length, s8 parent, a byte: copy its matrix out).
@@ -788,10 +787,38 @@ from `0x801D0000` as the file is, the same on all three discs. A field script op
   - Drawing (`func_800C0B48`): per part under its bone's matrix, the vertices projected, a polygon facing the camera
     (`nclip` > 0) linked at its average depth (`avsz3`; a quad's four over 16), no clipping. Textured ones take a
     texture byte (word 0-15, `0x10` semi-transparent, `0x60` blend): the word's palette and page.
+- **The world's other models** (`func_800B6EFC` finds a model by id, 0-42):
+  - Ids 3-31 are in the container's section 0 (read to `0x8013A800`, its pointers already absolute), as the row of
+    `D_800C7114` for that container gives them (32 bytes a container, a 1-based header or -1; `func_800B6B28`). The
+    container is the world loader's argument: `WM0`-`WMA.TXZ` (stages of the story: 10 to 13 models), `WMB` and
+    `WMC` for maps 2 and 3 (`D_800C744C`; `WMn.TXZ` and `WMnS.TXZ` share their models and images and differ in the
+    terrain's textures). Section 1 holds their images.
+  - Ids 32-42 are `WM3.BSZ`'s 11 models (read on demand to `0x8016D000`, `func_800B6C84`): nine party members and two
+    chocobos. Ids 0-2 are the party leader's file.
+  - Only the leader and ids 32-40 are lit at load; the container's models keep their file colours. Seen in the lab:
+    3 the Highwind, 4 a wild chocobo, 7 the Tiny Bronco, 13 the submarine, 19 the party's chocobo.
+  - Tints (`func_800B624C`, `func_800C2450`): an (r, g, b) offset from `D_800C70DC` (7 of them) added to every colour
+    of a model's packets, each channel held to 0-255 (`gpl` with the offset in the accumulators). Spawning model 4
+    takes tint 0 (`func_800A9334`); script command `0x34B` n tints model 19 with n (4: yellow, (69, 17, -147)),
+    `0x34C` n tints model 13 with n + 5.
+  - Entities: a list from `D_8010AD38` (`+0` next), 0xE0 bytes each: x, y, z at `+0xC`, facing `+0x3C` + `+0x3E`, a
+    lift `+0x44`, the ground's height `+0x48` and type `+0x4A` (the triangle's type byte, low 5 bits), model id
+    `+0x50`, flags `+0x51` (2: drawn), the frame `+0x53`.
+  - Placed (`func_800AAB18`, `func_800A36AC`): its offset from the focus (wrapped round the world), y less the
+    camera's height plus the lift, less the curve's drop, each in quarters (C division), turned by the camera
+    (`MVMVA`) and added to the camera's translation in quarters; then posed as the leader is. The player takes no
+    lift and no drop. The drop (`func_800AA8F8`): the point at the camera's height through `rtps`, ((SZ >> 2) - curve)²
+    >> 12 plus SX² >> 10 if the first is past the curve, over 4.
+  - Drawn after the terrain is linked: where both share an ordering-table entry the model is drawn last.
+  - A frame past the animation's end starts it over (the last frame with flag `0x20`).
+  - Mode `0x0C` (the submarine at the surface) cuts it at the water (`func_800C4148`, 0xE6C bytes; not decoded);
+    ids 0x11, 0x12, 0x1A, 0x1B, 0x1C and 0x1E fade with distance (`func_800C5CD4`).
 - **Shadows** (`func_800B5C7C`, `func_800B59F4`): a subtracting textured quad (palette `0x7CC4`, page `0x59`) in the
-  entity, grey `0x20` and 100 by 100 (half) while it stands on the ground, smaller and paler as it rises, scaled per
-  model (a table); at the ground under it, turned by its facing + `0x800` under the camera; linked at its nearest
-  corner's depth >> 4. Cloud's texture rectangle is (24, 56) 15 by 15.
+  entity, grey `0x20` less (height above the ground >> 8) and 100 less (height >> 6) by as much (half), scaled by
+  model (`jtbl_800A0828`: the Highwind 2 by 6 times, model 11 6 by 12, the chocobos 4, 19, 41, 42 1.5 times); at the
+  ground under it, turned by its facing + `0x800` (and the roll · 4) under the camera; linked at its nearest corner's
+  depth >> 4. Cloud's texture rectangle is (24, 56) 15 by 15. Cast where the ground's type is in `0x311B6F05`, and
+  by models 3 and 11 anywhere.
 - **Checked against the lab:**
   - Near Midgar, frame 3300 of a new game warped to the world map, and the same at frame 3480 after R2 (view 1,
     mid-turn), with the sky in sight: the 16 meshes in RAM are the decoded ones byte for byte, the texture table is
@@ -802,7 +829,16 @@ from `0x801D0000` as the file is, the same on all three discs. A field script op
     (228, 156)). The camera and zones rebuilt from their tables give the dumps' matrices and colours exactly, and the
     viewer's frame for that spot, from the disc alone, is the lab's pixel for pixel but the minimap.
   - The game's packet buffers hold 5 terrain triangles more than it links: they're never drawn.
-  - Not checked: maps 2 and 3, models other than the party leader, the minimap, the sun.
+  - Saves 29, 46 and 56 of a playthrough continued in the lab (Gold Saucer area, Junon area on discs 2 and 3), dumped
+    at frame 3200: from the dumps' camera and entities, `tools/world.py` builds the game's packets word for word for
+    the Highwind (143 and 144), the Tiny Bronco (34), the tinted chocobo (130, at the frame two ticks before its
+    counter: the ordering table shown is the frame before's) and the leader (138, 128; 149 of 151 in save 56); the
+    submarine at the surface matches on 36 of 160 (its cut at the water isn't done).
+  - The World tab's frame for save 46's spot, with the dump's entities and its camera's eased values (its tilt
+    stopped at 1797 of 1800 and centre row at 157 of 160), is the game's pixel for pixel in the terrain, the Highwind
+    and Cloud; the Tiny Bronco's propellers turn by something not decoded, a hidden entity's shadow shows, and the
+    sky's scroll differs.
+  - Not checked: maps 2 and 3, the minimap, the sun.
 
 ## 3. Code: what is recovered and what isn't
 
@@ -1531,9 +1567,10 @@ same set). They give the original module and file split, and the staff folders b
   lists and motion, shadows, the camera's integers, the opening's eases, an attack's script and an attack camera.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
   a repacker that keeps an LZS stream up to a change; the world map's frame (§2, `WORLD/WM*.MAP`): meshes, block
-  swaps, textures, light zones, the camera, the sky, the party leader's model (posed and lit) and shadows, drawn
-  through the port's GTE; `tools/test_world.py` checks the encoding, the table, the repacker, the map's layout, the
-  zones, the camera, the models and the draws with a stand-in GTE.
+  swaps, textures, light zones, the camera, the sky, the models (the party leader's, the containers', `WM3.BSZ`'s:
+  posed, lit, tinted, placed round the focus) and shadows, drawn through the port's GTE; `tools/test_world.py` checks
+  the encoding, the table, the repacker, the map's layout, the zones, the camera, the models, their places and the
+  draws with a stand-in GTE.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
   frame); each in-memory one a silent 30 fps AVI, found by matching file sizes against `MOVIE_ID.BIN`. The JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
   exactly, so nothing is re-encoded. Checked on `MK8.STR` against ffmpeg's MDEC decoder: the planes agree to ±1
