@@ -319,10 +319,13 @@ A movie name found on several discs has the same contents on each, so the PC por
     - `func_800A14D8` starts reading the nearest exit's background early.
   - **12 triggers** at `0x158`, 16 bytes each: a line, a background group (`FF` unused), a bit, a kind and a sound
     (one of 4).
-    - Even kinds set the bit when the player touches the line; odd kinds clear it. Kinds 2–5 also do the opposite
-      when the player leaves it (4 and 5 only on one side).
+    - Even kinds set the bit while the player touches the line (within the collision radius, and facing within
+      `0x40` of the nearest point or standing on it); odd kinds clear it. Kinds 2–5 do the opposite every frame the
+      player doesn't (4 and 5 only on one side of the line); 0 and 1 never undo. The sound plays only when the
+      bit changes.
     - At load, even kinds start with the bit clear and odd kinds with it set.
-  - **A flag per exit** at `0x218` draws an arrow at the line's middle (`func_800ABFE8`).
+  - **A flag per exit** at `0x218` draws an arrow at the line's middle (`func_800ABFE8`: the middle in 3D,
+    halved toward 0, projected; a 16×16 sprite at −7, −8 from it; skipped when its x and y are 0).
   - **12 markers** at `0x224` (x, y, z as `u32`s read as `s16`, and a kind: 0 off, 2 drawn with the palette at (256, 488), others with
     the default one).
 - **Section 6, random encounters:** two tables of 24 bytes; `btltb` (`4B`) picks one (`D_8009AC30`), and

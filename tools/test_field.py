@@ -1,3 +1,4 @@
+import json
 import random
 
 from field import LOAD, HANDLERS, PRINTER, assemble, background_json, background_raw, camera_json, camera_raw, \
@@ -125,6 +126,23 @@ assert sec[0x38:0x50] == bytes.fromhex("010002000300 040005000600 f6ff 1400 0700
 assert sec[0x50 + 0x12:0x50 + 0x14] == b"\xff\x7f" and sec[0x158 + 12] == 0xFF
 assert sec[0x168:0x178] == bytes.fromhex("000000000000 090009000900 01020503")
 assert sec[0x224:0x234] == bytes.fromhex("c2fb0000 00000000 05000000 02000000")
+# What the field can't take: map 7FFF and group FF mean an unused slot; a trigger's bit is one of 8, its kind one of
+# 6, its sound one of 4 (a table of 4 on the stack), its group one of the 64 a tile can be in; a value out of its
+# field's range; anything that moves the section off 740 bytes.
+for path, value in ((("exits", 0, "map"), 0x7FFF), (("triggers", 1, "group"), 0xFF), (("triggers", 1, "group"), 64),
+                    (("triggers", 1, "bit"), 8), (("triggers", 1, "kind"), 6), (("triggers", 1, "sound"), 4),
+                    (("exits", 0, "triangle"), -1), (("exits", 0, "line"), [[1, 2, 3]]), (("unread",), "00")):
+    wrong = json.loads(json.dumps(m))
+    *at, key = path
+    target = wrong
+    for k in at:
+        target = target[k]
+    target[key] = value
+    try:
+        map_raw(wrong)
+        raise AssertionError(path)
+    except (ValueError, OverflowError):
+        pass
 
 # Section 6, two encounter tables: on, a rate (bigger, rarer), six battles with chances out of 64, four special ones.
 tables = [{"on": 1, "rate": 128, "battles": [[301, 24], [302, 22], [303, 18], [0, 0], [0, 0], [0, 0]],

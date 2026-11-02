@@ -81,8 +81,8 @@ python tools/model.py build models assets
 View them with `tools/model_editor.py` (the start of the editor `docs/model_editor.md` plans; it needs
 imgui-bundle, moderngl and numpy): pick a party member or any map's model, turn it about, play its animations. Beside
 the view, a PS1 view draws it with the PC port's own GPU (`make editor` builds that), the way the game sends it. Its
-Maps tab draws a map's whole background with that GPU, the walkmesh, exits (with where they lead), triggers and
-arrows over it, layers and tile groups (doors, lights, animations) to turn on and off:
+Maps tab draws a map's whole background with that GPU, the walkmesh, exits (with where they lead), triggers,
+arrows and markers over it, layers and tile groups (doors, lights, animations) to turn on and off:
 
 ```bash
 pip install -r tools/requirements-editor.txt

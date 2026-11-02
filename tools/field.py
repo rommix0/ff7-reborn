@@ -564,6 +564,11 @@ def map_raw(m: dict) -> bytes:
     def coords(*values: int) -> bytes:
         return b"".join(v.to_bytes(2, "little", signed=True) for v in values)
 
+    def ends(line: list) -> bytes:
+        if len(line) != 2 or any(len(end) != 3 for end in line):
+            raise ValueError("map: a line is two ends of x, y, z")
+        return coords(*line[0], *line[1])
+
     if not len(m["exits"]) == len(m["triggers"]) == len(m["arrows"]) == len(m["markers"]) == 12:
         raise ValueError("map: 12 exits, triggers, arrows and markers")
     unread = bytes.fromhex(m["unread"])
@@ -575,14 +580,25 @@ def map_raw(m: dict) -> bytes:
         if e is None:
             out += bytes(0x12) + b"\xff\x7f" + bytes(4)
             continue
-        out += coords(*e["line"][0], *e["line"][1], e["x"], e["y"]) + e["triangle"].to_bytes(2, "little")
+        if e["map"] == 0x7FFF:
+            raise ValueError("map: exit to map 7FFF, which marks an unused slot (null)")
+        out += ends(e["line"]) + coords(e["x"], e["y"]) + e["triangle"].to_bytes(2, "little")
         out += e["map"].to_bytes(2, "little") + bytes([e["facing"]] + e.get("unread", [e["facing"]] * 3))
     for t in m["triggers"]:
-        out += bytes(12) + b"\xff" + bytes(3) if t is None else \
-            coords(*t["line"][0], *t["line"][1]) + bytes([t["group"], t["bit"], t["kind"], t["sound"]])
+        if t is None:
+            out += bytes(12) + b"\xff" + bytes(3)
+            continue
+        # func_800AA5E4: the bit shifts a byte, kinds past 5 do nothing, the sound picks from a table of 4; a tile's
+        # group has 6 bits (FF marks an unused slot)
+        if not (t["group"] < 64 and t["bit"] < 8 and t["kind"] < 6 and t["sound"] < 4):
+            raise ValueError("map: a trigger's group is 0-63, bit 0-7, kind 0-5, sound 0-3")
+        out += ends(t["line"]) + bytes([t["group"], t["bit"], t["kind"], t["sound"]])
     out += bytes(m["arrows"])
-    return out + b"".join(coords(x) + bytes(2) + coords(y) + bytes(2) + coords(z) + bytes(2) +
-                          kind.to_bytes(4, "little") for x, y, z, kind in m["markers"])
+    out += b"".join(coords(x) + bytes(2) + coords(y) + bytes(2) + coords(z) + bytes(2) + kind.to_bytes(4, "little")
+                    for x, y, z, kind in m["markers"])
+    if len(out) != 740:
+        raise ValueError(f"map: {len(out)} bytes, not 740 (a line has two x, y, z; unread is 12 bytes, an exit's 3)")
+    return out
 
 
 def encounters_json(sec: bytes) -> list[dict]:
@@ -702,6 +718,16 @@ def module(disc: Path) -> bytes:
     return gzip.decompress((disc / "FIELD/FIELD.BIN").read_bytes()[8:])
 
 
+def map_names(disc: Path) -> list[str]:
+    """Each field id's map, from FIELD.BIN's table of where each map's .DAT, .MIM and .BSX lie."""
+    by_sector = {int(r[0]): r[3] for r in (line.split(maxsplit=3) for line in
+                                            (disc / "files.txt").read_text().splitlines())}
+    image, out = module(disc), []
+    while by_sector.get(u32(image, MAPS + 24 * len(out)), "").endswith(".DAT"):
+        out.append(Path(by_sector[u32(image, MAPS + 24 * len(out))]).stem)
+    return out
+
+
 PARTS = {"walkmesh": (1, walkmesh_json, walkmesh_raw), "background": (2, background_json, background_raw),
          "camera": (3, camera_json, camera_raw), "map": (4, map_json, map_raw),
          "encounters": (5, encounters_json, encounters_raw), "models": (6, models_json, models_raw)}
@@ -735,7 +761,7 @@ def build(folder: Path, assets: Path):
             changed.append(f"FIELD/{original.stem}")
             kernel.replace(disc, changed[-1], original.read_bytes())
         image = bytearray(module(disc))
-        names = op_names(image)
+        names, ids = op_names(image), map_names(disc)
         for path in sorted(folder.glob("*.json")):
             name = f"FIELD/{path.stem}.DAT"
             dat = lzs((disc / name).read_bytes())
@@ -745,7 +771,9 @@ def build(folder: Path, assets: Path):
                 for key, (i, _, to_raw) in PARTS.items():
                     if key in table:
                         secs[i] = to_raw(table[key])
-            except (ValueError, KeyError, TypeError) as e:
+                if any(e and e["map"] >= len(ids) for e in table.get("map", {}).get("exits", [])):
+                    raise ValueError(f"map: an exit to a map past the last ({len(ids) - 1})")
+            except (ValueError, OverflowError, KeyError, TypeError) as e:
                 raise SystemExit(f"{path}: {e!r}")
             new = dat_raw(secs)
             if new == dat:

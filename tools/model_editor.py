@@ -10,7 +10,7 @@ its walkmesh, exits, triggers and arrows over it.
 A character on a map (MD1STIN.BSX:0) has that map's lights, textures and animations added to its own; on its own
 (CLOUD.BCX) it shows its colours unlit and untextured. Drag to turn the view, the wheel to zoom. A map shows each
 tile group in its first state (the scripts pick the rest); the Maps tab turns layers, overlays and groups on and
-off. Walkmesh edges are green, walls white, exits red, triggers yellow.
+off. Walkmesh edges are green, walls white, exits red, triggers yellow, arrows cyan, markers magenta.
 """
 import argparse
 import ctypes
@@ -226,16 +226,6 @@ def names(disc: Path) -> list[str]:
     return out
 
 
-def map_ids(disc: Path) -> list[str]:
-    """Each field id's map, from FIELD.BIN's table of where each map's .DAT, .MIM and .BSX lie."""
-    by_sector = {int(r[0]): r[3] for r in (line.split(maxsplit=3) for line in
-                                            (disc / "files.txt").read_text().splitlines())}
-    image, out = field.module(disc), []
-    while by_sector.get(field.u32(image, field.MAPS + 24 * len(out)), "").endswith(".DAT"):
-        out.append(Path(by_sector[field.u32(image, field.MAPS + 24 * len(out))]).stem)
-    return out
-
-
 class FieldMap:
     """A map as the field draws it: its .MIM in VRAM (func_800A2D5C: a palette block LoadImage'd at (0, 480), one or
     two 8-bit page blocks, each a u32 length and x, y, w, h), its background tiles and what it places in 3D."""
@@ -297,7 +287,9 @@ def draw_line(rgb: np.ndarray, a: np.ndarray, b: np.ndarray, color: tuple[int, i
 
 
 def overlay(rgb: np.ndarray, origin: tuple[int, int], fm: FieldMap, show: set[str]):
-    """The walkmesh (green, a wall edge white), exits (red), triggers (yellow) and arrows (cyan) on the background."""
+    """The walkmesh (green, a wall edge white), exits (red), triggers (yellow), arrows (cyan) and markers (magenta) on
+    the background. The arrows and markers go where func_800ABFE8 projects them: an exit's line's middle in 3D
+    (halved toward 0; skipped at x = y = 0), a marker's point."""
     o = np.array(origin)
     if "walkmesh" in show:
         for t in fm.walkmesh["triangles"]:
@@ -313,10 +305,17 @@ def overlay(rgb: np.ndarray, origin: tuple[int, int], fm: FieldMap, show: set[st
                         draw_line(rgb, xy[0] + d, xy[1] + d, color)
     if "arrows" in show:
         for e, on in zip(fm.map["exits"], fm.map["arrows"]):
-            if e and on:
-                x, y = (fm.project(np.array(e["line"], float)).mean(0) - o).astype(int)
+            middle = np.trunc(np.array(e["line"], float).sum(0) / 2) if e else np.zeros(3)
+            if on and middle[:2].any():
+                x, y = (fm.project(middle[None])[0] - o).astype(int)
                 draw_line(rgb, np.array([x - 4, y - 6]), np.array([x, y]), (0, 255, 255))
                 draw_line(rgb, np.array([x + 4, y - 6]), np.array([x, y]), (0, 255, 255))
+    if "markers" in show:
+        for *point, kind in fm.map["markers"]:
+            if kind:
+                x, y = (fm.project(np.array([point], float))[0] - o).astype(int)
+                for d in range(-3, 4):
+                    draw_line(rgb, np.array([x - 3, y + d]), np.array([x + 3, y + d]), (255, 0, 255))
 
 
 class Renderer:
@@ -503,7 +502,7 @@ def map_shot(disc: Path, name: str, out: Path):
     rgb, origin = Ps1View().background(fm, {0, 1, 2, 3}, fm.first_states())
     if rgb is None:
         raise SystemExit("the PS1 view's library isn't built: make editor")
-    overlay(rgb, origin, fm, {"walkmesh", "exits", "triggers", "arrows"})
+    overlay(rgb, origin, fm, {"walkmesh", "exits", "triggers", "arrows", "markers"})
     write_png(out, rgb)
 
 
@@ -511,11 +510,11 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
     """The window; frames, if given, closes it after that many (to check it runs)."""
     from imgui_bundle import hello_imgui, imgui, immapp
 
-    models, maps, map_ids_ = names(disc), [p.stem for p in field.maps(disc)], map_ids(disc)
+    models, maps, map_ids_ = names(disc), [p.stem for p in field.maps(disc)], field.map_names(disc)
     state = {"choice": start or models[0], "frames": 0, "anim": 0, "frame": 0.0, "play": True, "yaw": 0.6,
              "pitch": 0.2, "zoom": 1.0, "ps1": True, "renderer": None, "model": None, "center": None,
              "distance": 1.0, "filter": "", "map_filter": "", "map_zoom": 2.0, "layers": {0, 1, 2, 3},
-             "overlays": {"walkmesh", "exits", "triggers", "arrows"}, "vram": "model"}
+             "overlays": {"walkmesh", "exits", "triggers", "arrows", "markers"}, "vram": "model"}
 
     def choose(name: str):
         state["choice"], state["model"] = name, load(disc, name)
@@ -571,7 +570,7 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
             if imgui.checkbox(f"{layer + 1}", layer in state["layers"])[0]:
                 state["layers"] ^= {layer}
                 changed = True
-        for key in ("walkmesh", "exits", "triggers", "arrows"):
+        for key in ("walkmesh", "exits", "triggers", "arrows", "markers"):
             if imgui.checkbox(key, key in state["overlays"])[0]:
                 state["overlays"] ^= {key}
                 changed = True

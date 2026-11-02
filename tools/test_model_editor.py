@@ -1,6 +1,6 @@
 import numpy as np
 
-from model_editor import FieldMap, Model, Ps1View, texture
+from model_editor import FieldMap, Model, Ps1View, overlay, texture
 
 # A texture word: kind (0, 1: in the model's slot of one of two areas, the palette in the slot's row; 2: where it
 # is), depth, texture page, palette x / 16 and y.
@@ -48,4 +48,14 @@ if ps1.gpu:
 # 3D to background pixels: the camera's rotation (4.12) and translation, then x and y times H over the depth.
 fm.camera = {"rotation": [[4096, 0, 0], [0, 4096, 0], [0, 0, 4096]], "translation": [0, 0, 1000], "distance": 500}
 assert fm.project(np.array([[100.0, 50.0, 0.0]])).tolist() == [[50.0, 25.0]]
+
+# An exit's arrow at its line's middle in 3D, projected (func_800ABFE8), not halfway between the projected ends; a
+# marker that's on (kind not 0) at its point.
+fm.camera["distance"] = 1000
+fm.map = {"exits": [{"line": [[0, 0, 0], [60, 0, 3000]]}] + [None] * 11, "arrows": [1] + [0] * 11,
+          "triggers": [None] * 12, "markers": [[0, -20, 0, 1]] + [[0, 0, 0, 0]] * 11}
+rgb = np.zeros((64, 64, 3), np.uint8)
+overlay(rgb, (-32, -32), fm, {"arrows", "markers"})
+assert tuple(rgb[32, 44]) == (0, 255, 255) and not rgb[32, 39:42].any()  # (30, 0, 1500) lands at x 12
+assert tuple(rgb[12, 32]) == (255, 0, 255)
 print("ok")
