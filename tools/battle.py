@@ -7,6 +7,8 @@ body animations from 2, each one's weapon animation 52 on, then a TIM and 16 wea
 func_800CD400). An enemy's TIM is last; one with a weapon (section 1 byte 2 bit 7) has 16 body and 16 weapon
 animations and the weapon just before the TIM (func_800B54B8).
 """
+import gzip
+import math
 import struct
 from pathlib import Path
 
@@ -172,3 +174,112 @@ def model_json(d: bytes, party: bool, weapon: int = 0) -> dict:
 def files(disc: Path) -> list[Path]:
     """The battle's models: SEFFECT.LZS, the effects' own, isn't one."""
     return [p for p in sorted(disc.glob("ENEMY[1-6]/*.LZS")) if p.stem != "SEFFECT"]
+
+
+def stage_json(d: bytes) -> dict:
+    """A stage (STAGEn/STAGEnn.LZS, location nn): section 0 a type and a first section, the models (parts in world
+    coordinates) and the TIM last. func_800B9568 draws a model in one of three lists: the far layer (16 coarse
+    depths) first, then the backdrop (one list, the last linked drawn first), then the main ordering table with the
+    actors. Type 1 (most stages) puts section 1 and 5 up to first in the backdrop, 2-4 in the far layer; type 5 the
+    same with the backdrop's in the main table. Types 0, 2, 3 and 4 (a train, an elevator shaft, two with spinning
+    parts) move some of their models each frame; they're drawn where they start (type 4's spinning ones 2500 up)."""
+    s = sections(d)
+    kind, first = s[0][0], s[0][1]
+    out = {"type": kind, "models": [], "tim": tim(s[-1])}
+    for k in range(1, len(s) - 1):
+        match kind:
+            case 1 | 5:
+                far = 2 <= k <= 4
+                layer = "far" if far else "backdrop" if kind == 1 and k < first else "main"
+            case 0:
+                layer = "far" if 2 <= k <= 4 else "main"
+            case 3:
+                layer = "backdrop" if k == 1 else "far" if k <= 4 else "main"
+            case 4:
+                layer = "far" if k <= 5 else "backdrop"
+            case _:
+                layer = "main"
+        part = part_json(s[k], 0, 0)
+        if kind == 4 and k >= 6:
+            part["vertices"] = [[x, y - 2500, z] for x, y, z in part["vertices"]]
+        out["models"].append({"section": k, "layer": layer, "part": part})
+    return out
+
+
+def moved(table: dict, page: int, rows: int) -> dict:
+    """A model's parts and TIM where func_800D2980 loads them: the image moved by a texture page word's worth (party
+    slot 0, 1, 2: 0, 0x10, 0x11; enemy model j: 0x12 + j), the palettes down rows (3 an actor, func_800C62F4)."""
+    dx, dy = (page & 15) * 64, (page >> 4 & 1) * 256
+    blocks = [(x, y + rows, w, h, data) for x, y, w, h, data in table["tim"][:-1]]
+    x, y, w, h, data = table["tim"][-1]
+    parts = []
+    for part in table["parts"]:
+        words = []
+        for word in part["textures"]:
+            w_ = int(word, 16)
+            w_ += (page & 15) << 8 | (page >> 4 & 1) << 12 | rows << 22
+            words.append(f"{w_:08X}")
+        parts.append(part | {"textures": words})
+    return table | {"parts": parts, "tim": blocks + [(x + dx, y + dy, w, h, data)]}
+
+
+def module(disc: Path) -> bytes:
+    """BATTLE.X as it runs at 0x800A0000 (gzip after an 8-byte header)."""
+    return gzip.decompress((disc / "BATTLE/BATTLE.X").read_bytes()[8:])
+
+
+PARTY_THREE, PARTY_TWO, PARTY_FACING = 0x800E8E84, 0x800E8F28, 0x800E8F94  # BATTLE.X tables, per layout
+
+
+def placement(module: bytes, setup: dict, members: int) -> list[tuple[tuple[int, int, int], int]]:
+    """Where the party (members of them) and then the setup's enemies stand, and their turn about y (4096 a turn).
+    The party's places come from BATTLE.X's tables by the setup's layout (func_800B4794: one member takes the
+    three's first at x 0, two their own table; front row); its facing from another (func_800B46B4; 0 in layout
+    2). Enemies stand at their formation places, facing the party: turned half round when on the far side (z < 0,
+    or z >= 0 in layouts 3, 5, 6 and 7), not in layout 1 (func_800B5138)."""
+    layout = setup["layout"]
+
+    def s16s(address: int, n: int) -> tuple:
+        return struct.unpack_from(f"<{n}h", module, address - 0x800A0000)
+
+    out = []
+    for slot in range(members):
+        if members == 2:
+            x, y, z = s16s(PARTY_TWO + layout * 12 + slot * 6, 3)
+        else:
+            x, y, z = s16s(PARTY_THREE + layout * 18 + slot * 6, 3)
+            x = 0 if members == 1 else x
+        facing = 0 if layout == 2 else s16s(PARTY_FACING + layout * 6 + slot * 2, 1)[0] & 0xFFFF
+        out.append(((x, y, z), facing))
+    for enemy in setup["formation"]:
+        if enemy["enemy_id"] == 0xFFFF:
+            continue
+        z = enemy["z"]
+        far = z >= 0 if layout in (3, 5, 6, 7) else z < 0
+        out.append(((enemy["x"], enemy["y"], z), 2048 if far and layout != 1 else 0))
+    return out
+
+
+def normal(v: list[int]) -> list[int]:
+    """libgte's VectorNormal: v scaled to about 4096 long, as the GTE does it (sqr, the leading zeros of the sum
+    rounded down to even, a 1 / root from a table of 192 entries, floor(32768 / sqrt(64 + i)), then gpf and a
+    shift). Its results run a little long (4102 for 4096)."""
+    v = [(c + 0x8000 & 0xFFFF) - 0x8000 for c in v]
+    total = sum(c * c for c in v)
+    zeros = 32 - total.bit_length() & ~1
+    top = total << zeros - 24 if zeros >= 24 else total >> 24 - zeros
+    return [math.isqrt((1 << 30) // top) * c >> (31 - zeros >> 1) for c in v]
+
+
+def look_at(eye, target) -> tuple[list[list[int]], list[int]]:
+    """The battle camera (func_800D85B0), in the GTE's integers: rows x, y, z (4096 being 1) with z towards the
+    target (its z nudged off 0), x = z x up, y = z x x (op, the up vector (0, -4096, 0), each >> 12), so view space is
+    x right, y down, z ahead; and the translation -(R eye >> 12)."""
+    def op(d, ir):
+        return [d[1] * ir[2] - d[2] * ir[1] >> 12, d[2] * ir[0] - d[0] * ir[2] >> 12, d[0] * ir[1] - d[1] * ir[0] >> 12]
+
+    z = normal([t - e for t, e in zip(target, eye)])
+    z[2] += z[2] == 0
+    x = normal(op(z, [0, -4096, 0]))
+    rows = [x, normal(op(z, x)), z]
+    return rows, [-(sum(r[k] * eye[k] for k in range(3)) >> 12) for r in rows]

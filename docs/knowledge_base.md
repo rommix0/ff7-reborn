@@ -492,6 +492,51 @@ own format, not a model):
   (`D_80151A58 +` actor `x 0xB9C`, `0x34` bytes a bone). Posed, every bone is within 2.5 units of the game's own
   matrices relative to the root, and the angles within the GTE's fixed point.
 
+**A battle as `BATTLE.X` sets it up** (`tools/model_editor.py` draws one; battle N is `SCENE.BIN` scene N // 4, setup
+N % 4):
+- **The stage** (`STAGE1/STAGE00..49.LZS`, `STAGE2/STAGE50..89.LZS`; `func_800B383C` reads the setup's location
+  through the table `D_800E7D98`, a sector and a size per location, which says the same): sections of a `u32` count
+  and offsets (bit 31 of one, never set, would draw that model semi-transparent).
+  - Section 0 is 8 bytes: a type and a first section. The last is the TIM: 8-bit, at (384, 0) and palettes at
+    (320, 504-511), loaded where it says. The rest are models, battle parts (as above) in world coordinates.
+  - `func_800B9568` draws each into one of three lists, drawn in this order: the far layer (16 coarse depths), the
+    backdrop (one list, so the last linked is drawn first), then the main ordering table, which the actors share.
+  - Type 1 (83 of the 90 stages on disc 1): section 1 and 5 up to first in the backdrop, 2-4 the far layer, first
+    on the main table. Type 5 is type 1 with the backdrop's sections on the main table. Types 0 (a train), 2 (an
+    elevator shaft), 3 and 4 move models every frame (`func_800BA11C`, `func_800BA2BC`): scrolled, bobbing or
+    spinning; type 4's spinning ones hang 2500 up.
+  - A stage is unlit and nothing in one on disc 1 is semi-transparent.
+- **The camera** (`func_800D85B0`, each frame): the eye and target from the camera scripts (`CAMDAT*.LZS`, or
+  `BATTLE.X`'s own for a setup's `camera_script`), which ease to the setup's camera 0 as the battle opens.
+  - z = `VectorNormal(target - eye)` (its z nudged off 0), x = `VectorNormal(z x (0, -4096, 0))`, y =
+    `VectorNormal(z x x)`, the products by the GTE's `op` (>> 12); the rows x, y, z; the translation
+    -(R eye >> 12). View space: x right, y down, z ahead.
+  - `VectorNormal` (libgte, `0x8003A0E8`): the squares' sum, its leading zeros rounded down to even, a 1/root
+    from a 192-entry table that is floor(32768 / sqrt(64 + i)), then `gpf` and a shift. Its vectors come out a
+    little long.
+  - H is 512 and the centre (160, 120) (`func_800B30E4`, `func_800D91DC`). The draw area is rows 8-165, so the
+    menu, drawn over the rest, isn't on top of anything 3D.
+  - The stage and actors are drawn with the previous frame's camera (`func_800B9568` runs before the camera
+    update).
+- **Places** (`func_800B4794`, `func_800B5138`):
+  - Enemies stand at their formation places. One on the far side (z < 0, or z >= 0 in layouts 3, 5, 6 and 7) is
+    turned half round, except in layout 1.
+  - The party's places come from `BATTLE.X`'s tables by layout: 3 members `D_800E8E84`, 1 the same with x 0, 2
+    `D_800E8F28`. The back row moves 0x204 back. Their facings come from `D_800E8F94` (0 in layout 2).
+  - An actor's node is `RotMatrixYXZ` of its turn under the camera; its bones hang on it.
+- **Textures** (`func_800D2980`): a party member's TIM goes a texture page word of 0, 0x10 or 0x11 on by slot, an
+  enemy model's of 0x12 + its place in the scene (0x13 + at location 0x4E). The polygons' page words get the same
+  addition, and each actor's palettes sit 3 rows apiece from row 480 (`func_800C62F4`).
+- **Draw order:** `rtpt` (dropped nearer than H/2), `nclip`, then slot `avsz >> 2` in a 4096-entry table (ZSF3
+  0x155, ZSF4 0x100), the far layer `>> 10`.
+- **Checked against the lab** (battle `0x12C`, frame 13770, the opening camera settled):
+  - The camera rebuilt from the setup's camera 0 matches the game's matrix and translation exactly, as it does
+    in mid fly-in and in Cloud's spell.
+  - The stage's packets match the game's in position and colour.
+  - Drawn by the port's GPU, 99.1% of the 3D area outside the actors is the same pixel for pixel. With each
+    actor at its frame in RAM the whole area is 91.2%: the rest is the actors' shadows (a list of their own, not
+    traced) and a level or two of colour from posing in floating point.
+
 **`MENU/SHOPMENU.MNU`, the shops** (`tools/shop.py` dumps them to a JSON file and builds them back): the module runs
 from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
 - `0x42C8`: 9 shop titles, 20 bytes each ("Item Shop", "Weapon Shop", ...); `0x437C`: two sets of 10 clerk lines, 46
@@ -1272,8 +1317,9 @@ same set). They give the original module and file split, and the staff folders b
 - `tools/model_editor.py`: the field viewer, models and maps (`docs/model_editor.md`); its PS1 view and the maps'
   backgrounds are `pc/gpu.c` as a library (`make editor`, with `tools/ps1gpu.c`); `tools/test_model_editor.py`
   checks the texture words, packets, the background's draw order, the projection and how a map starts.
-- `tools/battle.py`: the battle's models (§2, `ENEMY1..6/*.LZS`) as the field's shapes, for the viewer;
-  `tools/test_battle.py` checks the animation bitstream, the layout and posing.
+- `tools/battle.py`: the battle's models (§2, `ENEMY1..6/*.LZS`) as the field's shapes, its stages, places and
+  camera, for the viewer; `tools/test_battle.py` checks the animation bitstream, the layouts, posing, loading
+  places, the stage's lists and the camera's integers.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
   a repacker that keeps an LZS stream up to a change; `tools/test_world.py` checks the encoding, the table and it.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
@@ -1591,8 +1637,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   - That renderer saves its registers below `$sp` without moving it. The BIOS runs root-counter callbacks on its own
     stack, so `irq_check` does too (`KERNEL_STACK`, in the kernel's untouched 64 KB): run on the game's stack, one
     clobbered the stage switch's `$s1` and the next model drawn was the stage's texture.
-  - A stage file (`STAGE09.LZS`, at `0x801590E4`) is a count, then offsets: section 0 is a type byte and a model
-    count, the models follow, and the last section is the stage's TIM. `func_800B9568` switches on the type.
+  - A stage file (`STAGE09.LZS`, at `0x801590E4`): see §2, a battle as `BATTLE.X` sets it up.
   - Spells and attacks are effect files: `MAGIC/*.BIN` (289, the same on all three discs; the 29 `.LZS` beside them
     are summon data), each loaded at `0x801B0000` when used. A header of 0 to 0x8C bytes (pointers into the file,
     sizes, colours) comes first, then the code (0x300 to 0xEB00 bytes, 1.8 MB in all), then models and textures.

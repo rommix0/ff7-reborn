@@ -1,11 +1,13 @@
 """The field viewer (the model editor to be): open the party's, each map's and the battle's models, turn them about,
-play their animations, shaded and textured as the game draws them; and each map as it starts, its background and
-characters drawn by the port's GPU, with its walkmesh, exits, triggers, arrows and markers over it.
+play their animations, shaded and textured as the game draws them; each map as it starts, its background and
+characters drawn by the port's GPU, with its walkmesh, exits, triggers, arrows and markers over it; and each battle,
+its stage, party and enemies as the battle sets them up.
 
   pip install -r tools/requirements-editor.txt
   python tools/model_editor.py assets
   python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --shot cloud.png
   python tools/model_editor.py assets --model ENEMY6/CLOUD.LZS:3 --shot battle_cloud.png
+  python tools/model_editor.py assets --battle 0x12C --party CLOUD --shot battle.png
   python tools/model_editor.py assets --map MD1STIN --story 1 --shot md1stin.png
 
 A character on a map (MD1STIN.BSX:0) has that map's lights, textures and animations added to its own; on its own
@@ -21,6 +23,7 @@ import ctypes
 import struct
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import moderngl
 import numpy as np
@@ -547,6 +550,17 @@ class Ps1View:
         c = np.stack([c & 31, c >> 5 & 31, c >> 10 & 31], 2)
         return (c << 3 | c >> 2).astype(np.uint8)
 
+    def battle(self, vram_: np.ndarray, packets: list[list[int]]) -> np.ndarray | None:
+        """A battle's packets (battle_scene) drawn as BATTLE.X's draw environment has it: dithered, clipped to rows
+        8-165 (the menu covers the rest)."""
+        if not self.gpu:
+            return None
+        self.vram[:] = vram_
+        words = [0xE1000200, 0xE3000000 | 8 << 10, 0xE4000000 | 165 << 10 | 319, 0xE5000000, 0xE6000000, 0x02000000,
+                 0, 240 << 16 | 320] + [w for p in packets for w in p]
+        self.gpu.gpu_gp0_words((ctypes.c_uint32 * len(words))(*words), len(words))
+        return self.screen()
+
     def background(self, fm: FieldMap, layers: set[int], shown: set[tuple[int, int]],
                    characters: tuple[np.ndarray, list] | None = None):
         """The whole background, drawn a screen at a time at (0, 0) of VRAM (no .MIM lies left of x 384), the
@@ -621,15 +635,16 @@ def shot(disc: Path, name: str, anim: int, frame: int, out: Path, yaw: float):
     write_png(out, np.ascontiguousarray(picture))
 
 
-def polygon_packets(m: Model, screen: list[np.ndarray], depth: list[np.ndarray]) -> list[tuple[int, list, list]]:
+def polygon_packets(m: Model, screen: list[np.ndarray], depth: list[np.ndarray],
+                    near: float = 1) -> list[tuple[int, list, list]]:
     """A model's polygons as the field links them (func_800AE4DC): back faces dropped (NCLIP), a quad at slot
     (SZ0 + SZ1 + SZ2 + SZ3) >> 4, a triangle at avsz3's (0x155 (SZ0 + SZ1 + SZ2)) >> 12; each its own packet, with
-    where its position words are."""
+    where its position words are. A polygon with a corner as near as near is dropped."""
     out = []
     for part, corners, code, shades, attributes in m.polygons:
         xy, d = screen[part][corners], depth[part][corners]
         area = (xy[1, 0] - xy[0, 0]) * (xy[2, 1] - xy[0, 1]) - (xy[2, 0] - xy[0, 0]) * (xy[1, 1] - xy[0, 1])
-        if d.min() <= 1 or area <= 0:
+        if d.min() <= near or area <= 0:
             continue
         words, points = [], []
         for i, (x, y) in enumerate(xy):
@@ -656,18 +671,100 @@ def map_shot(disc: Path, name: str, out: Path, story: int):
     write_png(out, rgb)
 
 
-def run(disc: Path, start: str | None, start_map: str | None = None, frames: int | None = None):
+def battle_scene(disc: Path, number: int, camera: int = 0, party: tuple = ("CLOUD",),
+                 frames: dict | None = None) -> tuple[np.ndarray, list]:
+    """Battle number (SCENE.BIN's scene number // 4, setup number % 4) as BATTLE.X sets it up, seen from the setup's
+    camera: its stage (location 0-49 in STAGE1, 50-89 in STAGE2, D_800E7D98's files), the party (ENEMY6 files) and
+    the enemies where placement puts them, each in its battle stance (animation 0; frames, if given, the frame for
+    an actor), its TIM loaded as func_800D2980 loads it. Returns VRAM and the packets in drawing order: the far
+    layer (16 depths), the backdrop (the last linked first), then the main ordering table (avsz >> 2), the stage's
+    linked before the actors'."""
+    raw = scene.read_scenes((disc / "BATTLE/SCENE.BIN").read_bytes())[number // 4]
+    table = scene.scene_json(raw)
+    setup = table["setups"][number % 4]
+    location = setup["location"]
+    stage = battle.stage_json(lzs((disc / f"STAGE{1 if location < 50 else 2}/STAGE{location:02d}.LZS").read_bytes()))
+    out = vram(disc, None)
+
+    def put(blocks: list):
+        for x, y, w, h, data in blocks:
+            out[y:y + h, x:x + w] = np.frombuffer(data, "<u2").reshape(h, w)
+
+    put(stage["tim"])
+    places = battle.placement(battle.module(disc), setup, len(party))
+    actors = []
+    for slot, (name, place) in enumerate(zip(party, places)):
+        loaded = battle.moved(battle.model_json(lzs((disc / f"ENEMY6/{name}.LZS").read_bytes()), True),
+                              (0, 0x10, 0x11)[slot], 3 * slot)
+        actors.append((slot, loaded, place))
+    enemies = [(k, e) for k, e in enumerate(setup["formation"]) if e["enemy_id"] != 0xFFFF]
+    for (k, enemy), place in zip(enemies, places[len(party):]):
+        path = next(disc.glob(f"ENEMY[1-6]/ENEMY{enemy['enemy_id']:03d}.LZS"))
+        page = (0x13 if location == 0x4E else 0x12) + table["enemy_ids"].index(enemy["enemy_id"])
+        actors.append((4 + k, battle.moved(battle.model_json(lzs(path.read_bytes()), False), page, 3 * (4 + k)), place))
+    turn, shift = battle.look_at(*[[c[f"{p}{a}"] for a in "xyz"] for p in ("", "target_")
+                                  for c in [setup["cameras"][camera]]])
+    turn, shift = np.array(turn, np.float32) / 4096, np.array(shift, np.float32)
+    linked = []  # (layer, bucket, words): far 0, backdrop 1, main 2
+
+    def link(m: Model, posed: list[np.ndarray], layers: list[str]):
+        screen, depth = [], []
+        for verts in posed:
+            v = verts @ turn.T + shift
+            z = np.maximum(v[:, 2], 1)
+            # the GTE's 512 projection about (160, 120), truncated, its screen x, y held to -1024..1023
+            screen.append(np.clip(np.floor(np.stack([160 + 512 * v[:, 0] / z, 120 + 512 * v[:, 1] / z], 1)),
+                                  -1024, 1023).astype(int))
+            depth.append(v[:, 2])
+        for rank, (layer, down) in enumerate((("far", 10), ("backdrop", None), ("main", 2))):
+            some = SimpleNamespace(polygons=[p for p in m.polygons if layers[p[0]] == layer])
+            # rtpt's divide overflows nearer than H / 2: such polygons are dropped
+            linked.extend((rank, 0 if down is None else otz >> down, words)
+                          for otz, words, _ in polygon_packets(some, screen, depth, 256))
+
+    scenery = Model([{"length": 0, "parent": -1}], [m["part"] for m in stage["models"]], [], None, [], 0, out)
+    link(scenery, scenery.posed(None, 0), [m["layer"] for m in stage["models"]])
+    for actor, loaded, ((x, y, z), facing) in actors:
+        put(loaded["tim"])
+        m = Model(loaded["bones"], loaded["parts"], loaded["animations"], None, [], 0, out)
+        anim = next((a for a in m.anims if a), None)
+        frame = (frames or {}).get(actor, 0) % anim["frames"] if anim else 0
+        place = np.array(model.rotation(0, facing / 16, 0), np.float32)
+        link(m, [v @ place.T + np.array([x, y, z], np.float32) for v in m.posed(anim, frame)], ["main"] * len(m.parts))
+    order = sorted(range(len(linked)), key=lambda i: (linked[i][0], -linked[i][1], -i))
+    return out, [linked[i][2] for i in order]
+
+
+def battle_shot(disc: Path, number: int, camera: int, party: tuple, out: Path):
+    rgb = Ps1View().battle(*battle_scene(disc, number, camera, party))
+    if rgb is None:
+        raise SystemExit("the PS1 view's library isn't built: make editor")
+    write_png(out, rgb)
+
+
+def run(disc: Path, start: str | None, start_map: str | None = None, frames: int | None = None,
+        start_battle: int | None = None):
     """The window; frames, if given, closes it after that many (to check it runs)."""
     from imgui_bundle import hello_imgui, imgui, immapp
 
     models, maps, map_ids_ = names(disc), [p.stem for p in field.maps(disc)], field.map_names(disc)
     enemies = enemy_names(disc)
     labels = {n: f"{n} {enemies.get(Path(n).stem, '')}".rstrip() for n in models}
+    scenes = [scene.scene_json(raw) for raw in scene.read_scenes((disc / "BATTLE/SCENE.BIN").read_bytes())]
+    battles = []  # the setups with a stage
+    for number in range(4 * len(scenes)):
+        table, setup = scenes[number // 4], scenes[number // 4]["setups"][number % 4]
+        if setup["location"] < 90:
+            who = [table["enemies"][table["enemy_ids"].index(e["enemy_id"])]["name"].strip()
+                   for e in setup["formation"] if e["enemy_id"] != 0xFFFF]
+            battles.append((number, f"{number:03X} {', '.join(who)} (stage {setup['location']:02d})"))
+    party_files = {p.stem for p in (disc / "ENEMY6").glob("*.LZS") if not p.stem.startswith("ENEMY")} - {"SEFFECT"}
     state = {"choice": start or models[0], "frames": 0, "anim": 0, "frame": 0.0, "play": True, "yaw": 0.6,
              "pitch": 0.2, "zoom": 1.0, "ps1": True, "renderer": None, "model": None, "center": None,
              "distance": 1.0, "filter": "", "map_filter": "", "map_zoom": 2.0, "layers": {0, 1, 2, 3},
              "overlays": {"walkmesh", "exits", "triggers", "arrows", "markers"}, "vram": "model", "story": 0,
-             "characters": True}
+             "characters": True, "battle": battles[0][0] if start_battle is None else start_battle,
+             "battle_filter": "", "camera": 0, "party": "CLOUD,BARRETT,TIFA", "battle_picture": None}
 
     def choose(name: str):
         state["choice"], state["model"] = name, load(disc, name)
@@ -764,6 +861,45 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         if changed:
             redraw()
 
+    def battles_gui():
+        imgui.begin_child("battles", imgui.ImVec2(300, 0))
+        _, state["battle_filter"] = imgui.input_text("##battlefilter", state["battle_filter"])
+        for number, label in battles:
+            chosen = number == state["battle"]
+            if state["battle_filter"].upper() in label.upper() and imgui.selectable(label, chosen)[0]:
+                state["battle"], state["camera"], state["battle_picture"] = number, 0, None
+        imgui.end_child()
+        imgui.same_line()
+        table = scenes[state["battle"] // 4]
+        setup = table["setups"][state["battle"] % 4]
+        party = tuple(n for n in state["party"].upper().replace(" ", "").split(",") if n in party_files)[:3]
+        if state["battle_picture"] is None:  # drawn again only when something changes
+            rgb = state["ps1view"].battle(*battle_scene(disc, state["battle"], state["camera"], party))
+            state["vram"] = "battle"
+            if rgb is None:
+                imgui.text_wrapped("The battle view draws with the PS1 view's library. Build it with: make editor")
+                return
+            state["battle_picture"] = state["renderer"].ctx.texture((320, 240), 3, np.ascontiguousarray(rgb).tobytes())
+            state["battle_picture"].filter = (moderngl.NEAREST, moderngl.NEAREST)
+        imgui.image(imgui.ImTextureRef(state["battle_picture"].glo), imgui.ImVec2(640, 480))
+        imgui.same_line()
+        imgui.begin_child("battle info", imgui.ImVec2(0, 0))
+        imgui.text(f"stage {setup['location']:02d}, layout {setup['layout']}, camera script {setup['camera_script']}")
+        for k, camera in enumerate(setup["cameras"]):
+            if camera["x"] != -1 and imgui.radio_button(f"camera {k}", state["camera"] == k):
+                state["camera"], state["battle_picture"] = k, None
+        imgui.set_next_item_width(200)
+        entered, state["party"] = imgui.input_text("party", state["party"], imgui.InputTextFlags_.enter_returns_true)
+        if entered:
+            state["battle_picture"] = None
+        imgui.text_wrapped(f"ENEMY6 files, up to 3: {', '.join(sorted(party_files))}")
+        imgui.text("enemies")
+        for e in setup["formation"]:
+            if e["enemy_id"] != 0xFFFF:
+                name = table["enemies"][table["enemy_ids"].index(e["enemy_id"])]["name"].strip()
+                imgui.text(f"{name} (ENEMY{e['enemy_id']:03d}) at {e['x']}, {e['y']}, {e['z']}")
+        imgui.end_child()
+
     def gui():
         if state["renderer"] is None:
             state["renderer"], state["ps1view"] = Renderer(moderngl.create_context()), Ps1View()
@@ -779,13 +915,17 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
             if imgui.begin_tab_item("Maps", None, flags)[0]:
                 maps_gui()
                 imgui.end_tab_item()
+            flags = imgui.TabItemFlags_.set_selected if start_battle is not None and state["frames"] == 0 else 0
+            if imgui.begin_tab_item("Battles", None, flags)[0]:
+                battles_gui()
+                imgui.end_tab_item()
             imgui.end_tab_bar()
         state["frames"] += 1
         if frames and state["frames"] >= frames:
             hello_imgui.get_runner_params().app_shall_exit = True
 
     def models_gui():
-        if state["vram"] == "map":
+        if state["vram"] != "model":
             state["ps1view"].upload(state["model"])
             state["vram"] = "model"
         imgui.begin_child("models", imgui.ImVec2(220, 0))
@@ -865,15 +1005,20 @@ def main():
     ap.add_argument("--yaw", type=float, default=0.6)
     ap.add_argument("--map", help="a map (MD1STIN) to start on, or with --shot to draw")
     ap.add_argument("--story", type=int, default=0, help="with --map --shot, the story point the map starts at")
-    ap.add_argument("--shot", type=Path, help="draw the model (or the map) to this PNG and quit")
+    ap.add_argument("--battle", type=lambda s: int(s, 0), help="a battle (0x12C) to start on, or with --shot to draw")
+    ap.add_argument("--camera", type=int, default=0, help="with --battle --shot, the setup's camera (0-3)")
+    ap.add_argument("--party", default="CLOUD", help="with --battle --shot, the party's ENEMY6 files (CLOUD,TIFA)")
+    ap.add_argument("--shot", type=Path, help="draw the model (or the map, or the battle) to this PNG and quit")
     args = ap.parse_args()
     disc = next(p for p in sorted(args.assets.iterdir()) if (p / "FIELD/FIELD.BIN").exists())
-    if args.shot and args.map:
+    if args.shot and args.battle is not None:
+        battle_shot(disc, args.battle, args.camera, tuple(args.party.upper().split(",")), args.shot)
+    elif args.shot and args.map:
         map_shot(disc, args.map.upper(), args.shot, args.story)
     elif args.shot:
         shot(disc, args.model or "CLOUD.BCX", args.anim, args.frame, args.shot, args.yaw)
     else:
-        run(disc, args.model, args.map.upper() if args.map else None)
+        run(disc, args.model, args.map.upper() if args.map else None, start_battle=args.battle)
 
 
 if __name__ == "__main__":
