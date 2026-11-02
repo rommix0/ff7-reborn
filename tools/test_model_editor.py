@@ -74,4 +74,11 @@ rgb = np.zeros((64, 64, 3), np.uint8)
 overlay(rgb, (-32, -32), fm, {"arrows", "markers"})
 assert tuple(rgb[32, 44]) == (0, 255, 255) and not rgb[32, 39:42].any()  # (30, 0, 1500) lands at x 12
 assert tuple(rgb[12, 32]) == (255, 0, 255)
+
+# The world map's picture: 320x224 from row 8 of VRAM, cleared to black, packets drawn with the offset (0, 8).
+if ps1.gpu:
+    red_square = [0x600000FF, 2 << 16 | 4, 3 << 16 | 3]  # a red 3x3 rectangle at (4, 2)
+    rgb = ps1.world(np.full((512, 1024), 0x7FFF, np.uint16), [red_square])
+    assert rgb.shape == (224, 320, 3) and tuple(rgb[2, 4]) == (255, 0, 0) and not rgb[0, 0].any()
+    assert ps1.vram[2, 4] == 0x7FFF and ps1.vram[10, 4] == 0x001F  # nothing drawn above row 8
 print("ok")

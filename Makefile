@@ -306,8 +306,9 @@ EDITOR_CC ?= gcc.exe
 EDITOR_BIN ?= /mnt/c/winlibs/mingw64/bin
 EDITOR_LIB ?= ps1gpu.dll
 editor: build/editor/$(EDITOR_LIB)
-build/editor/$(EDITOR_LIB): pc/gpu.c pc/gpu.h tools/ps1gpu.c
+build/editor/$(EDITOR_LIB): pc/gpu.c pc/gpu.h pc/gte.c tools/ps1gpu.c
 	mkdir -p build/editor
-	WSLENV=PATH/l PATH="$(EDITOR_BIN):$$PATH" $(EDITOR_CC) -std=gnu99 -O2 -Wall -Ipc -shared -fPIC pc/gpu.c 		tools/ps1gpu.c -o $@
+	WSLENV=PATH/l PATH="$(EDITOR_BIN):$$PATH" $(EDITOR_CC) -std=gnu99 -O2 -Wall -Ipc -shared -fPIC pc/gpu.c pc/gte.c \
+		tools/ps1gpu.c -o $@
 
 .PHONY: check split clean native pc pc-test editor

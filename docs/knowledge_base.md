@@ -627,6 +627,56 @@ from `0x801D0000` as the file is, the same on all three discs. A field script op
   `enter_field` (50, 0) left for field `0x46` (`FSHIP_23`), entry 98's ID; `set_window` (30, 160, 260, 41) then
   `message` 49 showed Cloud's "...First, I gotta do something about her." in a box there.
 
+**`WORLD/WM*.MAP`, the world map's terrain** (`tools/world.py` reads it; the viewer's World tab draws it):
+- **Which:** map kind k reads `WM{k}.MAP` (`WORLD.BIN`'s sector and size per kind at `D_800C74E4`): 0 the world, 2
+  and 3 two maps that tile parts of it (`WM1.MAP` is 2 bytes). Kind 0 takes its textures from `WM0`–`WMA.TXZ`
+  (`func_800B717C` picks one), kind 2 from `WMB.TXZ` and kind 3 from `WMC.TXZ` (`func_800A460C`: kind + 9); map 2
+  uses exactly `WMB`'s 8 textures and map 3 `WMC`'s 4.
+- **Blocks:** `0xB800` bytes (23 sectors), read one at a time as the party moves (`func_800A54F0`, `cd_read` into one
+  of the slots at `D_800E5714`). The world is 9 by 7 blocks, row by row; a block is 4 by 4 meshes and a mesh 8192
+  units square, so x runs to `0x48000` and z to `0x38000`, and both wrap.
+  - World block b is file block b for map 0, except that `map_stage` (script command `0x349`, `D_800E5824`) swaps six
+    for the six after the 63: `0x32` from stage 1, `0x29` and `0x2A` from 2, `0x3C` from 3, `0x2F` and `0x30` from 4
+    (`0x3F`–`0x44`). Map 2 is 3 by 4 blocks repeated over the world; map 3 is 2 by 2, and only some world blocks
+    reach it (the rest work out to numbers outside the file).
+- **A block:** 16 `u32` offsets (its meshes row by row), each to a `u32` length and the mesh, LZS. `func_800A5D00`
+  unpacks one into its own `0x1200`-byte buffer at `D_800E5A38` and keeps its triangles, vertices and normals.
+- **A mesh:** `u16` triangle and vertex counts, then
+  - per triangle 12 bytes: 3 corners (vertex numbers), a byte the draw doesn't read, 3 UVs (u, v), and a `u16` whose
+    low 9 bits pick the texture (the high 7 bits the draw doesn't read either);
+  - the vertices (`s16` x, y, z, pad; x and z 0-8192 across the mesh), then as many normals (the same layout).
+  - A world mesh is typically 9 by 9 vertices and 128 triangles; map 2's open sea floor is often a single quad.
+- **Textures:** section 2 of the container (`func_800A0D2C`): 512 words for `D_800BD148`, a texture each (a palette in
+  the low half, a page in the high: the triangle's UVs are already in that page), then images to `LoadImage` (`u32`
+  length, x, y, w, h, the pixels; a 0 length ends them). `WM0.TXZ`: palettes at (0, 480) 256×22, pages at (384, 0)
+  640×256 and (384, 256) 384×256.
+- **Drawing** (`func_800A71E8`, each frame): the 5 by 5 meshes round the camera's focus (`D_80109D44`; the window by
+  `func_800A63FC`, culled by `func_800A6168`), each in three hand-written GTE loops:
+  - The translation (`func_800A1FAC`): the camera's rotation `D_800E5698` and, through `RotTrans`, the mesh's corner
+    from the focus (x and z, `y` = -the focus's height `D_80116508`) turned and added to `D_800E56B8`'s translation.
+  - The curve (`func_800BCA78`): each vertex is copied to the scratchpad and projected (`rtps`); one past depth
+    4·`D_800E5678` (SZ >> 2 over it; 5000 in the lab) drops by ((that >> 6) + (|SX - 160| >> 5))², so the far world
+    bends away, more to the sides.
+  - Projection (`func_800BCB2C`): `rtpt` over the scratchpad, each vertex's SXY and SZ, with flags for x < 320 and
+    y < 240 (unsigned).
+  - The triangles (`func_800BCBE8`): one goes when some corner is on screen across and some down and it faces the
+    camera (`nclip` ≥ 0). Its colours are `nct` of its corners' normals (light matrix `D_800C6808`, map 2
+    `D_800C6828`; back colour 64, map 2 (32, 32, 48)); a `POLY_GT3` with the texture word's palette and page, linked
+    at its farthest corner's SZ >> 4. Map 2 has fog: past SZ `0x3E80` the palette moves down a row per 8 of depth
+    (`D_800BD138`; at most 15).
+  - Light zones (`func_800AF3A4`, before the draw): 16 at `D_8010B178`, `0x24` bytes (x, y, z; red, green, blue at
+    `+0x10`; on at `+0x13`; outer and inner reach in 1024s at `+0x1C`, `+0x20`), set by the scripts' `point_`
+    commands. Within a zone's inner reach (x + y + z distances from the player, round the world) light 0's colour
+    is 7× the zone's; it fades back to `D_800C6848`'s 1774 at the outer reach past that. The last zone in reach wins.
+  - The world draws a 320×224 picture at row 8 of VRAM (draw offset (0, 8)), dithered, on black.
+- **Checked against the lab** (near Midgar, frame 3300 of a new game warped to the world map): the 16 meshes in RAM
+  are the decoded ones byte for byte, the texture table is `D_800BD148`'s and the images are in VRAM. The terrain
+  drawn from the dump's camera, focus and light zones (Midgar's, (60, 90, 100), with Cloud inside it) is 213
+  packets, each word for word in the game's packet buffers, which hold 5 more: Cloud's mesh under him again, darker
+  (`func_800B3418`, not traced). Drawn by the port's GPU, every pixel outside Cloud and the minimap is the frame's.
+  - Not checked: maps 2 and 3, the camera's own rotation and distance (`D_800E5698` is built elsewhere, not traced;
+    10000 in front of the focus in the lab), the sky, the models on the map.
+
 ## 3. Code: what is recovered and what isn't
 
 The main exe `SCUS_941.63` is split with splat and `make` rebuilds it byte-identical (SHA1-checked) from asm plus the
@@ -1353,7 +1403,9 @@ same set). They give the original module and file split, and the staff folders b
   bitstream, the layouts, posing, loading places, the stage's lists and motion, shadows, the camera's integers and
   the opening's eases.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
-  a repacker that keeps an LZS stream up to a change; `tools/test_world.py` checks the encoding, the table and it.
+  a repacker that keeps an LZS stream up to a change; the terrain (§2, `WORLD/WM*.MAP`): meshes, block swaps,
+  textures, light zones and the draw through the port's GTE; `tools/test_world.py` checks the encoding, the table,
+  the repacker, the map's layout, the zones and the draw with a stand-in GTE.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
   frame); each in-memory one a silent 30 fps AVI, found by matching file sizes against `MOVIE_ID.BIN`. The JPEGs hold the MDEC's own dequantized coefficients, with a quantization step per position that divides them
   exactly, so nothing is re-encoded. Checked on `MK8.STR` against ffmpeg's MDEC decoder: the planes agree to ±1
@@ -1699,7 +1751,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     swap, ○ backs out of Config and ✕ opens it. The game won't leave Customize while a function has no button.
 - **World map** (`WORLD/WORLD.BIN`, packed; runs at `0x800A0000`, entered at `func_800A460C`): a field ID below
   `STARTMAP` (`--field 1`) asks for it. It reads `WM0.TXZ`, `WM0.BOT` and `WM0.BSZ`, then streams `WM0.MAP` in blocks
-  as the party walks.
+  as the party walks (§2, `WORLD/WM*.MAP`).
   - It was linked from two or more objects: data sits between their code (`0x800BD130`-`0x800BFBF0`), so
     `module_yaml.py` ends a run of code at a word no R3000 runs (from the last return before it), and `recomp.py` ends
     a function where its asm file's code ends.

@@ -16,12 +16,16 @@ had: there's room for a few dozen packed bytes more in the tightest (WM1.TXZ).
 import argparse
 import gzip
 import json
+import struct
 from pathlib import Path
 
 import field
 import kernel
 from unpack import lzs
 
+BLOCK, MESH = 0xB800, 8192  # a map file's blocks (16 meshes each); a mesh's side (the world: 36 by 28, wrapping)
+# map_stage's swaps (func_800A54F0): world block -> (the stage it's swapped from, the block of the file that shows)
+SWAPS = {0x32: (1, 0x3F), 0x29: (2, 0x40), 0x2A: (2, 0x41), 0x3C: (3, 0x42), 0x2F: (4, 0x43), 0x30: (4, 0x44)}
 SECTION, CODE, SIZE = 4, 0x400, 0x7000  # the container's section func_800A0D2C copies; the code after the table
 SETS = {"WMB": "WMB", "WMC": "WMC"}  # the rest carry WM0's
 SIZES = [0x273E4, 0x2744C]  # WORLD.BIN unpacked: a sector and size per WM0-WMC.TXZ, then per WM0S-WMCS
@@ -193,8 +197,161 @@ def scripts_raw(table: dict) -> bytes:
     return head + bytes.fromhex("ffff0000") * (CODE // 4 - 1 - len(entries)) + code.ljust(SIZE - CODE, b"\0")
 
 
-def section_at(image: bytes) -> int:
-    return 4 + int.from_bytes(image[4 + 4 * SECTION:8 + 4 * SECTION], "little")  # offsets count from byte 4
+def section_at(image: bytes, k: int = SECTION) -> int:
+    return 4 + int.from_bytes(image[4 + 4 * k:8 + 4 * k], "little")  # offsets count from byte 4
+
+
+def s16(x: int) -> int:
+    return ((x & 0xFFFF) ^ 0x8000) - 0x8000
+
+
+def textures(image: bytes) -> tuple[list[int], list[tuple[int, int, int, int, bytes]]]:
+    """A container's section 2 as func_800A0D2C loads it: 512 texture words (a palette in the low half, a page in the
+    high) for D_800BD148, then images for LoadImage (u32 length, x, y, w, h, the pixels), a 0 length after the last."""
+    at = section_at(image, 2)
+    table, images = list(struct.unpack_from("<512I", image, at)), []
+    at += 0x800
+    while length := struct.unpack_from("<I", image, at)[0]:
+        x, y, w, h = struct.unpack_from("<4h", image, at + 4)
+        images.append((x, y, w, h, image[at + 12:at + 12 + 2 * w * h]))
+        at += length & ~3
+    return table, images
+
+
+def mesh(data: bytes) -> dict:
+    """An unpacked mesh as func_800A5D00 reads it: u16 triangle and vertex counts, the triangles (3 corners, a byte, 3
+    UVs, a u16 whose low 9 bits pick the texture), the vertices and their normals (s16 x, y, z, pad)."""
+    count, vertices = struct.unpack_from("<2H", data)
+    triangles = []
+    for at in range(4, 4 + 12 * count, 12):
+        a, b, c, byte, u0, v0, u1, v1, u2, v2, texture = struct.unpack_from("<10BH", data, at)
+        triangles.append((a, b, c, byte, (u0, v0), (u1, v1), (u2, v2), texture))
+    at = 4 + 12 * count
+    return {"triangles": triangles,
+            "vertices": [struct.unpack_from("<3h", data, at + 8 * i) for i in range(vertices)],
+            "normals": [struct.unpack_from("<3h", data, at + 8 * (vertices + i)) for i in range(vertices)]}
+
+
+def file_block(kind: int, block: int, stage: int) -> int:
+    """The block of WM{kind}.MAP that shows world block block (9 by 7, row by row) at map_stage stage
+    (func_800A54F0). Map 0 is the world, six of its blocks swapped for the six after them as the story goes on; maps 2
+    and 3 tile it with 3 by 4 and 2 by 2 blocks of their own (map 3's reach only some of it: past that, a number out
+    of the file)."""
+    row, col = divmod(block, 9)
+    if kind == 0:
+        need, swap = SWAPS.get(block, (99, block))
+        return swap if stage >= need else block
+    if kind == 2:
+        row = row + 2 if row < 2 else row - 6 if row >= 6 else row - 2
+        return row * 3 + (col if col < 3 else col - 6 if col >= 6 else col - 3)
+    if kind == 3:
+        row = row if row < 3 else row - 7
+        row = row + 2 if row < 0 else row - 2 if row >= 2 else row
+        col = col if col < 4 else col - 9
+        return row * 2 + (col + 2 if col < 0 else col - 2 if col >= 2 else col)
+    return block
+
+
+def map_meshes(data: bytes, kind: int, stage: int = 0) -> dict[tuple[int, int], dict]:
+    """Each world mesh (x 0-35, z 0-27) from WM{kind}.MAP's data at map_stage stage. A block is 16 offsets (its
+    meshes 4 by 4, row by row), each to a u32 length and the mesh, LZS."""
+    out, blocks = {}, {}
+    for number in range(63):
+        k = file_block(kind, number, stage)
+        if not 0 <= k < len(data) // BLOCK:
+            continue
+        if k not in blocks:
+            raw = data[k * BLOCK:(k + 1) * BLOCK]
+            starts = struct.unpack_from("<16I", raw)
+            blocks[k] = [mesh(lzs(raw[at:at + 4 + struct.unpack_from("<I", raw, at)[0]])) for at in starts]
+        for i, m in enumerate(blocks[k]):
+            out[(number % 9 * 4 + i % 4, number // 9 * 4 + i // 4)] = m
+    return out
+
+
+def zone_colour(zones: list[tuple], position: tuple, base: tuple) -> tuple[int, int, int]:
+    """Light 0's colour (the colour matrix's first column) at position as func_800AF3A4 sets it each frame: a zone
+    (x, y, z, its red, green and blue, and its outer and inner reach in 1024s; the scripts' point_ commands set 16 at
+    D_8010B178) within its inner reach (x + y + z distances, round the world) gives 7× its colour, fading to the base
+    colour (D_800C6848's) at its outer reach past that. The last zone in reach wins."""
+    out = base
+    for x, y, z, red, green, blue, outer, inner in zones:
+        dx, dz = abs(position[0] - x), abs(position[2] - z)
+        dx, dz = 0x48000 - dx if dx > 0x23FFF else dx, 0x38000 - dz if dz > 0x1BFFF else dz
+        near, reach = max(dx + abs(position[1] - y) + dz - (inner << 10), 0), outer << 10
+        if near < reach:
+            out = tuple(b * near // reach + c * (reach - near) * 7 // reach for b, c in zip(base, (red, green, blue)))
+    return out
+
+
+def put_vector(gte, reg: int, x: int, y: int, z: int):
+    gte.gte_write(reg, (y & 0xFFFF) << 16 | x & 0xFFFF)
+    gte.gte_write(reg + 1, z & 0xFFFF)
+
+
+def terrain_packets(gte, meshes: dict, table: list[int], rotation: list[int], translation: tuple, focus: tuple,
+                    curve: int, fog: int = 0, code: int = 0x34) -> list[tuple[int, list[int]]]:
+    """The terrain round the focus (x, y, z) as func_800A71E8 draws it, through gte (the port's, pc/gte.c, with H,
+    the offset and the lights set): its ordering table bucket and GT3 packet (less the tag) per triangle drawn. The
+    rotation is the camera's (D_800E5698), the translation where it puts the focus (D_800E56B8's); curve
+    (D_800E5678) bends the far terrain down and fog (D_800BD138, map 2 only) darkens it by palette rows."""
+    for i in range(4):
+        gte.gte_write_ctrl(i, rotation[2 * i] & 0xFFFF | (rotation[2 * i + 1] & 0xFFFF) << 16)
+    gte.gte_write_ctrl(4, rotation[8] & 0xFFFF)
+    out = []
+    for dz in range(-2, 3):  # the 5 by 5 meshes round the focus's (func_800A63FC)
+        for dx in range(-2, 3):
+            m = meshes.get((((focus[0] >> 13) + dx) % 36, ((focus[2] >> 13) + dz) % 28))
+            if m is None:
+                continue
+            # func_800A1FAC: the mesh's corner from the focus, at the focus's height, turned and moved as the focus is
+            for i, t in enumerate(translation):
+                gte.gte_write_ctrl(5 + i, t)
+            put_vector(gte, 0, dx * MESH - (focus[0] & 0x1FFF), -focus[1], dz * MESH - (focus[2] & 0x1FFF))
+            gte.gte_cmd(0x0480012)
+            moved = [gte.gte_read(25 + i) for i in range(3)]
+            for i, t in enumerate(moved):
+                gte.gte_write_ctrl(5 + i, t)
+            # func_800BCA78: the world curves away, each vertex dropping by the square of how far past the curve it is
+            vertices = []
+            for x, y, z in m["vertices"]:
+                put_vector(gte, 0, x, y, z)
+                gte.gte_cmd(0x0180001)
+                past = (gte.gte_read(19) >> 2) - curve
+                if past > 0:
+                    drop = (past >> 6) + (abs(s16(gte.gte_read(14)) - 160) >> 5)
+                    y = s16(y - drop * drop)
+                vertices.append((x, y, z))
+            # func_800BCB2C: projected again, three at a time
+            screen = []
+            for i in range(0, len(vertices), 3):
+                group = vertices[i:i + 3] + [(0, 0, 0)] * (i + 3 - len(vertices))
+                for k, v in enumerate(group):
+                    put_vector(gte, 2 * k, *v)
+                gte.gte_cmd(0x0280030)
+                screen += [(gte.gte_read(12 + k), gte.gte_read(17 + k) & 0xFFFF) for k in range(3)]
+            # func_800BCBE8: a triangle with some corner on screen across and some down, that faces the camera
+            for a, b, c, _, uv0, uv1, uv2, texture in m["triangles"]:
+                points = [screen[k][0] for k in (a, b, c)]
+                if not any(p & 0xFFFF < 320 for p in points) or not any(p >> 16 < 240 for p in points):
+                    continue
+                for k, p in enumerate(points):
+                    gte.gte_write(12 + k, p)
+                gte.gte_cmd(0x1400006)
+                if gte.gte_read(24) & 0x80000000:
+                    continue
+                far = max(screen[k][1] for k in (a, b, c))
+                gte.gte_write(6, code << 24)
+                for k, n in enumerate((a, b, c)):
+                    put_vector(gte, 2 * k, *m["normals"][n])
+                gte.gte_cmd(0x0D80420)
+                rgb = [gte.gte_read(20 + k) for k in range(3)]
+                entry = table[texture & 0x1FF]
+                clut = entry + (min((far - fog) >> 3 & 0xFFC0, 0x3C0) if fog and far > fog else 0)
+                out.append((far >> 4, [rgb[0], points[0], uv0[0] | uv0[1] << 8 | (clut & 0xFFFF) << 16,
+                                       rgb[1], points[1], uv1[0] | uv1[1] << 8 | (entry >> 16) << 16,
+                                       rgb[2], points[2], uv2[0] | uv2[1] << 8 | texture << 16]))
+    return out
 
 
 def dump(disc: Path, out: Path):

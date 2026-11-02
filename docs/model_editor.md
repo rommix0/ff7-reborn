@@ -165,6 +165,8 @@ The PS1 view is the exact one.
    - **Battles** (a tab of their own): each battle's stage, party and enemies, drawn by `pc/gpu.c` in the battle's
      lists and order, played at 15 frames a second from the opening camera (or a setup camera), with shadows,
      idle animations and moving stages.
+   - **World** (a tab of its own): the world map's terrain (`WM0`, `WM2`, `WM3.MAP`, any `map_stage`) round a point
+     picked on an overview of the whole map, drawn through the port's GTE and `pc/gpu.c` as `WORLD.BIN` draws it.
 5. **Textures and palettes:** image replacement, palette editing; then glTF export/import if wanted.
 
 ## Open
