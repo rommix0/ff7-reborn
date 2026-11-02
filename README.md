@@ -79,7 +79,8 @@ python tools/model.py build models assets
 ```
 
 View them with `tools/model_editor.py` (the start of the editor `docs/model_editor.md` plans; it needs
-imgui-bundle, moderngl and numpy): pick a party member or any map's model, turn it about, play its animations. Beside
+imgui-bundle, moderngl and numpy): pick a party member, any map's model or any battle model (the party with each of
+their 16 weapons, every enemy by name), turn it about, play its animations. Beside
 the view, a PS1 view draws it with the PC port's own GPU (`make editor` builds that), the way the game sends it. Its
 Maps tab draws a map as it starts at a point of the story (`--story`): its background and the characters its
 start-up scripts place, with that GPU, the walkmesh, exits (with where they lead), triggers, arrows and markers
@@ -90,6 +91,7 @@ pip install -r tools/requirements-editor.txt
 make editor
 python tools/model_editor.py assets
 python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --shot cloud.png
+python tools/model_editor.py assets --model ENEMY6/CLOUD.LZS:3 --shot battle_cloud.png
 python tools/model_editor.py assets --map MD1STIN --story 1 --shot md1stin.png
 ```
 

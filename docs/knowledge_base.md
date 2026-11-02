@@ -448,6 +448,50 @@ dumps and builds back byte for byte):
   off at most and a few levels apart in colour, because the viewer poses and lights in floating point, not the GTE's
   fixed point.
 
+**`ENEMY1..6/*.LZS`, the battle's models** (`tools/battle.py` reads them for the viewer; decoded from `BATTLE.X`'s
+loader, renderer and animation code, all 1,170 files on the three discs read; `ENEMY6/SEFFECT.LZS` is the effects'
+own format, not a model):
+- **Which file:** an enemy's ID in `SCENE.BIN` is its file number (battle `0x12C`, the MP, ID 16, reads
+  `ENEMY1/ENEMY016.LZS`). The party's are the named files in `ENEMY6/` (`CLOUD`, `HICLOUD`, `SEFIROS`, ...).
+- **Sections** (LZS; a `u32` count and that many offsets): 0 the skeleton and its parts, 1 the settings and action
+  scripts (a table at `+0x68`; byte `+2` bit 7: it holds a weapon), then animations; a 4-byte section is an empty
+  slot.
+  - **Party** (`func_800B5C1C`, `func_800CD400`): body animations from 2 (52 slots), each one's weapon animation 52
+    on; the TIM at n - 17; the 16 weapons after it, the one used by the character record's byte `+0x411 & 0xF`.
+    Sections up to the TIM are copied to `0x80103200 +` slot `x 0xF000`, the weapon to `0x80163F34`.
+  - **Enemy** (`func_800B54B8`, `func_800B5D38`): the TIM last. One with a weapon has 16 body and 16 weapon
+    animations and the weapon just before the TIM; the rest have animations up to the TIM.
+- **Skeleton** (`func_800C76C8`): `u16` count, a `u16`, then count + 1 bones of `s16` parent, `s16` length, `u32`
+  the offset of its part in the section (0: none). Bone 0 is the root (all zeros) and hangs on the actor's own
+  node. A bone starts at its parent's start plus the parent's turn of (0, 0, **the parent's** length), and turns
+  by the parent's turn times `RotMatrixYXZ` of its angles (`func_800BACEC`). No scale at load; -y is up.
+- **Part** (`func_800D29D4`, the hand-written renderer): a `u32` size and the vertices (`s16` x, y, z, pad), then
+  four lists back to back. Corners are byte offsets into the vertices.
+  - textured triangles: `s16` count, `u16` the part's texture page; 16 bytes each (3 corners, a grey, a code byte
+    whose bit 1 is semi-transparency, then UV, the palette, UV, UV)
+  - textured quads: `u32` count; 20 bytes each (4 corners, UV, the palette, 3 UVs, grey, code byte)
+  - Gouraud triangles: `s16` count, an `s16`; 20 bytes each (3 corners, an `s16` the renderer never reads, 3 GPU
+    colour words, code byte included)
+  - Gouraud quads: `u32` count; 24 bytes each (4 corners, 4 colour words)
+
+  Unlike the field's parts, the colours come lit: nothing is lit at load or per frame. The renderer forces blend
+  mode 1 on the page, adds the party slot's or enemy's page offset at load and 3 palette rows per actor at draw.
+- **Animation** (`func_800D376C`, one frame per call of `func_800CD400`): `u16` frames, `u16` the bitstream's
+  length in bytes, `u8` shift, then the bitstream, read most significant bit first, values sign-extended.
+  - Frame 0: the root's x, y, z in 16 bits each, then every bone's rotation x, y, z in 12 - shift bits, shifted
+    left by shift (4096 a turn).
+  - Each later frame adds to the last: the root's three with a flag bit (1: 16 bits, 0: 7); each rotation a flag bit
+    (0: no change), then 3 bits k: 0 is -(1 << shift), 7 is 12 - shift bits shifted, otherwise k bits v moved away
+    from 0 by 1 << (k - 1), shifted.
+  - Action scripts pick them: a script byte below `0x8E` plays that animation (`func_800C7C4C`); script 0 loops
+    animation 0, the battle stance.
+- **Weapons** (`func_800C7924`): a skeleton like the body's, its root hung on the actor's node, not a hand. Its own
+  animation, body animation + 52 (+ 16 for an enemy), puts it in the hand.
+- **Checked against a lab dump** of the first battle (Cloud casting Ice, the MP waiting): Cloud's animation 12
+  decoded to frame 11 and the MP's animation 0 at frame 0 give every bone's angles and the root exactly as in RAM
+  (`D_80151A58 +` actor `x 0xB9C`, `0x34` bytes a bone). Posed, every bone is within 2.5 units of the game's own
+  matrices relative to the root, and the angles within the GTE's fixed point.
+
 **`MENU/SHOPMENU.MNU`, the shops** (`tools/shop.py` dumps them to a JSON file and builds them back): the module runs
 from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
 - `0x42C8`: 9 shop titles, 20 bytes each ("Item Shop", "Weapon Shop", ...); `0x437C`: two sets of 10 clerk lines, 46
@@ -1228,6 +1272,8 @@ same set). They give the original module and file split, and the staff folders b
 - `tools/model_editor.py`: the field viewer, models and maps (`docs/model_editor.md`); its PS1 view and the maps'
   backgrounds are `pc/gpu.c` as a library (`make editor`, with `tools/ps1gpu.c`); `tools/test_model_editor.py`
   checks the texture words, packets, the background's draw order, the projection and how a map starts.
+- `tools/battle.py`: the battle's models (§2, `ENEMY1..6/*.LZS`) as the field's shapes, for the viewer;
+  `tools/test_battle.py` checks the animation bitstream, the layout and posing.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
   a repacker that keeps an LZS stream up to a change; `tools/test_world.py` checks the encoding, the table and it.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per

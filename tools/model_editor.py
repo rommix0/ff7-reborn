@@ -1,17 +1,19 @@
-"""The field viewer (the model editor to be): open the party's and each map's models, turn them about, play their
-animations, shaded and textured as the game draws them; and each map as it starts, its background and characters
-drawn by the port's GPU, with its walkmesh, exits, triggers, arrows and markers over it.
+"""The field viewer (the model editor to be): open the party's, each map's and the battle's models, turn them about,
+play their animations, shaded and textured as the game draws them; and each map as it starts, its background and
+characters drawn by the port's GPU, with its walkmesh, exits, triggers, arrows and markers over it.
 
   pip install -r tools/requirements-editor.txt
   python tools/model_editor.py assets
   python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --shot cloud.png
+  python tools/model_editor.py assets --model ENEMY6/CLOUD.LZS:3 --shot battle_cloud.png
   python tools/model_editor.py assets --map MD1STIN --story 1 --shot md1stin.png
 
 A character on a map (MD1STIN.BSX:0) has that map's lights, textures and animations added to its own; on its own
-(CLOUD.BCX) it shows its colours unlit and untextured. Drag to turn the view, the wheel to zoom. A map starts as its
-start-up code sets it at a point of the story (other saved variables 0): where its characters stand, which tile
-groups show. The player and party members the code doesn't place aren't drawn. The Maps tab turns layers,
-overlays, characters and groups on and off. Walkmesh edges are green, walls white, exits red, triggers yellow,
+(CLOUD.BCX) it shows its colours unlit and untextured. A battle model (ENEMY6/CLOUD.LZS, :N its weapon N; enemies
+listed with their names) comes lit and textured from its own file. Drag to turn the view, the wheel to zoom. A map
+starts as its start-up code sets it at a point of the story (other saved variables 0): where its characters stand,
+which tile groups show. The player and party members the code doesn't place aren't drawn. The Maps tab turns
+layers, overlays, characters and groups on and off. Walkmesh edges are green, walls white, exits red, triggers yellow,
 arrows cyan, markers magenta.
 """
 import argparse
@@ -23,8 +25,10 @@ from pathlib import Path
 import moderngl
 import numpy as np
 
+import battle
 import field
 import model
+import scene
 from unpack import lzs
 
 NORMALS = 0x3F520  # FIELD.BIN unpacked: 240 normals, s16 x, y, z and a pad (D_800DF520)
@@ -161,13 +165,13 @@ class Model:
                     else:
                         normal = [round(x) for x in model.apply(turn, normals[int(color[6:], 16)])]
                         lit.append(model.light(color, normal, lights))
-                code, attributes = PACKETS[poly["kind"]], []
+                semi = 2 if poly.get("flags", 0) & 0x10 else 0  # semi-transparent
+                code, attributes = PACKETS[poly["kind"]] + semi, []
                 if "uv" in poly:
                     page, depth, shift = texture(part["textures"][poly["flags"] & 15], slot)
                     texels = [[a + b for a, b in zip(part["uvs"][i], shift)] for i in poly["uv"][:n]]
                     uv = [[c + 0.5 for c in t] for t in texels]
                     blend = poly["flags"] >> 5 & 3
-                    code += 2 if poly["flags"] & 0x10 else 0  # semi-transparent
                     attributes = [(t[0] & 255 | (t[1] & 255) << 8) for t in texels]
                     attributes[0] |= (page[3] << 6 | page[2] >> 4) << 16  # the palette
                     attributes[1] |= (page[0] // 64 | page[1] // 256 << 4 | blend << 5 | depth << 7) << 16  # the page
@@ -202,9 +206,17 @@ class Model:
 
 
 def load(disc: Path, name: str) -> Model:
-    """NAME.BCX, or MAP.BSX:N for a map's model N."""
+    """NAME.BCX, MAP.BSX:N for a map's model N, or a battle model (ENEMY6/CLOUD.LZS, :N for a party member's
+    weapon N), its TIM in VRAM where the file says."""
     normals = [struct.unpack_from("<3h", field.module(disc), NORMALS + 8 * i) for i in range(240)]
     path, _, index = name.partition(":")
+    if path.upper().endswith(".LZS"):
+        table = battle.model_json(lzs((disc / path).read_bytes()), not Path(path).stem.startswith("ENEMY"),
+                                  int(index or 0))
+        out = vram(disc, None)
+        for x, y, w, h, data in table["tim"]:
+            out[y:y + h, x:x + w] = np.frombuffer(data, "<u2").reshape(h, w)
+        return Model(table["bones"], table["parts"], table["animations"], None, normals, 0, out)
     if path.upper().endswith(".BCX"):
         table = model.bcx_json(lzs((disc / "FIELD" / path).read_bytes()))
         return Model(table["bones"], table["parts"], table["animations"], None, normals, 0, vram(disc, None))
@@ -227,6 +239,18 @@ def names(disc: Path) -> list[str]:
         if path.suffix.upper() == ".BSX":
             d = lzs(path.read_bytes())
             out += [f"{path.name}:{i}" for i in range(model.u32(d, model.u32(d, 4) + 4))]
+    return out + [f"{p.parent.name}/{p.name}" for p in battle.files(disc)]
+
+
+def enemy_names(disc: Path) -> dict[str, str]:
+    """ENEMYnnn: the name SCENE.BIN gives enemy nnn (battle 0x12C, the MP, reads ENEMY016)."""
+    out = {}
+    for raw in scene.read_scenes((disc / "BATTLE/SCENE.BIN").read_bytes()):
+        for k in range(3):
+            enemy = int.from_bytes(raw[2 * k:2 * k + 2], "little")
+            if enemy != 0xFFFF:
+                record = raw[scene.ENEMIES + k * scene.ENEMY_SIZE:]
+                out.setdefault(f"ENEMY{enemy:03d}", scene.name_text(record[:32]).strip())
     return out
 
 
@@ -637,6 +661,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
     from imgui_bundle import hello_imgui, imgui, immapp
 
     models, maps, map_ids_ = names(disc), [p.stem for p in field.maps(disc)], field.map_names(disc)
+    enemies = enemy_names(disc)
+    labels = {n: f"{n} {enemies.get(Path(n).stem, '')}".rstrip() for n in models}
     state = {"choice": start or models[0], "frames": 0, "anim": 0, "frame": 0.0, "play": True, "yaw": 0.6,
              "pitch": 0.2, "zoom": 1.0, "ps1": True, "renderer": None, "model": None, "center": None,
              "distance": 1.0, "filter": "", "map_filter": "", "map_zoom": 2.0, "layers": {0, 1, 2, 3},
@@ -765,7 +791,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         imgui.begin_child("models", imgui.ImVec2(220, 0))
         _, state["filter"] = imgui.input_text("##filter", state["filter"])
         for name in models:
-            if state["filter"].upper() in name.upper() and imgui.selectable(name, name == state["choice"])[0]:
+            if state["filter"].upper() in labels[name].upper() and imgui.selectable(
+                    labels[name], name == state["choice"].partition(":")[0] or name == state["choice"])[0]:
                 choose(name)
         imgui.end_child()
         imgui.same_line()
@@ -810,6 +837,12 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
             changed, f = imgui.slider_int("frame", frame, 0, max(0, anim["frames"] - 1) if anim else 0)
             if changed:
                 state["frame"], state["play"] = float(f), False
+        path, _, weapon = state["choice"].partition(":")
+        if path.startswith("ENEMY6/") and not Path(path).stem.startswith("ENEMY"):  # a party member: the weapons
+            imgui.set_next_item_width(120)
+            changed, w = imgui.input_int("weapon", int(weapon or 0))
+            if changed and 0 <= w < 16:
+                choose(f"{path}:{w}" if w else path)
         _, state["ps1"] = imgui.checkbox("PS1 look (15-bit colour, dither, unwarped textures)", state["ps1"])
         imgui.text(f"{len(m.bones)} bones, {len(m.parts)} parts, {m.count // 3} triangles")
         imgui.end_group()
@@ -825,7 +858,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("assets", type=Path, help="the folder holding the extracted discs")
-    ap.add_argument("--model", help="NAME.BCX or MAP.BSX:N to start on (with --shot, the one to draw)")
+    ap.add_argument("--model", help="NAME.BCX, MAP.BSX:N or ENEMYn/NAME.LZS to start on (with --shot, the one to "
+                                    "draw)")
     ap.add_argument("--anim", type=int, default=0)
     ap.add_argument("--frame", type=int, default=0)
     ap.add_argument("--yaw", type=float, default=0.6)
