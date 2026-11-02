@@ -34,7 +34,7 @@ static struct {
     unsigned int addr, value;
     int bits;
 } codes[MAX_CODES];
-static int code_count, input_count, next_input, warp_field = -1, dump_frame = -1, frame;
+static int code_count, input_count, next_input, warp_field = -1, dump_frame = -1, dump_every, frame;
 static int minigame = -1, minigame_asked;
 static int last_state[4] = {-1, -1, -1, -1}, last_pad = -1;
 
@@ -116,6 +116,12 @@ int lab_code(const char *code)
     return 0;
 }
 
+/* Dump again every so many frames after --dump-at's. */
+void lab_dump_every(int frames)
+{
+    dump_every = frames;
+}
+
 /* A mini-game, asked for from a field as its script does, after any warp: 0 the motorcycle, 1 the chocobo race, 2 the
  * snowboard, 3 Fort Condor, 4 the submarine, 5 the Speed Square, 6 the Gold Saucer snowboard. */
 void lab_minigame(int game)
@@ -167,7 +173,8 @@ void lab_frame(void)
         else
             *(volatile unsigned char *)codes[i].addr = codes[i].value;
     }
-    if (frame == dump_frame)
+    if (frame == dump_frame || (dump_every && dump_frame >= 0 && frame > dump_frame
+                                && !((frame - dump_frame) % dump_every)))
         lab_dump();
     if (!trace)
         return;

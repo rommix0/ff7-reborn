@@ -1,8 +1,10 @@
+import math
 import struct
 
 import model
-from battle import (OPENINGS, PARTY_FACING, PARTY_THREE, PARTY_TWO, SHADOW, animation, look_at, model_json, moved,
-                    opening, placement, rcos, shadow, stage_draws, stage_json)
+from battle import (OPENINGS, PARTY_FACING, PARTY_THREE, PARTY_TWO, SHADOW, Actor, Channel, Fight, View,
+                    action_frame, action_scripts, animation, camera_frame, look_at, model_json, moved, opening,
+                    placement, ratan2, rcos, returning, shadow, square_root0, stage_draws, stage_json)
 
 
 def stream(fields: list[tuple[int, int]]) -> bytes:
@@ -134,4 +136,57 @@ setup = {"camera_script": 2, "cameras": [{"x": 2000, "y": 0, "z": 0, "target_x":
 assert opening(module, setup, 5) == [([1000, 0, 0], [0, 0, 0]), ([1249, 0, 0], [0, 0, 24]),
                                      ([2000, 0, 0], [0, 0, 100]), ([2000, 0, 0], [0, 0, 100]),
                                      ([2000, 0, 0], [0, 0, 100])]
+
+# libgte's ratan2 by a table of 1025 arctangents (here from the formula; the game's is the exe's), and SquareRoot0's
+# table of roots: close, not exact (1200 * 1200 gives 1193).
+atan = [round(math.atan(i / 1024) * 2048 / math.pi) for i in range(1025)]
+assert [ratan2(atan, y, x) for y, x in ((0, 0), (-500, -3200), (3, 4), (-3, -4))] == [0, -1947, 419, -1629]
+assert [square_root0(v * v) for v in (0, 1, 100, 1200, 4000)] == [0, 1, 99, 1193, 3998]
+
+# Action scripts: section 1's pointers from 0x68 up to the first script; BATTLE.X's own for 0x2E-0x3B.
+s1 = bytearray(0x68) + struct.pack("<2I", 0x70, 0x73) + bytes([0, 0xFE, 0xC0, 0x14, 0xEE])
+scripts = action_scripts(bytes(s1), module)
+assert len(scripts) == 0x3C and scripts[1][:2] == bytes([0x14, 0xEE]) and scripts[0x2E] == module[0x4EAA0:]
+
+# Cloud's Attack in the first battle (script 20), as the lab frames show it: he turns to the MP (FC), plays 0x1A,
+# runs at it over 4 frames to its size (350) plus 1200 short of it (D1: each step the distance over 4, C division:
+# (-65, -417), 0 in y) playing 0x1B, swings (0x1E, 0x1C; the blow lands 2 frames after F7 1: the MP turns to him and
+# starts its hurt script, 1), goes home (FA), plays 0x1D, turns back (E5) and ends (EE: back to script 0, animation
+# 0). Every animation 2 frames here.
+attack = bytes.fromhex("fcf0d8001a001ad1b00400000 4f01bf7011e1cfaf01de5ee".replace(" ", ""))
+cloud = Actor([b"\x00\xfe\xc0"] + [b""] * 19 + [attack], [2] * 64, (0, 0, 1700), 0, 400, script=20,
+              pos=[0, 0, 1700])
+mp = Actor([b"\x00\xfe\xc0", b"\x01\xe5\xee"], [2] * 64, (-500, 0, -1500), 2048, 350, pos=[-500, 0, -1500],
+           facing=2048)
+fight = Fight({0: cloud, 4: mp}, 0, 4, atan)
+trace = []
+for _ in range(14):
+    action_frame(fight)
+    trace.append((cloud.script, cloud.anim, cloud.shown, tuple(cloud.pos), cloud.facing, mp.script, mp.facing))
+assert trace[0] == (20, 0x1A, 0, (0, 0, 1700), 101, 0, 2048) and mp.toward == -1947
+assert [t[3] for t in trace[2:7]] == [(-65, 0, 1283), (-130, 0, 866), (-195, 0, 449), (-260, 0, 32), (-260, 0, 32)]
+assert [t[1] for t in trace[2:10]] == [0x1B, 0x1B, 0x1E, 0x1E, 0x1C, 0x1C, 0x1D, 0x1D]
+assert [t[5:] for t in trace[5:10]] == [(0, 2048), (1, 63589), (1, 63589), (1, 63589), (0, 2048)]
+assert trace[8][3:5] == ((0, 0, 1700), 101) and trace[10][:5] == (0, 0, 0, (0, 0, 1700), 0)
+
+# The camera, played by an attack's scripts: the target follows the attacker's camera bone 0 (E8: no y adjust) for
+# 2 frames, the eye takes bone 0 plus an offset now (F0: scaled by 256ths, then waits a frame), then eases
+# straight (DB) to a point over 2 frames (E6), starting in its own frame: each step the distance by SquareRoot0 (229
+# for 230), given its sign, plus 1, in 16ths over n; then the point.
+settings = {0: {"bones": bytes([3] * 16), "scale": (512, 256, 256), "points": [], "adjust": 300}}
+view = View([([0, 0, 0], [0, 0, 0])], 0, ([0, 0, 0], [0, 0, 0]), {0: cloud}, settings,
+            lambda k, n: [10 * n, -400, 1700], atan, 0, 4, [4])
+eye = Channel(bytes([0xF0, 0]) + struct.pack("<3h", 100, -50, 0) + bytes([0xDB, 0xE6]) + struct.pack("<3h", 0, 0, 0)
+              + bytes([2, 0xFF]), [5, 5, 5])
+aim = Channel(bytes([0xE8, 0]) + struct.pack("<3h", 0, 0, 0) + bytes([2, 0xFF]), [0, 0, 0])
+tasks, shots = [], []
+for _ in range(4):
+    camera_frame(eye, aim, tasks, view)
+    shots.append((list(eye.pos), list(aim.pos)))
+assert shots[0] == ([230, -450, 1700], [30, -400, 1700]) and shots[1][1] == [30, -400, 1700]
+assert shots[1][0] == [116, -225, 851] and shots[2][0] == shots[3][0] == [0, 0, 0]
+# Afterwards the camera halves its way back to the setup's camera each frame (C division), and stops when every half
+# is 0.
+assert returning(([10, -10, 3], [0, 0, 1]), ([0, 0, 0], [0, 0, 0])) == ([5, -5, 2], [0, 0, 1])
+assert returning(([1, 0, 0], [0, 0, 1]), ([0, 0, 0], [0, 0, 0])) is None
 print("ok")

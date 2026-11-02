@@ -164,7 +164,8 @@ The PS1 view is the exact one.
      the battle's animations; their colours come lit in the files.
    - **Battles** (a tab of their own): each battle's stage, party and enemies, drawn by `pc/gpu.c` in the battle's
      lists and order, played at 15 frames a second from the opening camera (or a setup camera), with shadows,
-     idle animations and moving stages.
+     idle animations and moving stages; and an action played from the start: an actor's action script at a target
+     (an enemy's attacks listed by name), the hurt it causes, and its attack camera (`CAMDAT`), not its effects.
    - **World** (a tab of its own): the world map (`WM0`, `WM2`, `WM3.MAP`, any `map_stage`) round a point picked on
      an overview of the whole map, drawn through the port's GTE and `pc/gpu.c` as `WORLD.BIN` draws it: sky, terrain,
      light zones, the party leader (`WM0`-`WM2.BSZ`) and its shadow, from the camera's view modes.

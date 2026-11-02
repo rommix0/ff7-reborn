@@ -484,7 +484,7 @@ own format, not a model):
     (0: no change), then 3 bits k: 0 is -(1 << shift), 7 is 12 - shift bits shifted, otherwise k bits v moved away
     from 0 by 1 << (k - 1), shifted.
   - Action scripts pick them: a script byte below `0x8E` plays that animation (`func_800C7C4C`); script 0 loops
-    animation 0, the battle stance.
+    animation 0, the battle stance. See "the action scripts" under "a battle as `BATTLE.X` sets it up".
 - **Weapons** (`func_800C7924`): a skeleton like the body's, its root hung on the actor's node, not a hand. Its own
   animation, body animation + 52 (+ 16 for an enemy), puts it in the hand.
 - **Checked against a lab dump** of the first battle (Cloud casting Ice, the MP waiting): Cloud's animation 12
@@ -525,9 +525,7 @@ N % 4):
   - An ease (`func_800C0630`) runs first in the frame that starts it: f from 0 to n - 2, a + ((rcos(f·2048 / n +
     2048) + 4096)(b - a) / 8192) (C division), then the exact point. libgte's `rcos` is a quarter-wave table,
     round(4096 sin(i π / 2048)) for i 0-1024.
-  - After that the camera holds; an attack starts one of the `CAMDAT*.LZS` scripts (by the setup's layout: 0, 1
-    and 8 CAMDAT0, 2 CAMDAT1, 3-7 CAMDAT2; 4 linked pointers to the eye and target tables), and returning halves
-    the way back each frame. Those use opcodes that follow actors, not decoded here.
+  - After that the camera holds; an attack starts one of the `CAMDAT*.LZS` scripts (below, the attack cameras).
 - **The camera matrix** (`func_800D85B0`, each battle frame), from the eye and target:
   - z = `VectorNormal(target - eye)` (its z nudged off 0), x = `VectorNormal(z x (0, -4096, 0))`, y =
     `VectorNormal(z x x)`, the products by the GTE's `op` (>> 12); the rows x, y, z; the translation
@@ -539,6 +537,54 @@ N % 4):
     menu, drawn over the rest, isn't on top of anything 3D.
   - The stage and actors are drawn with the previous frame's camera (`func_800B9568` runs before the camera
     update).
+- **The action scripts** (`func_800C7C4C`, once a battle frame for each actor; `tools/battle.py` plays them):
+  - Each model's section 1 holds them: pointers from `+0x68` up to the first script (74 for the party, 32 for an
+    enemy). Numbers `0x2E`-`0x3B` (but `0x33`) run `BATTLE.X`'s own instead (`D_800EEAA0`-`D_800EEB1C`, by the jump
+    table `jtbl_800A0888`). An enemy's attack n is its record's `animation_n` script with camera `camera_n`
+    (0xFFFF: the attack record's own, `+8`).
+  - The actor record (`D_801518E4`, `0xB9C` apiece): script number `+0x02`, animation `+0x0E`, size `+0x12`
+    (section 1 `+4`), its battle facing `+0x18`, "animation ended" `+0x3B`, pc `+0x3C`, a wait `+0x3D`, facing
+    `+0x162`, place `+0x168`. Its `0x74`-byte record at `D_80151200`: frames since the animation began `+0x36`, the
+    angle FC turned its attacker by `+0x2C`. Home places `D_80163C80`; the idle script `D_80163784`.
+  - The script runs only once its animation has ended (`+0x3B`, which the step writes when the bitstream wraps):
+    then opcodes run until one plays an animation (a byte below `0x8E`, or `BB C0 CD D2 D3 D9 EF`, which reach the
+    default) or waits; then the animation steps a frame (`func_800CD400`). So an N-frame animation holds the script
+    N frames and animations play back to back.
+  - Movement: `FC` turns to the target (`ratan2` + `0x800`) and stores the angle on the target; `E5`, `F9`, `B4`,
+    `95` turn back to the battle facing (by layout); `FA` goes home; `FD` x y z sets the place; `ED`/`E4` step 516
+    along/against the facing, `B1`/`B0` 258; `9A`/`FB` d y place it d plus the target's size short of the target;
+    `D1` d h n (also `99`, `E9`, `CC`, `D0`, `D5`, `CF`, with other curves) runs there over n frames, a task (10
+    slots at `D_801620AC`) adding the distance over n (C division) each frame; `C8` dx dz n slides.
+  - Flow: `F4` n `F3` waits n frames; `EE`/`FF` end (back to the idle script, the same frame); `FE C0` loops;
+    `F1` parks; `CE`...`CD` runs only for the party, `B3`...`B2` unless a flag; `C1` jumps past the first `C9`; `9E`
+    waits for the effect tasks; `A9` x n starts n 0-15 frames in, by a counter (`D_800FAFD8`, +3 a use); `A7`/`B6`
+    switch animation as far in as the last had gone.
+  - Effects and sounds (passed over by `tools/battle.py`): `F7`/`BE` n queue a hit on each target after n frames;
+    `D8` delay id plays a sound; `96`, `DB`, `DD`, `DE`, `AD`, `F0`, `B5` particle emitters on bones; `AC` n loads
+    an effect module to `0x801B0000` and `EC`/`EB` call into it; `A2` swaps the model; `A0`/`AF`/`AE` hang the
+    target on a bone and back.
+  - A hit: n + 1 frames after `F7 n`, the battle (outside the scripts) turns the target to the attacker's facing
+    - `0x800` and restarts it on its hurt script (1 for the MP, 5 for Cloud in the first battle).
+- **The attack cameras** (`STAGE1/CAMDAT0..2.LZS` by the setup's layout: 0, 1 and 8 CAMDAT0, 2 CAMDAT1, 3-7 CAMDAT2;
+  read to `0x801A0000`, its pointers already absolute):
+  - The file: 4 pointers (the eye table, the target table, and camera -3's), then the scripts. Camera n's
+    variant c (0-2) is entry `n * 3 + c` of each table (394, 375, 374 cameras). An action's camera number comes
+    from its attack (`D_801637A0`); -1 holds the camera, -2 is the opening.
+  - `func_800BB684` starts it on every channel and shows variant `D_801516F4 & 3` (a frame counter; 3 keeps the
+    last).
+  - Besides the opening's opcodes, both scripts take an actor's camera bone (16 per model, section 1 `+0x12`) plus
+    an offset: ease to it (eye `D8 E3 E4 E5`, target the same), follow it n frames (eye `E7 E9 EB`, target `E8 EA
+    EC`), set it now and wait a frame (eye `EF F0 F7`, target `F0 F8 F9`); of the attacker (`D_801590CC`), the
+    target (`D_80161EEC`; 0xF the middle of all hit), a hit actor by number or any actor. `E0 p n` eases to the
+    target's camera point p (section 1 `+0x4C`), eye `F8` circles the target, `F2`/`F3` stand round an actor.
+  - An eye's offset is scaled by the model's offset scales (section 1 `+0x44`, 256 being 1) and, after `DC`, turned
+    with the actor (`func_800C0DD8`); a target's y is raised by the model's adjust (`+0x64`), but not a following
+    one's. Eye `DA`/`DB` and target `DB`/`DC` switch eases between rcos's curve and a straight line, whose step is
+    the distance by libgte's `SquareRoot0` (a table of floor(512 sqrt(64 + i))), plus 1, in 16ths, over n.
+  - A bone's place is its matrix's translation (`+0x188 + bone x 0x34`) turned back by the camera it was posed
+    under (`func_800D3994`): the actors are posed after the frame's moves, and the camera follows those poses.
+  - When the action is over the camera halves its way back to the setup's camera each frame (`func_800C1104`, C
+    division) and stops once every half is 0.
 - **Places** (`func_800B4794`, `func_800B5138`):
   - Enemies stand at their formation places. One on the far side (z < 0, or z >= 0 in layouts 3, 5, 6 and 7) is
     turned half round, except in layout 1.
@@ -566,7 +612,18 @@ N % 4):
   - The opening camera played from the setup's script gives the game's eye and target exactly at every dumped
     frame (battle frames 5, 15, 50 and 68). Drawn at battle frames 38 and 48 it matches the lab frames 13660 and
     13700, mid fly-in, for 99.4% and 98.3% of the stage's pixels: lab frame 13508 + 4k shows battle frame k.
-  - Not checked in the lab: the moving stages (types 0, 2, 3, 4), the attack cameras.
+  - Not checked in the lab: the moving stages (types 0, 2, 3, 4).
+- **Actions checked against the lab** (the first battle, dumped every battle frame, `--dump-every 4`):
+  - Two of Cloud's Attacks, two of the MP's Machine Guns and Cloud's Ice, 360 battle frames: stepped one frame from
+    each dump's state, `tools/battle.py` gives every actor's script, pc, animation and frame, wait, place and
+    facing as the next dump, but where the battle itself starts a script (a command, a hit, the victory).
+  - Played from an idle frame as the viewer plays them (the attacker's script started, the hit as above), Cloud's
+    Attacks and the MP's attacks match every actor in every frame until the next command.
+  - Ice's camera (camera 7, variant 1), played from its start with the game's own bones, gives the game's eye and
+    target exactly in all 80 frames; with the viewer's floating-point poses it's within 23 units. The physical
+    attacks here hold the camera (-1).
+  - Drawn by the port's GPU, Cloud's Attack matches the lab's frames on 89-96% of the 3D area; the rest is the
+    sword trails and dust (effects aren't played) and posing in floating point.
 
 **`MENU/SHOPMENU.MNU`, the shops** (`tools/shop.py` dumps them to a JSON file and builds them back): the module runs
 from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
@@ -1469,9 +1526,9 @@ same set). They give the original module and file split, and the staff folders b
   backgrounds are `pc/gpu.c` as a library (`make editor`, with `tools/ps1gpu.c`); `tools/test_model_editor.py`
   checks the texture words, packets, the background's draw order, the projection and how a map starts.
 - `tools/battle.py`: the battle's models (§2, `ENEMY1..6/*.LZS`) as the field's shapes, its stages, places and
-  camera, shadows and opening camera scripts, for the viewer; `tools/test_battle.py` checks the animation
-  bitstream, the layouts, posing, loading places, the stage's lists and motion, shadows, the camera's integers and
-  the opening's eases.
+  camera, shadows, the action scripts and the camera scripts (the opening's and the attacks' `CAMDAT`), for the
+  viewer; `tools/test_battle.py` checks the animation bitstream, the layouts, posing, loading places, the stage's
+  lists and motion, shadows, the camera's integers, the opening's eases, an attack's script and an attack camera.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
   a repacker that keeps an LZS stream up to a change; the world map's frame (§2, `WORLD/WM*.MAP`): meshes, block
   swaps, textures, light zones, the camera, the sky, the party leader's model (posed and lit) and shadows, drawn

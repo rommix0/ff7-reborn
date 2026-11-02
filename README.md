@@ -86,7 +86,9 @@ Maps tab draws a map as it starts at a point of the story (`--story`): its backg
 start-up scripts place, with that GPU, the walkmesh, exits (with where they lead), triggers, arrows and markers
 over it, layers and tile groups (doors, lights, animations) to turn on and off. Its Battles tab draws any battle
 and plays it at the game's 15 frames a second: the opening camera's flight, the stage, the party you name and the
-enemies where the game puts them, in their battle stances, with their shadows and the stage's moving parts. Its World
+enemies where the game puts them, in their battle stances, with their shadows and the stage's moving parts; and
+plays an action (an enemy's attacks by name, or any actor's action script by number): the attacker's moves and
+animations, the target's hurt, and the attack's camera (spell effects aren't drawn). Its World
 tab draws the world map round any point as the game draws it: the sky, the terrain (each `map_stage`, and the two maps
 that tile parts of the world) in its light zones' colours, the party leader (Cloud, Tifa or Cid) with a shadow, from
 the camera's view modes; beside an overview of the whole map to pick the point on:
@@ -223,8 +225,8 @@ field module asks for, the pad, and each file a CD read starts); `--input FILE` 
 a frame and the buttons held from it); `--field N` warps to field N once the first field is up (`0x41` is the debug
 room); `--minigame N` then starts mini-game N (0 bike, 1 chocobo race, 2 snowboard, 3 Fort Condor, 4 submarine,
 5 Speed Square, 6 Gold Saucer snowboard); `--code "80AAAAAA VVVV"` holds a GameShark code every frame (16-bit `80`, 8-bit `30`; repeatable);
-`--dump-at N` or F11 dumps RAM, VRAM and SPU RAM to `dump_*.bin`; `--fast` runs frames as fast as the PC can
-(about 7× real time without a window). The build is deterministic, so
+`--dump-at N` or F11 dumps RAM, VRAM and SPU RAM to `dump_*.bin` (`--dump-every K`: again every K frames after);
+`--fast` runs frames as fast as the PC can (about 7× real time without a window). The build is deterministic, so
 `python tools/lab_diff.py A_ram.bin B_ram.bin --noise A2_ram.bin` shows what two scripts did differently (A2 is a
 second run of A's script).
 

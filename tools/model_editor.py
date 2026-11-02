@@ -1,14 +1,16 @@
 """The field viewer (the model editor to be): open the party's, each map's and the battle's models, turn them about,
 play their animations, shaded and textured as the game draws them; each map as it starts, its background and
 characters drawn by the port's GPU, with its walkmesh, exits, triggers, arrows and markers over it; each battle,
-its stage, party and enemies as the battle sets them up, played from its opening camera; and the world map's terrain
-as WORLD.BIN draws it round any point, with an overview of the whole map to pick the point on.
+its stage, party and enemies as the battle sets them up, played from its opening camera, and any actor's action
+(its script, the target's hurt and the attack's camera); and the world map's terrain as WORLD.BIN draws it round
+any point, with an overview of the whole map to pick the point on.
 
   pip install -r tools/requirements-editor.txt
   python tools/model_editor.py assets
   python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --shot cloud.png
   python tools/model_editor.py assets --model ENEMY6/CLOUD.LZS:3 --shot battle_cloud.png
   python tools/model_editor.py assets --battle 0x12C --party CLOUD --camera -1 --frame 30 --shot battle.png
+  python tools/model_editor.py assets --battle 0x12C --action 0,20,4 --frame 10 --shot attack.png
   python tools/model_editor.py assets --map MD1STIN --story 1 --shot md1stin.png
   python tools/model_editor.py assets --world 0 --at 185636,123325 --view 1 --shot midgar.png
 
@@ -708,27 +710,82 @@ class Battle:
         self.vram = vram(disc, None)
         loads = [(None, None, stage)]
         self.module = battle.module(disc)
+        exe = (disc / "SCUS_941.63").read_bytes()
+        self.atan = list(struct.unpack_from("<1025h", exe, 0x8004FC98 - 0x80010000 + 0x800))  # libgte's ratan2
+        self.camdat = lzs((disc / f"STAGE1/CAMDAT{battle.CAMDATS.get(setup['layout'], 0)}.LZS").read_bytes())
         places = battle.placement(self.module, setup, len(party))
         for slot, (name, place) in enumerate(zip(party, places)):
-            loads.append((slot, place, battle.moved(battle.model_json(lzs((disc / f"ENEMY6/{name}.LZS")
-                                                                          .read_bytes()), True),
-                                                    (0, 0x10, 0x11)[slot], 3 * slot)))
+            raw = lzs((disc / f"ENEMY6/{name}.LZS").read_bytes())
+            loads.append((slot, place, battle.moved(battle.model_json(raw, True), (0, 0x10, 0x11)[slot], 3 * slot),
+                          battle.sections(raw)[1]))
         enemies = [(k, e) for k, e in enumerate(setup["formation"]) if e["enemy_id"] != 0xFFFF]
         for (k, enemy), place in zip(enemies, places[len(party):]):
-            path = next(disc.glob(f"ENEMY[1-6]/ENEMY{enemy['enemy_id']:03d}.LZS"))
+            raw = lzs(next(disc.glob(f"ENEMY[1-6]/ENEMY{enemy['enemy_id']:03d}.LZS")).read_bytes())
             page = (0x13 if location == 0x4E else 0x12) + self.table["enemy_ids"].index(enemy["enemy_id"])
-            loads.append((4 + k, place, battle.moved(battle.model_json(lzs(path.read_bytes()), False), page,
-                                                     3 * (4 + k))))
+            loads.append((4 + k, place, battle.moved(battle.model_json(raw, False), page, 3 * (4 + k)),
+                          battle.sections(raw)[1]))
         self.actors = []  # (actor, place, model, shadow size)
-        for actor, place, loaded in loads:
+        self.settings = {}  # actor: section 1 (its action scripts and camera settings)
+        for actor, place, loaded, *settings in loads:
             for x, y, w, h, data in loaded["tim"]:
                 self.vram[y:y + h, x:x + w] = np.frombuffer(data, "<u2").reshape(h, w)
             if actor is not None:
                 self.actors.append((actor, place, Model(loaded["bones"], loaded["parts"], loaded["animations"],
                                                          None, [], 0, self.vram), loaded["shadow"]))
-        self.stage, self.opening = stage, []
+                self.settings[actor] = settings[0]
+        self.stage, self.opening, self.timeline = stage, [], []
         self.sections = {k: Model([{"length": 0, "parent": -1}], [part], [], None, [], 0, self.vram)
                          for k, part in stage["parts"].items()}
+
+    def act(self, attacker: int, script: int, target: int, camera: int, variant: int, start: tuple):
+        """Play an action from the battle's start, everyone at their places: attacker's action script number aimed
+        at target, with attack camera number (-1 holds the camera) variant 0-2 from the layout's CAMDAT file, from the
+        camera start (eye, target). The timeline then holds each battle frame's poses and camera."""
+        actors = {}
+        for actor, (place, facing), m, _ in self.actors:
+            frames = [a["frames"] if a else 0 for a in m.anims] + [0] * 256
+            actors[actor] = battle.Actor(battle.action_scripts(self.settings[actor], self.module), frames, place,
+                                         facing, struct.unpack_from("<h", self.settings[actor], 4)[0],
+                                         pos=list(place), facing=facing)
+        actors[attacker].script = script
+        self.fight = battle.Fight(actors, attacker, target, self.atan)
+        self.channels = None
+        if camera >= 0:
+            eye, aim = battle.camdat(self.camdat, camera)[variant]
+            settings = {k: battle.camera_settings(s1) for k, s1 in self.settings.items()}
+            self.channels = (battle.Channel(eye, list(start[0])), battle.Channel(aim, list(start[1])), [],
+                             battle.View([self.camera(k) for k in range(4)], 0, start, actors, settings, None,
+                                         self.atan, attacker, target, [target]))
+        self.timeline, self.shown, self.start = [], start, start
+
+    def action_frame(self, frame: int) -> tuple[dict, tuple]:
+        """Battle frame frame of the action: each actor's (animation, frame, place, facing) and the camera it's
+        drawn from (the frame before's: func_800B9568 draws before the camera moves). Its camera script runs while
+        the attacker's script does, then the camera halves its way back to the setup's camera 0."""
+        models = {actor: m for actor, _, m, _ in self.actors}
+        while len(self.timeline) <= frame:
+            fight = self.fight
+            battle.action_frame(fight)
+            poses = {k: (a.anim, a.shown, list(a.pos), a.facing) for k, a in fight.actors.items()}
+
+            def bone(k: int, n: int) -> list[int]:
+                anim, at, pos, facing = poses[k]
+                start = model.pose(models[k].bones, models[k].anims[anim], at)[n][1]
+                turn = np.array(model.rotation(0, facing / 16, 0))
+                return [round(v) for v in turn @ np.array(start) + pos]
+
+            drawn = self.shown
+            attacker = fight.actors[fight.attacker]
+            if self.channels and attacker.script != attacker.idle:
+                eye, aim, tasks, view = self.channels
+                view.bone, view.current = bone, self.shown
+                battle.camera_frame(eye, aim, tasks, view)
+                self.shown = (list(eye.pos), list(aim.pos))
+            elif self.channels:
+                goal = self.camera(self.channels[3].chosen)
+                self.shown = battle.returning(self.shown, goal) or goal
+            self.timeline.append((poses, drawn))
+        return self.timeline[frame]
 
     def camera(self, k: int, frame: int = 0) -> tuple[list[int], list[int]]:
         """The setup's camera k's eye and target, or (k -1) the opening's as battle frame frame is drawn: the camera
@@ -740,9 +797,11 @@ class Battle:
         c = self.setup["cameras"][k]
         return [c["x"], c["y"], c["z"]], [c["target_x"], c["target_y"], c["target_z"]]
 
-    def packets(self, eye, target, frame: int = 0, frames: dict | None = None) -> list[list[int]]:
+    def packets(self, eye, target, frame: int = 0, frames: dict | None = None,
+                poses: dict | None = None) -> list[list[int]]:
         """The packets of battle frame frame seen from eye to target: the stage as stage_draws moves it, each actor
-        in its battle stance (animation 0) at that frame (frames, if given, its frame by actor) with its shadow. In
+        in its battle stance (animation 0) at that frame (frames, if given, its frame by actor; poses, if given, its
+        animation, frame, place and facing by actor, as action_frame plays them) with its shadow. In
         drawing order: the far layer, the backdrop (the last linked first), the shadows (subtracted: a draw mode of
         blend 2 before them, of 1 after, func_800B8360), then the main ordering table (avsz >> 2), the stage's
         linked before the actors'."""
@@ -772,6 +831,9 @@ class Battle:
         for actor, ((x, y, z), facing), m, size in self.actors:
             anim = next((a for a in m.anims if a), None)
             at = ((frames or {}).get(actor, frame) % anim["frames"]) if anim else 0
+            if poses:
+                number, at, (x, y, z), facing = poses[actor]
+                anim = m.anims[number] or anim
             place = np.array(model.rotation(0, facing / 16, 0), np.float32)
             link(m, [v @ place.T + np.array([x, y, z], np.float32) for v in m.posed(anim, at)], 3, 2)
             disc = Model([{"length": 0, "parent": -1}],
@@ -785,9 +847,15 @@ class Battle:
         return out[:at] + [[0xE1000640]] + out[at:at + len(shadows)] + [[0xE1000620]] + out[at + len(shadows):]
 
 
-def battle_shot(disc: Path, number: int, camera: int, frame: int, party: tuple, out: Path):
+def battle_shot(disc: Path, number: int, camera: int, frame: int, party: tuple, out: Path,
+                action: list | None = None):
     b = Battle(disc, number, party)
-    rgb = Ps1View().battle(b.vram, b.packets(*b.camera(camera, frame), frame))
+    if action:
+        b.act(*(action + [-1, 0][len(action) - 3:]), start=b.camera(max(camera, 0)))
+        poses, eye_target = b.action_frame(frame)
+        rgb = Ps1View().battle(b.vram, b.packets(*eye_target, frame, poses=poses))
+    else:
+        rgb = Ps1View().battle(b.vram, b.packets(*b.camera(camera, frame), frame))
     if rgb is None:
         raise SystemExit("the PS1 view's library isn't built: make editor")
     write_png(out, rgb)
@@ -930,7 +998,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
              "overlays": {"walkmesh", "exits", "triggers", "arrows", "markers"}, "vram": "model", "story": 0,
              "characters": True, "battle": battles[0][0] if start_battle is None else start_battle,
              "battle_filter": "", "camera": -1, "party": "CLOUD,BARRETT,TIFA", "battle_picture": None,
-             "battle_frame": 0.0, "battle_play": True, "battle_drawn": None,
+             "battle_frame": 0.0, "battle_play": True, "battle_drawn": None, "acting": False,
+             "action": {"attacker": 0, "script": 20, "target": 4, "camera": -1, "variant": 0},
              "world_kind": 0 if start_world is None else start_world, "world_stage": 0, "world": None,
              "world_at": [185636, 123325], "world_yaw": 0, "world_view": 0, "world_leader": 0,
              "world_drawn": None}
@@ -1037,7 +1106,7 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
             chosen = number == state["battle"]
             if state["battle_filter"].upper() in label.upper() and imgui.selectable(label, chosen)[0]:
                 state["battle"], state["camera"], state["battle_picture"] = number, -1, None
-                state["battle_frame"], state["battle_play"] = 0.0, True
+                state["battle_frame"], state["battle_play"], state["acting"] = 0.0, True, False
         imgui.end_child()
         imgui.same_line()
         table = scenes[state["battle"] // 4]
@@ -1051,9 +1120,14 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         if state["battle_play"]:  # 15 battle frames a second (VSync(4), func_800D8A88)
             state["battle_frame"] += imgui.get_io().delta_time * 15
         frame, b = int(state["battle_frame"]), state["battle_obj"]
-        if state["battle_drawn"] != (frame, state["camera"]) or state["vram"] != "battle":
-            rgb = state["ps1view"].battle(b.vram, b.packets(*b.camera(state["camera"], frame), frame))
-            state["vram"], state["battle_drawn"] = "battle", (frame, state["camera"])
+        drawn = (frame, state["camera"], state["acting"])
+        if state["battle_drawn"] != drawn or state["vram"] != "battle":
+            if state["acting"]:
+                poses, camera = b.action_frame(frame)
+                rgb = state["ps1view"].battle(b.vram, b.packets(*camera, frame, poses=poses))
+            else:
+                rgb = state["ps1view"].battle(b.vram, b.packets(*b.camera(state["camera"], frame), frame))
+            state["vram"], state["battle_drawn"] = "battle", drawn
             if rgb is None:
                 imgui.text_wrapped("The battle view draws with the PS1 view's library. Build it with: make editor")
                 return
@@ -1079,10 +1153,43 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
             state["battle_picture"] = None
         imgui.text_wrapped(f"ENEMY6 files, up to 3: {', '.join(sorted(party_files))}")
         imgui.text("enemies")
-        for e in setup["formation"]:
+        names, records = dict(enumerate(party)), {}
+        for k, e in enumerate(setup["formation"]):
             if e["enemy_id"] != 0xFFFF:
-                name = table["enemies"][table["enemy_ids"].index(e["enemy_id"])]["name"].strip()
-                imgui.text(f"{name} (ENEMY{e['enemy_id']:03d}) at {e['x']}, {e['y']}, {e['z']}")
+                records[4 + k] = table["enemies"][table["enemy_ids"].index(e["enemy_id"])]
+                names[4 + k] = records[4 + k]["name"].strip()
+                imgui.text(f"{names[4 + k]} (ENEMY{e['enemy_id']:03d}) at {e['x']}, {e['y']}, {e['z']}")
+        imgui.separator()
+        # An action: its attacker's action script and attack camera; an enemy's attacks carry both (animation_n,
+        # camera_n), the party's come from the kernel's commands (Cloud's Attack 20 holding the camera, Ice 29 with
+        # camera 7, in the first battle).
+        action, actors = state["action"], sorted(names)
+        imgui.text("action")
+        for key in ("attacker", "target"):
+            imgui.set_next_item_width(200)
+            at = actors.index(action[key]) if action[key] in actors else 0
+            _, at = imgui.combo(key, at, [f"{k}: {names[k]}" for k in actors])
+            action[key] = actors[at]
+        for n in range(1, 17):
+            enemy = records.get(action["attacker"])
+            if not enemy or enemy[f"attack_{n}"] == 0xFFFF:
+                continue
+            attack = next((a for a in table["attacks"] if a["id"] == enemy[f"attack_{n}"]), None)
+            camera = enemy[f"camera_{n}"] if enemy[f"camera_{n}"] != 0xFFFF else (
+                attack["unknown_08"] | attack["unknown_09"] << 8 if attack else 0xFFFF)
+            label = f"{attack['name'] if attack else enemy[f'attack_{n}']}: script {enemy[f'animation_{n}']}"
+            if imgui.selectable(label, action["script"] == enemy[f"animation_{n}"])[0]:
+                action["script"], action["camera"] = enemy[f"animation_{n}"], camera - 0x10000 * (camera > 0x7FFF)
+        for key, top in (("script", 73), ("camera", 500), ("variant", 2)):
+            imgui.set_next_item_width(200)
+            _, action[key] = imgui.input_int(key, action[key])
+            action[key] = max(-1 if key == "camera" else 0, min(action[key], top))
+        if imgui.button("play action"):
+            b.act(**action, start=b.camera(max(state["camera"], 0)))
+            state["acting"], state["battle_frame"], state["battle_play"] = True, 0.0, True
+        imgui.same_line()
+        if imgui.button("stance"):
+            state["acting"] = False
         imgui.end_child()
 
     def world_gui():
@@ -1244,6 +1351,8 @@ def main():
     ap.add_argument("--camera", type=int, default=0,
                     help="with --battle --shot, the setup's camera (0-3), or -1 its opening at battle frame --frame")
     ap.add_argument("--party", default="CLOUD", help="with --battle --shot, the party's ENEMY6 files (CLOUD,TIFA)")
+    ap.add_argument("--action", help="with --battle --shot, an action from the start: attacker,script,target"
+                    "[,attack camera[,variant]] (0,20,4: Cloud's Attack), drawn at its battle frame --frame")
     ap.add_argument("--world", type=int, help="a world map (0, 2, 3) to start on, or with --shot to draw")
     ap.add_argument("--at", default="185636,123325", help="with --world --shot, the point (x,z) to draw round")
     ap.add_argument("--view", type=int, default=0, help="with --world --shot, the camera's view mode (0-3)")
@@ -1253,7 +1362,8 @@ def main():
     if args.shot and args.world is not None:
         world_shot(disc, args.world, tuple(int(n) for n in args.at.split(",")), int(args.yaw), args.view, args.shot)
     elif args.shot and args.battle is not None:
-        battle_shot(disc, args.battle, args.camera, args.frame, tuple(args.party.upper().split(",")), args.shot)
+        battle_shot(disc, args.battle, args.camera, args.frame, tuple(args.party.upper().split(",")), args.shot,
+                    [int(v, 0) for v in args.action.split(",")] if args.action else None)
     elif args.shot and args.map:
         map_shot(disc, args.map.upper(), args.shot, args.story)
     elif args.shot:

@@ -10,6 +10,7 @@ animations and the weapon just before the TIM (func_800B54B8).
 import gzip
 import math
 import struct
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -319,6 +320,23 @@ def normal(v: list[int]) -> list[int]:
     return [math.isqrt((1 << 30) // top) * c >> (31 - zeros >> 1) for c in v]
 
 
+def square_root0(v: int) -> int:
+    """libgte's SquareRoot0: the leading zeros rounded down to even, then a table of 192 roots, floor(512 sqrt(64 +
+    i)), shifted back. Close, not exact: 1200 * 1200 gives 1193."""
+    if not v:
+        return 0
+    zeros = 32 - v.bit_length() & ~1
+    top = v << zeros - 24 if zeros >= 24 else v >> 24 - zeros
+    return math.isqrt(top << 18) << (31 - zeros >> 1) >> 12
+
+
+def straight(p: int, a: int, b: int, n: int) -> int:
+    """A straight ease's step from a to b over n frames (func_800C0480): the distance by SquareRoot0, given its
+    sign, plus 1 in 16ths, over n; added to p in 16ths."""
+    d = square_root0((b - a) * (b - a))
+    return (p * 16 + cdiv(((d if b >= a else -d) + 1) * 16, n)) >> 4
+
+
 def look_at(eye, target) -> tuple[list[list[int]], list[int]]:
     """The battle camera (func_800D85B0), in the GTE's integers: rows x, y, z (4096 being 1) with z towards the
     target (its z nudged off 0), x = z x up, y = z x x (op, the up vector (0, -4096, 0), each >> 12), so view space is
@@ -344,72 +362,442 @@ def rcos(a: int) -> int:
 
 
 def opening(module: bytes, setup: dict, ticks: int) -> list[tuple[list[int], list[int]]]:
-    """The camera's eye and target after each of the first ticks battle frames: the setup's camera_script run as
-    func_800BC81C runs it, each frame the target's script, then the eye's (func_800BEA38, func_800BCB1C), then the
-    eases they started (func_800C0630: f from 0 to n - 2 on rcos's curve, the exact place on the nth run). The
-    opening scripts set a point (F9, FA), take the current camera (D9; at the start the setup's camera 0 here),
-    choose a setup camera (DD), ease to it (E2) or to a point (E6) over n frames, set a wait (F5), wait (F4) and end
-    (FF). DA-DC switch an ease between rcos's curve and a straight line."""
+    """The camera's eye and target after each of the first ticks battle frames: the setup's camera_script (BATTLE.X's
+    own pair of scripts, camera -2) played by camera_frame from the setup's camera 0. They set a point (F9, FA), take
+    the current camera (D9), choose a setup camera (DD), ease to it (E2) or to a point (E6) over n frames, set a wait
+    (F5), wait (F4) and end (FF)."""
     cameras = [([c["x"], c["y"], c["z"]], [c["target_x"], c["target_y"], c["target_z"]])
                for c in setup["cameras"]]
     codes = [module[struct.unpack_from("<I", module, table - 0x800A0000 + 4 * setup["camera_script"])[0]
                     - 0x800A0000:] for table in OPENINGS]
-    target, eye = ({"pos": list(cameras[0][k]), "pc": 0, "wait": 0, "linear": False} for k in (1, 0))
-    state = {"camera": 0}
-    eases = []  # [channel, start, end, frames, f, step]
-    out = []
-
-    def run(ch: dict, code: bytes, k: int):
-        while True:
-            op = code[ch["pc"]]
-            ch["pc"] += 1
-            args = code[ch["pc"]:]
-            if op in (0xF9, 0xFA):
-                ch["pos"] = list(struct.unpack_from("<3h", args))
-                ch["pc"] += 6
-            elif op in (0xE2, 0xE6):
-                end, n = ((cameras[state["camera"]][k], args[0]) if op == 0xE2
-                          else (list(struct.unpack_from("<3h", args)), args[6]))
-                ch["pc"] += 1 if op == 0xE2 else 7
-                eases[:] = [e for e in eases if e[0] is not ch]
-                eases.append([ch, list(ch["pos"]), list(end), n, 0, ch["linear"]])
-            elif op == 0xE1:
-                ch["pos"] = list(cameras[state["camera"]][k])
-            elif op == 0xDD:
-                state["camera"] = args[0]
-                ch["pc"] += 1
-            elif op == 0xD9:
-                ch["pos"] = list(out[-1][k] if out else cameras[0][k])
-            elif op in (0xDA, 0xDB, 0xDC):
-                ch["linear"] = op == 0xDB if k == 0 else op == 0xDC if op != 0xDA else ch["linear"]
-            elif op in (0xD5, 0xD6, 0xD7):  # sounds and effects
-                ch["pc"] += {0xD5: 2, 0xD6: 0, 0xD7: 2}[op]
-            elif op == 0xF5:
-                ch["wait"] = args[0]
-                ch["pc"] += 1
-            elif op == 0xF4 and ch["wait"]:
-                ch["wait"] -= 1
-                ch["pc"] -= 1
-                return
-            elif op != 0xF4:  # FF, or any other: the frame ends here
-                ch["pc"] -= op == 0xFF
-                return
-
+    eye, target = (Channel(codes[k], list(cameras[0][k])) for k in (0, 1))
+    view = View(cameras, 0, cameras[0], {}, {}, None, [], 0, 0, [])
+    tasks, out = [], []
     for _ in range(ticks):
-        run(target, codes[1], 1)
-        run(eye, codes[0], 0)
-        for ease in list(eases):
-            ch, a, b, n, f, linear = ease
+        camera_frame(eye, target, tasks, view)
+        out.append((list(eye.pos), list(target.pos)))
+        view.current = out[-1]
+    return out
+
+
+# Action scripts (func_800C7C4C): BATTLE.X's own scripts for script numbers 0x2E-0x3B (jtbl_800A0888; 0x33 keeps the
+# model's), and the operand bytes of the opcodes the player passes over (effects, sounds, flags).
+BUILT_IN = {0x2E: 0x800EEAA0, 0x2F: 0x800EEAB0, 0x30: 0x800EEAB8, 0x31: 0x800EEAE0, 0x32: 0x800EEAEC,
+            0x34: 0x800EEAD8, 0x35: 0x800EEB1C, 0x36: 0x800EEB10, 0x37: 0x800EEB04, 0x38: 0x800EEAF8,
+            0x39: 0x800EEAD0, 0x3A: 0x800EEAC8, 0x3B: 0x800EEACC}
+OPERANDS = {0x90: 3, 0x91: 1, 0x94: 5, 0x96: 2, 0x97: 2, 0x98: 1, 0x9D: 1, 0xA0: 1, 0xA1: 2, 0xA2: 1, 0xA3: 1,
+            0xA8: 2, 0xAB: 4, 0xAC: 1, 0xAD: 5, 0xAF: 1, 0xB5: 11, 0xB9: 1, 0xBC: 1, 0xBD: 4, 0xBE: 1, 0xBF: 2,
+            0xC2: 1, 0xC4: 3, 0xC6: 1, 0xC7: 3, 0xCB: 8, 0xD4: 3, 0xD6: 1, 0xD7: 2, 0xD8: 3, 0xDA: 1, 0xDB: 4, 0xDC: 3,
+            0xDD: 2, 0xDE: 2, 0xE7: 1, 0xF5: 1, 0xF7: 1, 0xF8: 1}
+ANIMATES = {0xBB, 0xC0, 0xCD, 0xD2, 0xD3, 0xD9, 0xEF}  # the default case: like a byte below 0x8E
+# The runs at the target: where the distance (s16) and the frame count sit after the opcode, and its length.
+RUNS = {0xD1: (0, 4, 5), 0x99: (1, 5, 6), 0xE9: (0, 2, 3), 0xD5: (0, 7, 8), 0xCF: (0, 7, 8)}
+
+
+def action_scripts(s1: bytes, module: bytes) -> list[bytes]:
+    """A model's action scripts by number (section 1's pointers from 0x68 up to the first script: 74 for the party,
+    32 for an enemy), BATTLE.X's own in place of 0x2E-0x3B."""
+    first = struct.unpack_from("<I", s1, 0x68)[0]
+    scripts = [s1[p:] for p in struct.unpack_from(f"<{(first - 0x68) // 4}I", s1, 0x68)]
+    scripts += [b""] * (0x3C - len(scripts))
+    for n, address in BUILT_IN.items():
+        scripts[n] = module[address - 0x800A0000:]
+    return scripts
+
+
+@dataclass
+class Actor:
+    """An actor as the action scripts move it (its record at D_801518E4 + actor * 0xB9C)."""
+    scripts: list[bytes]
+    frames: list[int]  # each animation's frame count
+    home: tuple  # x, y, z (D_80163C80)
+    base: int  # the facing the battle gives it (+0x18), 4096 a turn
+    size: int  # section 1 +4 (+0x12)
+    idle: int = 0  # the script it goes back to (D_80163784)
+    script: int = 0
+    pc: int = 0
+    run: bool = True  # its animation has just ended, so the script runs (+0x3B)
+    hold: int = 0  # F4's wait (+0x3D)
+    anim: int = 0
+    next: int = 0  # the frame its next step shows
+    shown: int = 0
+    elapsed: int = 0  # steps since its animation started (+0x36 of its 0x74-byte record)
+    pos: list = field(default_factory=list)
+    facing: int = 0
+    toward: int = 0  # FC's angle from its attacker toward it (+0x2C of its 0x74-byte record)
+
+
+@dataclass
+class Fight:
+    """What the action scripts share: the actors by number, the attacker (D_801590CC) and its target (D_800F99E8),
+    the exe's arctangents (ratan2), the move tasks running, the blows on their way (frames to go) and A9's counter
+    (D_800FAFD8)."""
+    actors: dict
+    attacker: int
+    target: int
+    atan: list
+    tasks: list = field(default_factory=list)
+    blows: list = field(default_factory=list)
+    count: int = 0
+
+
+HURT = (5, 1)  # the scripts the first battle's lab frames start on a hit: the party's, an enemy's
+
+
+def step(a: Actor):
+    """The animation's next frame (func_800CD400): the script runs again once it has shown the last."""
+    a.shown, a.next, a.elapsed = a.next, (a.next + 1) % (a.frames[a.anim] or 1), a.elapsed + 1
+    a.run = a.next == 0
+
+
+def ratan2(atan: list[int], y: int, x: int) -> int:
+    """libgte's ratan2, by its table of 1025 arctangents (the exe's D_8004FC98, 4096 a turn)."""
+    if not x and not y:
+        return 0
+    ax, ay = abs(x), abs(y)
+    if ay < ax:
+        r = atan[ay // (ax >> 10) if ay & 0x7FE00000 else (ay << 10) // ax]
+    else:
+        r = 0x400 - atan[ax // (ay >> 10) if ax & 0x7FE00000 else (ax << 10) // ay]
+    r = 0x800 - r if x < 0 else r
+    return -r if y < 0 else r
+
+
+def rsin(a: int) -> int:
+    return rcos(a - 1024)
+
+
+def cdiv(a: int, b: int) -> int:
+    """C's division, toward 0."""
+    q = abs(a) // abs(b)
+    return q if (a < 0) == (b < 0) else -q
+
+
+def action_frame(fight: Fight):
+    """One battle frame: each actor's action script runs if its animation has ended, then its animation steps a frame
+    (func_800C7C4C), then the move tasks the scripts started (D_80163B48's) step; the game poses the actors after that,
+    and its camera follows those poses. A byte below 0x8E plays that animation and the script waits for its end; scripts
+    turn to the target (FC) and back (E5, F9, B4, 95), go home (FA), step along the facing (ED, E4: 516; B1, B0: 258),
+    run at the target to its size plus a distance short of it over n frames (D1, 99, E9, CC, D0, D5, CF), slide (C8),
+    wait (F4 n, F3) and end (EE, FF back to the idle script; FE C0 loops it). A blow (F7 n, BE n) lands n + 1 frames on:
+    the target turns to face the attacker and starts its hurt script, as the battle does on a hit (outside the scripts;
+    HURT, as the lab frames show it). Effects, sounds and flags are passed over: 9E, which waits for effects, never
+    does."""
+    for k in sorted(fight.actors):
+        if not fight.actors[k].run or act(fight, k):
+            step(fight.actors[k])
+    for blow in list(fight.blows):
+        blow[0] -= 1
+        if blow[0]:
+            continue
+        fight.blows.remove(blow)
+        t = fight.actors[fight.target]
+        t.script, t.pc, t.hold, t.run = HURT[fight.target >= 4], 0, 0, True
+        t.facing = fight.actors[fight.attacker].facing - 0x800 & 0xFFFF
+    for task in list(fight.tasks):
+        if not task[1]:
+            fight.tasks.remove(task)
+            continue
+        a = fight.actors[task[0]]
+        a.pos = [s16(p + d) for p, d in zip(a.pos, task[2])]
+        task[1] -= 1
+
+
+def act(fight: Fight, k: int) -> bool:
+    """Run actor k's script until it plays an animation (True: the animation steps this frame) or waits (False)."""
+    a, t, atan, tasks, target = fight.actors[k], fight.actors[fight.target], fight.atan, fight.tasks, fight.target
+    while True:
+        code = a.scripts[a.script]
+        op = code[a.pc]
+        a.pc += 1
+        args = code[a.pc:]
+        if op < 0x8E or op in ANIMATES:
+            a.anim, a.next, a.elapsed = op, 0, 0
+            return True
+        if op in (0xA7, 0xB6):  # another animation, as far in as the last had gone
+            a.anim, a.next, a.pc = args[0], 0, a.pc + 1
+            elapsed = a.elapsed
+            for _ in range(elapsed):
+                step(a)
+            a.elapsed = elapsed
+            return True
+        if op == 0xA9:  # its first operand is never read; it starts 0-15 frames in, by a counter
+            a.anim, a.next, a.elapsed, a.pc = args[1], 0, 0, a.pc + 2
+            fight.count = fight.count + 3 & 0xFF
+            for _ in range(fight.count & 15):
+                step(a)
+            return True
+        if op == 0xFE and not a.hold and args[0] == 0xC0:
+            a.anim, a.next, a.elapsed = code[0], 0, 0
+            a.script, a.pc, a.run = a.idle, 0, True
+        elif op in (0xEE, 0xFF):
+            a.script, a.pc, a.hold, a.run = a.idle, 0, 0, True
+        elif op in (0xF1, 0x9E):
+            a.pc -= op == 0xF1
+            return False
+        elif op == 0xF4:
+            a.hold, a.pc = args[0], a.pc + 1
+        elif op == 0xF3 and a.hold:
+            a.hold, a.pc = a.hold - 1, a.pc - 1
+            return False
+        elif op == 0xFC and fight.attacker != target:
+            d = ratan2(atan, t.pos[0] - a.pos[0], t.pos[2] - a.pos[2])
+            a.facing, t.toward = d + 0x800 & 0xFFFF, d
+        elif op in (0xE5, 0xF9, 0xB4, 0x95, 0xBA):
+            a.facing, a.pc = a.base, a.pc + 2 * (op == 0xBA)
+        elif op == 0xFA:
+            a.pos = list(a.home)
+        elif op == 0xFD:
+            a.pos, a.pc = list(struct.unpack_from("<3h", args)), a.pc + 6
+        elif op in (0xED, 0xE4, 0xB1, 0xB0):
+            angle, stride = a.facing + (0x800 if op in (0xE4, 0xB0) else 0), 0x204 if op in (0xED, 0xE4) else 0x102
+            a.pos[0] -= rsin(angle) * stride >> 12
+            a.pos[2] -= rcos(angle) * stride >> 12
+        elif op in (0x9A, 0xFB):
+            d, y = struct.unpack_from("<2h", args)
+            a.pc += 4
+            angle, d = 0x800 - t.toward, d + t.size
+            a.pos = [t.pos[0] - (rsin(angle) * d >> 12), y, t.pos[2] + (rcos(angle) * d >> 12)]
+        elif op in RUNS or op in (0xCC, 0xD0):
+            # ponytail: one target only (D_801031F0 clear); D0, D5 and CF have curves of their own, run straight here
+            if op == 0xCC:
+                d, n, length = 0, args[0], 1
+            elif op == 0xD0:
+                d, n, length = struct.unpack_from("<h", args)[0], 5 if args[2] < 4 else 8, 3
+            else:
+                at, count, length = RUNS[op]
+                d, n = struct.unpack_from("<h", args, at)[0], args[count]
+            a.pc += length
+            angle, d = 0x800 - t.toward, d + t.size
+            x = s16(t.pos[0] - (rsin(angle) * d >> 12))
+            z = s16(t.pos[2] + (rcos(angle) * d >> 12))
+            move = (0, 0, 0) if target == k else (cdiv(x - a.pos[0], n), cdiv(t.pos[1] - a.pos[1], n) if k < 4
+                                                  else 0, cdiv(z - a.pos[2], n))
+            tasks.append([k, n, move])
+        elif op == 0xC8:
+            dx, dz, n = struct.unpack_from("<2hB", args)
+            a.pc += 5
+            tasks.append([k, n, (dx, 0, dz)])
+        elif op == 0xCE and k >= 4:
+            a.pc = code.index(0xCD, a.pc) + 1
+        elif op in (0xF7, 0xBE):
+            fight.blows.append([args[0] + 2])
+            a.pc += 1
+        elif op == 0xC1:
+            a.pc = code.index(0xC9) + 1
+        elif op != 0xFE:
+            a.pc += OPERANDS.get(op, 0)
+
+
+CAMDATS = {2: 1, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2}  # by layout; the others read CAMDAT0 (D_800E7D50)
+
+
+def returning(current: tuple, goal: tuple) -> tuple | None:
+    """The camera's way back after an attack (func_800C1104): each of the eye's and target's numbers moves half the
+    way (C division) to the setup camera's; None once every half is 0."""
+    halves = [[cdiv(g - c, 2) for c, g in zip(cs, gs)] for cs, gs in zip(current, goal)]
+    if not any(any(h) for h in halves):
+        return None
+    return tuple([c + h for c, h in zip(cs, hs)] for cs, hs in zip(current, halves))
+
+
+def camdat(d: bytes, number: int) -> list[tuple[bytes, bytes]]:
+    """An attack camera's three variants, each an eye and a target script, from a CAMDAT file (loaded at
+    0x801A0000, its pointers already absolute; the eye and target tables hold camera n's at n * 3 + channel)."""
+    tables = struct.unpack_from("<2I", d)
+    return [tuple(d[struct.unpack_from("<I", d, table - 0x801A0000 + 4 * (number * 3 + ch))[0] - 0x801A0000:]
+                  for table in tables) for ch in range(3)]
+
+
+@dataclass
+class Channel:
+    """A camera channel's eye or target (D_80151844, D_801518A4 + channel * 14)."""
+    code: bytes
+    pos: list
+    pc: int = 0
+    wait: int = 0
+    linear: bool = False  # eases go straight, not on rcos's curve
+    turn: bool = False  # the eye's offsets from an actor turn with it
+
+
+@dataclass
+class View:
+    """What the camera scripts read: the setup's cameras (eye, target) and the one chosen (D_80163B3C), the camera
+    shown, the actors (with each one's camera settings, from section 1: bones +0x12, offset scales +0x44, points
+    +0x4C, y adjust +0x64), bone(actor, n) its bone n's world position, the attacker, the target (0xF all those
+    hit) and those hit (D_801517F0)."""
+    cameras: list
+    chosen: int
+    current: tuple
+    actors: dict
+    settings: dict
+    bone: object
+    atan: list  # the exe's arctangents (ratan2)
+    attacker: int
+    target: int
+    hits: list
+    ground: bool = False  # the target's D8 sends its later eases to bones to y 0 (D_800F4B00)
+
+
+def camera_settings(s1: bytes) -> dict:
+    """An actor's camera settings from its model's section 1."""
+    points = struct.unpack_from("<12h", s1, 0x4C)
+    return {"bones": s1[0x12:0x22], "scale": struct.unpack_from("<3H", s1, 0x44),
+            "points": [(points[0:3], points[3:6]), (points[6:9], points[9:12])],
+            "adjust": struct.unpack_from("<h", s1, 0x64)[0]}
+
+
+def midpoint(view: View) -> list[int]:
+    """func_800D54EC: the middle of the box round those hit, on the floor."""
+    xs, zs = ([view.actors[k].pos[i] for k in view.hits] for i in (0, 2))
+    return [(min(xs) + max(xs)) // 2, 0, (min(zs) + max(zs)) // 2]
+
+
+def bone_point(view: View, actor: int, n: int, offset: tuple, eye: bool, toward: bool, turn: bool,
+               lift: bool = True) -> list[int]:
+    """Bone n (by the actor's camera bone table) of an actor plus an offset: an eye's scaled by the model's offset
+    scales (256 being 1) and, when turn, turned about y with its facing or (toward) FC's angle (func_800C0DD8); a
+    target's y raised by the model's y adjust (func_800C0314), but not a following target's (its task works it out
+    and then writes over it)."""
+    if actor == 0xF:
+        return [p + o for p, o in zip(midpoint(view), offset)]
+    a, s = view.actors[actor], view.settings[actor]
+    at = view.bone(actor, s["bones"][n])
+    if not eye:
+        lift = 0 if not lift or a.script == 1 and s["adjust"] > 0 else s["adjust"]
+        return [at[0] + offset[0], at[1] + offset[1] + lift, at[2] + offset[2]]
+    x, y, z = (o * k >> 8 for o, k in zip(offset, s["scale"]))
+    if turn:
+        r = square_root0(x * x + z * z)
+        angle = ratan2(view.atan, x, z) + (a.toward if toward else a.facing)
+        x, z = rsin(angle) * r >> 12, rcos(angle) * r >> 12
+    return [at[0] + x, at[1] + y, at[2] + z]
+
+
+def camera_frame(eye: Channel, target: Channel, tasks: list, view: View):
+    """One battle frame of a camera channel (func_800BC81C): the target's script, then the eye's, then the tasks
+    they started (func_800BC630). Besides the opening's opcodes: ease to a bone of an actor plus an offset (eye D8,
+    E3, E4, E5; target D8, E3, E4, E5), follow one for n frames (eye E7, E9, EB; target E8, EA, EC), set one now and
+    wait for the next frame (eye EF, F0, F7; target F0, F8, F9), ease to the target's camera point (E0), circle the
+    target (eye F8). An opcode a channel doesn't have ends its frame."""
+    for k, ch in ((1, target), (0, eye)):
+        while camera_op(k, ch, eye, target, tasks, view):
+            pass
+    for task in list(tasks):
+        kind, ch = task[0], task[1]
+        if kind == "ease":
+            _, ch, a, b, n, f, linear = task
             if n - f <= 1:
-                ch["pos"] = list(b)
-                eases.remove(ease)
+                ch.pos = list(b)
+                tasks.remove(task)
                 continue
             if linear:
-                ch["pos"] = [p + int(((y - x) + (1 if y >= x else -1)) * 16 / n) // 16
-                             for p, x, y in zip(ch["pos"], a, b)]
+                ch.pos = [straight(p, x, y, n) for p, x, y in zip(ch.pos, a, b)]
             else:
                 w = rcos(int((f << 11) / n) + 0x800) + 4096
-                ch["pos"] = [s16(x + int(w * (y - x) / 8192)) for x, y in zip(a, b)]
-            ease[4] += 1
-        out.append((list(eye["pos"]), list(target["pos"])))
-    return out
+                ch.pos = [s16(x + int(w * (y - x) / 8192)) for x, y in zip(a, b)]
+            task[5] += 1
+        elif kind == "follow":
+            _, ch, k, actor, n, offset, toward, frames = task
+            ch.pos = bone_point(view, actor, n, offset, k == 0, toward, eye.turn, False)
+            task[7] -= 1
+            if not task[7]:
+                tasks.remove(task)
+        else:  # orbit: angle step, radius, angle, radius step, y step, frames
+            step, r, angle, grow, rise, n = task[2:]
+            angle += step
+            ch.pos = [target.pos[0] + (rsin(angle) * r >> 9), ch.pos[1] + rise, target.pos[2] + (rcos(angle) * r >> 9)]
+            task[3:] = [r + grow, angle, grow, rise, n - 1]
+            if n == 1:
+                tasks.remove(task)
+
+
+def camera_op(k: int, ch: Channel, eye: Channel, target: Channel, tasks: list, view: View) -> bool:
+    """One opcode of channel k (0 the eye, 1 the target); False when its frame ends."""
+    op = ch.code[ch.pc]
+    ch.pc += 1
+    args = ch.code[ch.pc:]
+
+    def ease(to: list, n: int):
+        tasks[:] = [t for t in tasks if t[1] is not ch]
+        tasks.append(["ease", ch, list(ch.pos), list(to), n, 0, ch.linear])
+
+
+    who = {"A": view.attacker, "T": view.target}
+    eye_ops = {0xD8: ("ease", "L", 9), 0xE3: ("ease", "n", 9), 0xE4: ("ease", "A", 8), 0xE5: ("ease", "T", 8),
+               0xE7: ("follow", "A", 8), 0xE9: ("follow", "T", 8), 0xEB: ("follow", "n", 9),
+               0xEF: ("set", "n", 8), 0xF0: ("set", "A", 7), 0xF7: ("set", "T", 7)}
+    target_ops = {0xD8: ("ease", "L", 9), 0xE3: ("ease", "n", 9), 0xE4: ("ease", "A", 8), 0xE5: ("ease", "T", 8),
+                  0xE8: ("follow", "A", 8), 0xEA: ("follow", "T", 8), 0xEC: ("follow", "n", 9),
+                  0xF0: ("set", "n", 8), 0xF8: ("set", "T", 7), 0xF9: ("set", "A", 7)}
+    actor_ops = target_ops if k else eye_ops
+    if op in actor_ops:
+        kind, whom, length = actor_ops[op]
+        ch.pc += length
+        if whom in "Ln":
+            actor = view.hits[args[0]] if whom == "L" else args[0]
+            args = args[1:]
+        else:
+            actor = who[whom]
+        n, offset = args[0], struct.unpack_from("<3h", args, 1)
+        toward = whom == "T" or (whom == "L" and k == 0)
+        if k and op == 0xD8:
+            view.ground = True
+        at = bone_point(view, actor, n, offset, k == 0, toward, eye.turn)
+        if kind == "ease":
+            ease([at[0], 0, at[2]] if k and view.ground else at, args[7])
+        elif kind == "follow":
+            tasks[:] = [t for t in tasks if t[1] is not ch]
+            tasks.append(["follow", ch, k, actor, n, offset, toward, args[7]])
+        else:
+            ch.pos = at
+            return False
+    elif op == (0xF9, 0xFA)[k]:
+        ch.pos, ch.pc = list(struct.unpack_from("<3h", args)), ch.pc + 6
+    elif op == 0xE6:
+        ease(list(struct.unpack_from("<3h", args)), args[6])
+        ch.pc += 7
+    elif op == 0xE1:
+        ch.pos = list(view.cameras[view.chosen][k])
+    elif op == 0xE2:
+        ease(view.cameras[view.chosen][k], args[0])
+        ch.pc += 1
+    elif op == 0xE0:
+        p, n = args[0], args[1]
+        ch.pc += 2
+        a = view.actors[view.target]
+        x, y, z = view.settings[view.target]["points"][p][k]
+        ease([x + a.pos[0], y + (a.pos[1] if p else 0), z + a.pos[2]], n)
+    elif op == 0xDD:
+        view.chosen, ch.pc = args[0], ch.pc + 1
+    elif op == 0xDE:
+        view.target = 3 if args[0] else view.target
+        ch.pc += 1
+    elif op == 0xDF:
+        view.target = 0xF
+    elif op == 0xD9:
+        ch.pos = list(view.current[k])
+    elif op in ((0xDA, 0xDB), (0xDB, 0xDC))[k]:
+        ch.linear = op != (0xDA, 0xDB)[k]
+    elif op in (0xDC, 0xF1) and not k:
+        ch.turn = op == 0xDC
+    elif op == 0xF8 and not k:
+        step, r, angle, grow, rise, n = struct.unpack_from("<6h", args)
+        ch.pc += 12
+        tasks.append(["orbit", ch, step, r, angle, grow, rise, n])
+    elif op in (0xD5, 0xD6, 0xD7) and not k:  # sounds and effects
+        ch.pc += {0xD5: 2, 0xD6: 0, 0xD7: 2}[op]
+    elif op == 0xF5:
+        ch.wait, ch.pc = args[0], ch.pc + 1
+    elif op == 0xF4:
+        if not ch.wait:
+            return True
+        ch.wait, ch.pc = ch.wait - 1, ch.pc - 1
+        return False
+    elif op == 0xFE:
+        if not ch.wait and args[0] == 0xC0:
+            ch.pc = 0
+    else:  # FF holds; any other opcode ends the frame
+        ch.pc -= op == 0xFF
+        return False
+    return True

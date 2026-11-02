@@ -33,6 +33,7 @@ int lab_open(const char *trace_path, const char *input_path, int warp_field, int
 void lab_frame(void);
 int lab_code(const char *code);
 void lab_minigame(int game);
+void lab_dump_every(int frames);
 
 Ctx ctx;
 unsigned int cop0[32];
@@ -87,6 +88,8 @@ int main(int argc, char **argv)
             lab_minigame(strtol(argv[++i], 0, 0));
         else if (!strcmp(argv[i], "--dump-at") && i + 1 < argc)
             dump_at = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--dump-every") && i + 1 < argc)
+            lab_dump_every(atoi(argv[++i]));
         else if (!strcmp(argv[i], "--fast"))
             hw_set_clock(ps1_seconds);
         else if (!strcmp(argv[i], "--code") && i + 1 < argc) {
