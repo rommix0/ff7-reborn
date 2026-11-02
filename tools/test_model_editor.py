@@ -84,6 +84,11 @@ if ps1.gpu:
     rgb = ps1.world(np.full((512, 1024), 0x7FFF, np.uint16), [red_square])
     assert rgb.shape == (224, 320, 3) and tuple(rgb[2, 4]) == (255, 0, 0) and not rgb[0, 0].any()
     assert ps1.vram[2, 4] == 0x7FFF and ps1.vram[10, 4] == 0x001F  # nothing drawn above row 8
+    # A battle is clipped to rows 8-165 as the game draws it (the menu covers the rest), or to the rows given: the
+    # Battles tab draws all 240.
+    low_square = [0x600000FF, 200 << 16 | 4, 3 << 16 | 3]
+    assert not ps1.battle(np.zeros((512, 1024), np.uint16), [low_square])[200, 4].any()
+    assert tuple(ps1.battle(np.zeros((512, 1024), np.uint16), [low_square], (0, 239))[200, 4]) == (255, 0, 0)
 
 # The opening camera as battle frame k is drawn is the one after frame k - 1 (frame 0 draws the first), played as
 # far as it's asked for: a battle just picked draws frame 0 before anything has played. (Here a stand-in opening

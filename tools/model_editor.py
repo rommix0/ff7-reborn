@@ -562,14 +562,15 @@ class Ps1View:
         c = np.stack([c & 31, c >> 5 & 31, c >> 10 & 31], 2)
         return (c << 3 | c >> 2).astype(np.uint8)
 
-    def battle(self, vram_: np.ndarray, packets: list[list[int]]) -> np.ndarray | None:
+    def battle(self, vram_: np.ndarray, packets: list[list[int]], rows: tuple = (8, 165)) -> np.ndarray | None:
         """A battle's packets (Battle.packets) drawn as BATTLE.X's draw environment has it: dithered, clipped to rows
-        8-165 (the menu covers the rest)."""
+        8-165 (the menu covers the rest), or to the rows given (the Battles tab draws all 240, having no menu)."""
         if not self.gpu:
             return None
         self.vram[:] = vram_
-        words = [0xE1000200, 0xE3000000 | 8 << 10, 0xE4000000 | 165 << 10 | 319, 0xE5000000, 0xE6000000, 0x02000000,
-                 0, 240 << 16 | 320] + [w for p in packets for w in p]
+        top, bottom = rows
+        words = [0xE1000200, 0xE3000000 | top << 10, 0xE4000000 | bottom << 10 | 319, 0xE5000000, 0xE6000000,
+                 0x02000000, 0, 240 << 16 | 320] + [w for p in packets for w in p]
         self.gpu.gpu_gp0_words((ctypes.c_uint32 * len(words))(*words), len(words))
         return self.screen()
 
@@ -1201,9 +1202,9 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         if state["battle_drawn"] != drawn or state["vram"] != "battle":
             if state["acting"]:
                 poses, camera = b.action_frame(frame)
-                rgb = state["ps1view"].battle(b.vram, b.packets(*camera, frame, poses=poses))
+                rgb = state["ps1view"].battle(b.vram, b.packets(*camera, frame, poses=poses), (0, 239))
             else:
-                rgb = state["ps1view"].battle(b.vram, b.packets(*b.camera(state["camera"], frame), frame))
+                rgb = state["ps1view"].battle(b.vram, b.packets(*b.camera(state["camera"], frame), frame), (0, 239))
             state["vram"], state["battle_drawn"] = "battle", drawn
             if rgb is None:
                 imgui.text_wrapped("The battle view draws with the PS1 view's library. Build it with: make editor")
