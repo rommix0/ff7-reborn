@@ -9,9 +9,12 @@ animations and the weapon just before the TIM (func_800B54B8).
 """
 import gzip
 import math
+import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import kernel
 
 
 def sections(d: bytes) -> list[bytes]:
@@ -403,6 +406,51 @@ def action_scripts(s1: bytes, module: bytes) -> list[bytes]:
     for n, address in BUILT_IN.items():
         scripts[n] = module[address - 0x800A0000:]
     return scripts
+
+
+# A party command's choices (func_800A1798 runs the command's program from D_800A0098): Magic, Summon and E.Skill
+# make an attack id of the choice from 0, 0x38 and 0x48 (func_800A73C0, func_800A73D8, func_800A76AC); the W- commands
+# run the same programs and Mime, Change and Defend play no script of their own.
+SPELLS = {2: range(0x00, 0x38), 3: range(0x38, 0x48), 13: range(0x48, 0x60)}
+ITEM, LIMIT = 4, 20
+LIMITS = 0x1324  # LIMTMENU.MNU's records of the characters' own limits (ids 0x80 up; func_801D11A8 copies them)
+
+
+def party_commands(module: bytes, sections: list[bytes], limits: bytes, character: int | None,
+                   at_party: bool) -> list[tuple[str, list[tuple[str, int, int, int]]]]:
+    """A party member's commands as the battle plays them: each command's choices as (name, action script, camera at
+    one target, at all; -1 holds it). The script is BATTLE.X's first byte of 4 a command at 0x800A0000; the cameras
+    the command record's +4 and +6, or, where the choice has a record (a spell's, an item's, a limit's), its +8 and
+    +0xA (func_800A79CC; an item's +8 for both, func_800A80DC). A limit plays 0x3C on by the character's slots filled
+    before it (kernel section 2's 12 at +0xC + character * 0x38; none without a character); an item 0x21 at the
+    party, 0x20 at the enemies."""
+    names = [[re.sub(r"\{F8 ..\}", "", kernel.decode(t)) for t in kernel.read_text(sections[k])]
+             for k in (17, 18, 19)]
+
+    def cameras(record: bytes, at: int) -> tuple[int, int]:
+        return tuple(-1 if c == 0xFFFF else c for c in struct.unpack_from("<2H", record, at))
+
+    listed = []
+    for command, name in enumerate(names[0][:28]):
+        script = module[4 * command]
+        if command in SPELLS:
+            choices = [(names[1][a], script, *cameras(sections[1], 28 * a + 8)) for a in SPELLS[command]
+                       if names[1][a]]
+        elif command == ITEM:
+            choices = [(n, 0x20 + at_party, *cameras(sections[4], 28 * k + 8)[:1] * 2)
+                       for k, n in enumerate(names[2]) if n]
+        elif command == LIMIT:
+            slots = [a for a in sections[2][0xC + 0x38 * character:0xC + 0x38 * character + 12]
+                     if a != 0xFF] if character is not None else []
+            choices = [(names[1][a], 0x3C + k, *cameras(limits, LIMITS + 28 * (a - 0x80) + 8))
+                       for k, a in enumerate(slots)]
+        elif script:
+            choices = [(name, script, *cameras(sections[0], 8 * command + 4))]
+        else:
+            continue
+        if name and choices and command not in (21, 22, 23):
+            listed.append((name, choices))
+    return listed
 
 
 @dataclass

@@ -2,9 +2,10 @@ import math
 import struct
 
 import model
-from battle import (OPENINGS, PARTY_FACING, PARTY_THREE, PARTY_TWO, SHADOW, Actor, Channel, Fight, View,
+import kernel
+from battle import (LIMITS, OPENINGS, PARTY_FACING, PARTY_THREE, PARTY_TWO, SHADOW, Actor, Channel, Fight, View,
                     action_frame, action_scripts, animation, camera_frame, look_at, model_json, moved, opening,
-                    placement, ratan2, rcos, returning, shadow, square_root0, stage_draws, stage_json)
+                    party_commands, placement, ratan2, rcos, returning, shadow, square_root0, stage_draws, stage_json)
 
 
 def stream(fields: list[tuple[int, int]]) -> bytes:
@@ -189,4 +190,41 @@ assert shots[1][0] == [116, -225, 851] and shots[2][0] == shots[3][0] == [0, 0, 
 # is 0.
 assert returning(([10, -10, 3], [0, 0, 1]), ([0, 0, 0], [0, 0, 0])) == ([5, -5, 2], [0, 0, 1])
 assert returning(([1, 0, 0], [0, 0, 1]), ([0, 0, 0], [0, 0, 0])) is None
+
+# A party member's commands: each command's action script is BATTLE.X's first byte of 4 at 0x800A0000 + command * 4,
+# its cameras (one target, all) the command record's +4 and +6 (0xFFFF holds the camera); Magic's, Summon's and
+# E.Skill's spells (attack ids from 0, 0x38, 0x48) and the character's limits (kernel section 2's 12 at +0xC +
+# character * 0x38, their records in LIMTMENU.MNU; script 0x3C on by the slots filled before) take the record's +8
+# and +0xA; an item plays 0x21 at the party, 0x20 at the enemies, its camera +8 either way.
+module = bytearray(0x98)
+module[4:12] = bytes([0x14, 0, 0, 0, 0x1D, 0, 0, 0])
+module[4 * 3], module[4 * 4], module[4 * 5], module[4 * 13] = 0x1F, 0x21, 0x22, 0x1E
+commands = bytearray(bytes([0xFF]) * 256)
+commands[8 + 4:8 + 8] = struct.pack("<2H", 0xFFFF, 0xFFFF)
+commands[40 + 4:40 + 8] = struct.pack("<2H", 0xB8, 0xB9)
+spells = bytearray(bytes([0xFF]) * 28 * 128)
+spells[8:12] = struct.pack("<2H", 0, 0x28)
+spells[28 * 0x39 + 8:28 * 0x39 + 12] = struct.pack("<2H", 0x50, 0x51)
+items = bytearray(bytes([0xFF]) * 28 * 128)
+items[28 * 1 + 8:28 * 1 + 10] = struct.pack("<H", 0x1E)
+growth = bytearray(0x38 * 9 + 0xC)
+growth[0xC + 0x38:0xC + 0x38 + 12] = bytes([0x87, 0xFF, 0x89] + [0xFF] * 9)
+limits = bytearray(bytes([0xFF]) * (LIMITS + 28 * 10))
+limits[LIMITS + 28 * 9 + 8:LIMITS + 28 * 9 + 12] = struct.pack("<2H", 0x60, 0x61)
+
+
+def text(names: dict, count: int) -> bytes:
+    return kernel.pack_text([kernel.encode(names.get(k, "")) for k in range(count)], False)
+
+
+sections = [bytes(commands), bytes(spells), bytes(growth), b"", bytes(items)] + [b""] * 12 + [
+    text({1: "Attack", 2: "Magic", 3: "Summon", 4: "Item", 5: "Steal", 13: "E.Skill", 20: "Limit"}, 32),
+    text({0: "Cure", 0x39: "Shiva", 0x87: "{F8 02}Big Shot", 0x89: "{F8 02}Mindblow"}, 256),
+    text({1: "Potion"}, 128)]
+listed = party_commands(bytes(module), sections, bytes(limits), 1, True)
+assert listed == [("Attack", [("Attack", 0x14, -1, -1)]), ("Magic", [("Cure", 0x1D, 0, 0x28)]),
+                  ("Summon", [("Shiva", 0x1F, 0x50, 0x51)]), ("Item", [("Potion", 0x21, 0x1E, 0x1E)]),
+                  ("Steal", [("Steal", 0x22, 0xB8, 0xB9)]), ("Limit", [("Big Shot", 0x3C, -1, -1),
+                                                                      ("Mindblow", 0x3D, 0x60, 0x61)])]
+assert party_commands(bytes(module), sections, bytes(limits), 1, False)[3][1] == [("Potion", 0x20, 0x1E, 0x1E)]
 print("ok")

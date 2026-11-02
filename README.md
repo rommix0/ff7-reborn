@@ -87,7 +87,8 @@ start-up scripts place, with that GPU, the walkmesh, exits (with where they lead
 over it, layers and tile groups (doors, lights, animations) to turn on and off. Its Battles tab draws any battle
 and plays it at the game's 15 frames a second: the opening camera's flight, the stage, the party you name and the
 enemies where the game puts them, in their battle stances, with their shadows and the stage's moving parts; and
-plays an action (an enemy's attacks by name, or any actor's action script by number): the attacker's moves and
+plays an action (an enemy's attacks by name, a party member's commands, spells, items and limits by name, or any
+actor's action script by number): the attacker's moves and
 animations, the target's hurt, and the attack's camera (spell effects aren't drawn). Its World
 tab draws the world map round any point as the game draws it: the sky, the terrain (each `map_stage`, and the two maps
 that tile parts of the world) in its light zones' colours, the party leader (Cloud, Tifa or Cid) with a shadow, from

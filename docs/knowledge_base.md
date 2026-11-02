@@ -542,6 +542,21 @@ N % 4):
     enemy). Numbers `0x2E`-`0x3B` (but `0x33`) run `BATTLE.X`'s own instead (`D_800EEAA0`-`D_800EEB1C`, by the jump
     table `jtbl_800A0888`). An enemy's attack n is its record's `animation_n` script with camera `camera_n`
     (0xFFFF: the attack record's own, `+8`).
+  - A party member's command (`func_800A1798` sets up the action in the scratchpad, `D_80063014`): the script is
+    `BATTLE.X`'s first byte of 4 a command at `0x800A0000` (Attack `0x14`, Magic `0x1D`, Summon `0x1F`, E.Skill
+    `0x1E`, Steal `0x22`, Slash-All `0x15`, ...; the other two bytes are flags), the cameras (one target, all) the
+    kernel command record's `+4` and `+6`. Then the command's program runs: bytes from `D_800A0098`, one program a
+    command (`0x1F` ends each; opcodes by `D_800E7B28`). Magic, Summon and E.Skill make the attack id from the
+    choice plus 0, `0x38`, `0x48`; `func_800A79CC` takes the record's cameras `+8` and `+0xA`, and for a limit
+    (ids `0x80` up) the script `0x3C` on by the slots filled before it in the character's 12 (kernel section 2,
+    `+0xC` + character × `0x38`). The limits' records are `LIMTMENU.MNU`'s at `0x801D1324` + (id − `0x80`) × 28,
+    copied to the party's battle data (`D_8009D8F8`, `0x440` a member) for the level's three. An item plays `0x21`
+    at the party, `0x20` at the enemies (`func_800A73F8`), its camera `+8` (`func_800A80DC`). A physical command
+    left at `0xFFFF` takes the weapon's `+0x12` (`func_800A81B8`, through `D_800F5EFC`): `0xFFFF` in every weapon,
+    so Attack holds the camera. The 12-byte record queued for the actor (`D_80163798`): attacker, command `+3`,
+    effect `+2`, script `+5`, camera `+8`; in the lab Cloud's Attack is command 1, script `0x14`, camera `0xFFFF`,
+    his Ice command 2, effect `0x1E`, script `0x1D`, camera 7, and his Braver's record has camera `0x32`. The
+    camera for all targets isn't checked in the lab.
   - The actor record (`D_801518E4`, `0xB9C` apiece): script number `+0x02`, animation `+0x0E`, size `+0x12`
     (section 1 `+4`), its battle facing `+0x18`, "animation ended" `+0x3B`, pc `+0x3C`, a wait `+0x3D`, facing
     `+0x162`, place `+0x168`. Its `0x74`-byte record at `D_80151200`: frames since the animation began `+0x36`, the

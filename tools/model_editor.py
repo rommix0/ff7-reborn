@@ -41,7 +41,7 @@ import field
 import model
 import scene
 import world
-from unpack import lzs
+from unpack import bingz, lzs
 
 NORMALS = 0x3F520  # FIELD.BIN unpacked: 240 normals, s16 x, y, z and a pad (D_800DF520)
 FACES, MOUTHS = 0x3FCA4, 0x3FD94  # FIELD.BIN unpacked: per face id, 7 and 3 FIELD.TDB image numbers (func_800B1C7C)
@@ -696,6 +696,11 @@ def map_shot(disc: Path, name: str, out: Path, story: int):
     write_png(out, rgb)
 
 
+# The party's ENEMY6 files by character (kernel order; their other forms by a trailing digit), for their limits.
+CHARACTERS = {"CLOUD": 0, "HICLOUD": 0, "BARRETT": 1, "TIFA": 2, "EARITH": 3, "RED13": 4, "YUFI": 5, "KETCY": 6,
+              "VINSENT": 7, "CID": 8}
+
+
 class Battle:
     """Battle number (SCENE.BIN's scene number // 4, setup number % 4) as BATTLE.X sets it up: its stage (location
     0-49 in STAGE1, 50-89 in STAGE2, D_800E7D98's files), the party (ENEMY6 files) and the enemies where placement
@@ -710,6 +715,8 @@ class Battle:
         self.vram = vram(disc, None)
         loads = [(None, None, stage)]
         self.module = battle.module(disc)
+        self.kernel = [raw for _, raw in bingz((disc / "INIT/KERNEL.BIN").read_bytes())]
+        self.limits = (disc / "MENU/LIMTMENU.MNU").read_bytes()
         exe = (disc / "SCUS_941.63").read_bytes()
         self.atan = list(struct.unpack_from("<1025h", exe, 0x8004FC98 - 0x80010000 + 0x800))  # libgte's ratan2
         self.camdat = lzs((disc / f"STAGE1/CAMDAT{battle.CAMDATS.get(setup['layout'], 0)}.LZS").read_bytes())
@@ -1066,7 +1073,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
              "characters": True, "battle": battles[0][0] if start_battle is None else start_battle,
              "battle_filter": "", "camera": -1, "party": "CLOUD,BARRETT,TIFA", "battle_picture": None,
              "battle_frame": 0.0, "battle_play": True, "battle_drawn": None, "acting": False,
-             "action": {"attacker": 0, "script": 20, "target": 4, "camera": -1, "variant": 0},
+             "action": {"attacker": 0, "script": 20, "target": 4, "camera": -1, "variant": 0}, "command": 0,
+             "commands": {},
              "world_kind": 0 if start_world is None else start_world, "world_stage": 0, "world": None,
              "world_at": [185636, 123325], "world_yaw": 0, "world_view": 0, "world_leader": 0,
              "world_container": 0, "world_entities": [],
@@ -1229,8 +1237,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
                 imgui.text(f"{names[4 + k]} (ENEMY{e['enemy_id']:03d}) at {e['x']}, {e['y']}, {e['z']}")
         imgui.separator()
         # An action: its attacker's action script and attack camera; an enemy's attacks carry both (animation_n,
-        # camera_n), the party's come from the kernel's commands (Cloud's Attack 20 holding the camera, Ice 29 with
-        # camera 7, in the first battle).
+        # camera_n), the party's come from their commands (battle.party_commands: Cloud's Attack 20 holding the
+        # camera, Ice 29 with camera 7, in the first battle).
         action, actors = state["action"], sorted(names)
         imgui.text("action")
         for key in ("attacker", "target"):
@@ -1248,6 +1256,21 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
             label = f"{attack['name'] if attack else enemy[f'attack_{n}']}: script {enemy[f'animation_{n}']}"
             if imgui.selectable(label, action["script"] == enemy[f"animation_{n}"])[0]:
                 action["script"], action["camera"] = enemy[f"animation_{n}"], camera - 0x10000 * (camera > 0x7FFF)
+        if action["attacker"] < len(party):  # the camera at one target; the one at all is shown after it
+            stem, at_party = party[action["attacker"]], action["target"] < 4
+            if (stem, at_party) not in state["commands"]:
+                state["commands"][stem, at_party] = battle.party_commands(
+                    b.module, b.kernel, b.limits, CHARACTERS.get(stem.rstrip("234")), at_party)
+            commands = state["commands"][stem, at_party]
+            state["command"] = min(state["command"], len(commands) - 1)
+            imgui.set_next_item_width(200)
+            _, state["command"] = imgui.combo("command", state["command"], [c[0] for c in commands])
+            imgui.begin_list_box("##choices", imgui.ImVec2(280, 150))
+            for k, (label, script, one, every) in enumerate(commands[state["command"]][1]):
+                text = f"{label}: script {script}, camera {one}" + (f" (all {every})" if every != one else "")
+                if imgui.selectable(f"{text}##{k}", action["script"] == script and action["camera"] == one)[0]:
+                    action["script"], action["camera"] = script, one
+            imgui.end_list_box()
         for key, top in (("script", 73), ("camera", 500), ("variant", 2)):
             imgui.set_next_item_width(200)
             _, action[key] = imgui.input_int(key, action[key])
