@@ -34,10 +34,26 @@ fm.groups = [(3, 4)]
 fm.vram = np.zeros((512, 1024), np.uint16)
 fm.vram[:, 512:576], fm.vram[:, 576:640] = 0x001F, 0x7C00
 packets = fm.packets({0, 1, 2, 3}, set())
-assert [(slot, xy) for slot, _, xy, _ in packets] == [(0xFFF, (0, 0)), (0xFFF, None), (0xFFF, (16, 0)),
-                                                       (0xFFF, None), (7, (0, 16))]
-assert packets[4][3] == [0xE1000400 | blue, 0x67000000, 0, 0, 16 << 16 | 16]
-assert len(fm.packets({0, 1}, {(3, 4)})) == 6 and fm.first_states() == {(3, 4)}
+assert [(slot, points) for slot, _, points in packets] == [(0xFFF, [(1, 0, 0)]), (0xFFF, []), (0xFFF, [(1, 16, 0)]),
+                                                            (0xFFF, []), (7, [(2, 0, 16)])]
+assert packets[4][1] == [0xE1000200 | blue, 0x67000000, 0, 0, 16 << 16 | 16]
+assert len(fm.packets({0, 1}, {(3, 4)})) == 6
+
+# How a map starts: each entity's first script up to its first ret. char takes the next model; xyzi places it (the
+# dump shows coordinates unsigned); an if on story goes as the story given says; visi 00 hides. Group bits come from
+# odd-kind triggers and bgon.
+fm.scripts = {"entities": [{"name": "dir", "scripts": [0]}, {"name": "guard", "scripts": [1]},
+                           {"name": "view", "scripts": [2]}],
+              "scripts": [["bgon #2 #1", "ret"],
+                          ["char 05", "if2 story < #3 L0010", "xyzi #100 #65436 #5 #2", "dir #64", "L0010:",
+                           "visi 00", "ret", "xyzi #9 #9 #9 #9"],
+                          ["ret"]]}
+fm.map = {"triggers": [{"group": 3, "bit": 0, "kind": 5}] + [None] * 11}
+fm.groups = [(2, 2), (3, 1), (3, 2)]
+entities, shown = fm.start(0)
+assert entities == [{"name": "guard", "visible": False, "dir": 64, "anim": 0, "model": 0, "x": 100, "y": -100,
+                     "z": 5, "triangle": 2}] and shown == {(2, 2), (3, 1)}
+assert "x" not in fm.start(3)[0][0]
 
 # Drawn from the far end, each slot's last linked first, a page switch covers the tiles before it in the list.
 ps1 = Ps1View()

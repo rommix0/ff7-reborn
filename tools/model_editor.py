@@ -1,16 +1,18 @@
 """The field viewer (the model editor to be): open the party's and each map's models, turn them about, play their
-animations, shaded and textured as the game draws them; and each map's background, drawn by the port's GPU, with
-its walkmesh, exits, triggers and arrows over it.
+animations, shaded and textured as the game draws them; and each map as it starts, its background and characters
+drawn by the port's GPU, with its walkmesh, exits, triggers, arrows and markers over it.
 
   pip install -r tools/requirements-editor.txt
   python tools/model_editor.py assets
   python tools/model_editor.py assets --model MD1STIN.BSX:0 --anim 3 --frame 12 --shot cloud.png
-  python tools/model_editor.py assets --map MD1STIN --shot md1stin.png
+  python tools/model_editor.py assets --map MD1STIN --story 1 --shot md1stin.png
 
 A character on a map (MD1STIN.BSX:0) has that map's lights, textures and animations added to its own; on its own
-(CLOUD.BCX) it shows its colours unlit and untextured. Drag to turn the view, the wheel to zoom. A map shows each
-tile group in its first state (the scripts pick the rest); the Maps tab turns layers, overlays and groups on and
-off. Walkmesh edges are green, walls white, exits red, triggers yellow, arrows cyan, markers magenta.
+(CLOUD.BCX) it shows its colours unlit and untextured. Drag to turn the view, the wheel to zoom. A map starts as its
+start-up code sets it at a point of the story (other saved variables 0): where its characters stand, which tile
+groups show. The player and party members the code doesn't place aren't drawn. The Maps tab turns layers,
+overlays, characters and groups on and off. Walkmesh edges are green, walls white, exits red, triggers yellow,
+arrows cyan, markers magenta.
 """
 import argparse
 import ctypes
@@ -88,11 +90,13 @@ void main() {
 """
 
 
-def vram(disc: Path, bsx: dict | None, face: tuple[int, int, int] = (1, 1, 1)) -> np.ndarray:
-    """VRAM as the field sets it up for a map's models (func_800AC35C): the .BSX's images and patches, then per model
-    (its slot its place in the list) its face's FIELD.TDB palette and three images, the given entries of its lists.
-    The field loads entry 0, the same blank (0x7E) for every face, and scripts swap in the others."""
-    out = np.zeros((512, 1024), np.uint16)
+def vram(disc: Path, bsx: dict | None, face: tuple[int, int, int] = (1, 1, 1),
+         base: np.ndarray | None = None) -> np.ndarray:
+    """VRAM as the field sets it up for a map's models (func_800AC35C), over base (the map's .MIM) if given: the
+    .BSX's images and patches, then per model (its slot its place in the list) its face's FIELD.TDB palette and three
+    images, the given entries of its lists. The field loads entry 0, the same blank (0x7E) for every face, and
+    scripts swap in the others."""
+    out = np.zeros((512, 1024), np.uint16) if base is None else base.copy()
     if bsx is None:
         return out
 
@@ -243,16 +247,116 @@ class FieldMap:
             at += field.u32(mim, at)
         self.groups = sorted({(t[-3], t[-1]) for items in self.background["layers"][1:] for run in items
                               if isinstance(run, list) for t in run if t[-3]})  # (group, state bit) pairs
+        self.scripts = field.section_json(secs[0], field.op_names(field.module(disc)))
 
-    def first_states(self) -> set[tuple[int, int]]:
-        """Each group's lowest state bit: something to show before the scripts pick (a group's states are often an
-        animation's frames, drawn over each other)."""
-        return {min(p for p in self.groups if p[0] == g) for g, _ in self.groups}
+    def start(self, story: int) -> tuple[list[dict], set[tuple[int, int]]]:
+        """The entities and background groups as the map sets them up: each entity's first script, in entity order,
+        up to its first ret. char gives the entity the next model in section 7's list (D_8009C6C4 counts), pc makes it
+        a party member, xyzi/xyi/xyz place it, dir turns it, visi shows or hides it, dfanm picks its animation;
+        bgon/bgoff/bgclr set group bits, over the triggers' load state (odd kinds on). Saved variables are 0 but
+        story, and set/set2 of a literal count; an if the values can't be known for goes the way 0 says. Returns the
+        entities with a model, and the (group, state bit) pairs that show."""
+        compare = {"==": lambda a, b: a == b, "!=": lambda a, b: a != b, ">": lambda a, b: a > b,
+                   "<": lambda a, b: a < b, ">=": lambda a, b: a >= b, "<=": lambda a, b: a <= b,
+                   "&": lambda a, b: a & b, "^": lambda a, b: a ^ b, "|": lambda a, b: a | b,
+                   "bit": lambda a, b: a >> b & 1, "!bit": lambda a, b: not a >> b & 1}
+        values, groups, models, out = {"story": story}, {}, 0, []
+        for t in self.map["triggers"]:
+            if t and t["kind"] % 2:
+                groups[t["group"]] = groups.get(t["group"], 0) | 1 << t["bit"]
 
-    def packets(self, layers: set[int], shown: set[tuple[int, int]]) -> list[tuple[int, int, tuple | None, list]]:
-        """GPU packets as func_800A364C links them (slot, order, position, words): layer 1 and its page switches at
+        def value(word: str) -> int:
+            return int(word[1:]) if word.startswith("#") else values.get(word, 0)
+
+        for entity in self.scripts["entities"]:
+            lines = self.scripts["scripts"][entity["scripts"][0]]
+            labels = {line[:-1]: i for i, line in enumerate(lines) if line.endswith(":")}
+            me, i = {"name": entity["name"], "visible": True, "dir": 0, "anim": 0}, 0
+            for _ in range(1000):  # a loop back, or the end, also stops it
+                if i >= len(lines):
+                    break
+                words = lines[i].split(";")[0].split()
+                i += 1
+                if not words or words[0].endswith(":"):
+                    continue
+                op, args = words[0], words[1:]
+                literal = all(a.startswith("#") for a in args)
+                if op == "ret" or op in ("back", "lback"):
+                    break
+                if op in ("skip", "lskip"):
+                    i = labels[args[0]]
+                elif op in ("if", "lif", "if2", "lif2", "if2_18", "lif2_19") and len(args) == 4 \
+                        and args[1] in compare and not compare[args[1]](value(args[0]), value(args[2])):
+                    i = labels[args[3]]
+                elif op in ("set", "set2") and len(args) == 2 and args[1].startswith("#"):
+                    values[args[0]] = value(args[1])
+                elif op == "char":
+                    me["model"], models = models, models + 1
+                elif op == "pc":
+                    me["pc"] = int(args[0], 16)
+                elif op in ("xyzi", "xyi", "xyz") and literal:
+                    v = [(value(a) ^ 0x8000) - 0x8000 for a in args]  # the dump shows them unsigned
+                    me["x"], me["y"] = v[:2]
+                    me["z"] = v[2] if op != "xyi" else None  # xyi: the height from the triangle
+                    me["triangle"] = v[-1] if op != "xyz" else None
+                elif op == "dir" and literal:
+                    me["dir"] = value(args[0])
+                elif op == "visi":
+                    me["visible"] = args[0] != "00"
+                elif op == "dfanm":
+                    me["anim"] = int(args[0], 16)
+                elif op in ("bgon", "bgoff") and literal:
+                    g, bit = value(args[0]), value(args[1])
+                    groups[g] = groups.get(g, 0) | 1 << bit if op == "bgon" else groups.get(g, 0) & ~(1 << bit)
+                elif op == "bgclr" and literal:
+                    groups[value(args[0])] = 0
+            if "model" in me:
+                out.append(me)
+        return out, {(g, s) for g, s in self.groups if groups.get(g, 0) & s}
+
+    def characters(self, disc: Path, entities: list[dict]) -> tuple[np.ndarray, list]:
+        """VRAM with the models' textures over the .MIM, and the packets of each entity placed and shown, as
+        func_800AAB24 and func_800AEE24 draw a model: its vertices scaled at load ((v * scale) >> 12, the .BSX entry's
+        scale), posed (animation as set, frame 0), turned by Rz(facing) Rx(-64) (the model's -y up, its -z ahead;
+        facing 0 looks along -y) and moved to (x, y, z - 10), then the camera's RotTransPers. A model whose own
+        point lands at a depth past 0xF00 << 2 isn't drawn."""
+        bsx = model.bsx_json(lzs((disc / f"FIELD/{self.name}.BSX").read_bytes()))
+        rotation = np.array(self.camera["rotation"]) / 4096
+        out = []
+        for e in entities:
+            if not e["visible"] or "x" not in e:
+                continue
+            m = load(disc, f"{self.name}.BSX:{e['model']}")
+            anim = m.anims[e["anim"]] if e["anim"] < len(m.anims) and m.anims[e["anim"]] else \
+                next((a for a in m.anims if a), None)
+            z = e["z"] if e["z"] is not None else self.height(e["triangle"], e["x"], e["y"])
+            place = np.array([e["x"], e["y"], z - 10], float)
+            turn = np.array(model.matmul(model.rotation(0, 0, e["dir"]), model.rotation(-64, 0, 0)))
+            scale = bsx["models"][e["model"]]["scale"] / 4096
+            if (rotation @ place + self.camera["translation"])[2] >= 0xF00 << 2:
+                continue
+            screen, depth = [], []
+            for verts in m.posed(anim, 0):
+                v = (verts * scale @ turn.T + place) @ rotation.T + self.camera["translation"]
+                z = np.maximum(v[:, 2], 1)
+                screen.append(np.round(v[:, :2] * self.camera["distance"] / z[:, None]).astype(int))
+                depth.append(v[:, 2])
+            out += polygon_packets(m, screen, depth)
+        return vram(disc, bsx, base=self.vram), out
+
+    def height(self, triangle: int, x: float, y: float) -> float:
+        """The walkmesh triangle's height at (x, y), from its plane (func_800A8E34)."""
+        a, b, c = (np.array(v[:3], float) for v in self.walkmesh["triangles"][triangle]["vertices"])
+        n = np.cross(b - a, c - a)
+        return a[2] - (n[0] * (x - a[0]) + n[1] * (y - a[1])) / n[2] if n[2] else a[2]
+
+
+    def packets(self, layers: set[int], shown: set[tuple[int, int]]) -> list[tuple[int, list, list]]:
+        """GPU packets as func_800A364C links them (slot, words, and each position word's index, x and y): layer 1
+        and its page switches at
         0xFFF, layer 2 each at its depth with its own page, layers 3 and 4 at 0xFFF and 1. A tile in a group shows
-        when one of its state bits is on. The field's sprites are raw-textured (code 65, 67 blended)."""
+        when one of its state bits is on. The field's sprites are raw-textured (code 65, 67 blended); its draw mode
+        (func_80044A68, SetDrawMode with dither on) carries to the models drawn after."""
         out = []
         for layer, items in enumerate(self.background["layers"]):
             if layer not in layers:
@@ -260,15 +364,17 @@ class FieldMap:
             slot = (0xFFF, 0, 0xFFF, 1)[layer]
             for item in items:
                 if isinstance(item, dict):
-                    out.append((slot, len(out), None, [0xE1000400 | item["page"]]))
+                    out.append((slot, [0xE1000200 | item["page"]], []))
                     continue
                 for t in item:
                     if layer and t[-3] and (t[-3], t[-1]) not in shown:
                         continue
                     size, blend = (16 if layer < 2 else 32), (t[-2] if layer else 0)
                     words = [(0x65 | blend << 1) << 24, 0, t[4] << 16 | t[3] << 8 | t[2], size << 16 | size]
-                    out.append((t[6] if layer == 1 else slot, len(out), (t[0], t[1]),
-                                [0xE1000400 | t[5]] + words if layer == 1 else words))
+                    if layer == 1:
+                        out.append((t[6], [0xE1000200 | t[5]] + words, [(2, t[0], t[1])]))
+                    else:
+                        out.append((slot, words, [(1, t[0], t[1])]))
         return out
 
     def project(self, points: np.ndarray) -> np.ndarray:
@@ -402,22 +508,9 @@ class Ps1View:
             z = np.maximum(-v[:, 2], 1e-3)
             screen.append(np.stack([np.round(160 + h * v[:, 0] / z), np.round(120 - h * v[:, 1] / z)], 1).astype(int))
             depth.append(-v[:, 2])
-        packets = []
-        for part, corners, code, shades, attributes in m.polygons:
-            xy, d = screen[part][corners], depth[part][corners]
-            area = (xy[1, 0] - xy[0, 0]) * (xy[2, 1] - xy[0, 1]) - (xy[2, 0] - xy[0, 0]) * (xy[1, 1] - xy[0, 1])
-            if d.min() <= 1 or area <= 0:
-                continue
-            words = []
-            for i, (x, y) in enumerate(xy):
-                if i < len(shades) and (i == 0 or code & 0x10):
-                    words.append(shades[i] | (code << 24 if i == 0 else 0))
-                words.append((int(y) & 0x7FF) << 16 | int(x) & 0x7FF)
-                if attributes:
-                    words.append(attributes[i])
-            packets.append((int(d.mean()) >> 2, len(packets), words))
         # The ordering table: buckets by depth, far first; in a bucket the packet added last is drawn first (it's
         # put at the head of the bucket's list), so a part's Gouraud polygons go under its textured ones.
+        packets = [(slot, i, words) for i, (slot, words, _) in enumerate(polygon_packets(m, screen, depth))]
         packets.sort(key=lambda p: (-p[0], -p[1]))
         words = [0xE1000200, 0xE3000000, 0xE4000000 | 239 << 10 | 319, 0xE5000000, 0xE6000000,
                  0x02241F1F, 0, 240 << 16 | 320] + [w for _, _, ws in packets for w in ws]
@@ -430,28 +523,36 @@ class Ps1View:
         c = np.stack([c & 31, c >> 5 & 31, c >> 10 & 31], 2)
         return (c << 3 | c >> 2).astype(np.uint8)
 
-    def background(self, fm: FieldMap, layers: set[int], shown: set[tuple[int, int]]):
+    def background(self, fm: FieldMap, layers: set[int], shown: set[tuple[int, int]],
+                   characters: tuple[np.ndarray, list] | None = None):
         """The whole background, drawn a screen at a time at (0, 0) of VRAM (no .MIM lies left of x 384), the
         packets from the far end of the ordering table, each slot's last linked first: so a page switch covers the
-        layer's tiles before it in the file. Returns the picture and the background position of its corner."""
+        layer's tiles before it in the file. Characters (VRAM with their textures, and their packets) are linked
+        after the background, as func_800A364C runs before the models, so a tile at a model's slot covers it.
+        Returns the picture and the background position of its corner."""
         if not self.gpu:
             return None, (0, 0)
-        self.vram[:] = fm.vram
-        packets = sorted(fm.packets(layers, shown), key=lambda p: (-p[0], -p[1]))
-        tiles = [p[2] for p in packets if p[2]] or [(0, 0)]
+        self.vram[:] = characters[0] if characters else fm.vram
+        tile_packets = fm.packets(layers, shown)
+        linked = tile_packets + (characters[1] if characters else [])
+        packets = [p for _, p in sorted(enumerate(linked), key=lambda p: (-p[1][0], -p[0]))]
+        tiles = [(x, y) for _, _, points in tile_packets for _, x, y in points] or [(0, 0)]
         x0, y0 = min(x for x, _ in tiles), min(y for _, y in tiles)
         x1, y1 = max(x for x, _ in tiles) + 32, max(y for _, y in tiles) + 32
         out = np.zeros((y1 - y0, x1 - x0, 3), np.uint8)
         for cy in range(y0, y1, 240):
             for cx in range(x0, x1, 320):
-                words = [0xE1000400, 0xE3000000, 0xE4000000 | 239 << 10 | 319, 0xE5000000, 0x02000000, 0,
+                words = [0xE1000200, 0xE3000000, 0xE4000000 | 239 << 10 | 319, 0xE5000000, 0x02000000, 0,
                          240 << 16 | 320]
-                for _, _, xy, w in packets:
-                    if xy is None:
+                for _, w, points in packets:
+                    if not points:
                         words += w
-                    elif cx - 32 < xy[0] < cx + 320 and cy - 32 < xy[1] < cy + 240:
+                        continue
+                    xs, ys = [x for _, x, _ in points], [y for _, _, y in points]
+                    if min(xs) < cx + 320 and max(xs) + 32 > cx and min(ys) < cy + 240 and max(ys) + 32 > cy:
                         w = list(w)
-                        w[-3] = ((xy[1] - cy) & 0x7FF) << 16 | (xy[0] - cx) & 0x7FF
+                        for at, x, y in points:
+                            w[at] = ((y - cy) & 0x7FF) << 16 | (x - cx) & 0x7FF
                         words += w
                 self.gpu.gpu_gp0_words((ctypes.c_uint32 * len(words))(*words), len(words))
                 h, w = min(240, y1 - cy), min(320, x1 - cx)
@@ -496,10 +597,35 @@ def shot(disc: Path, name: str, anim: int, frame: int, out: Path, yaw: float):
     write_png(out, np.ascontiguousarray(picture))
 
 
-def map_shot(disc: Path, name: str, out: Path):
-    """A map's background (each group in its first state) with the walkmesh, exits, triggers and arrows over it."""
+def polygon_packets(m: Model, screen: list[np.ndarray], depth: list[np.ndarray]) -> list[tuple[int, list, list]]:
+    """A model's polygons as the field links them (func_800AE4DC): back faces dropped (NCLIP), a quad at slot
+    (SZ0 + SZ1 + SZ2 + SZ3) >> 4, a triangle at avsz3's (0x155 (SZ0 + SZ1 + SZ2)) >> 12; each its own packet, with
+    where its position words are."""
+    out = []
+    for part, corners, code, shades, attributes in m.polygons:
+        xy, d = screen[part][corners], depth[part][corners]
+        area = (xy[1, 0] - xy[0, 0]) * (xy[2, 1] - xy[0, 1]) - (xy[2, 0] - xy[0, 0]) * (xy[1, 1] - xy[0, 1])
+        if d.min() <= 1 or area <= 0:
+            continue
+        words, points = [], []
+        for i, (x, y) in enumerate(xy):
+            if i < len(shades) and (i == 0 or code & 0x10):
+                words.append(shades[i] | (code << 24 if i == 0 else 0))
+            points.append((len(words), int(x), int(y)))
+            words.append((int(y) & 0x7FF) << 16 | int(x) & 0x7FF)
+            if attributes:
+                words.append(attributes[i])
+        z = int(d.sum())
+        out.append((z >> 4 if len(corners) == 4 else 0x155 * z >> 12, words, points))
+    return out
+
+
+def map_shot(disc: Path, name: str, out: Path, story: int):
+    """A map as it starts at that point of the story (its characters, its background groups), with the walkmesh,
+    exits, triggers, arrows and markers over it."""
     fm = FieldMap(disc, name)
-    rgb, origin = Ps1View().background(fm, {0, 1, 2, 3}, fm.first_states())
+    entities, shown = fm.start(story)
+    rgb, origin = Ps1View().background(fm, {0, 1, 2, 3}, shown, fm.characters(disc, entities))
     if rgb is None:
         raise SystemExit("the PS1 view's library isn't built: make editor")
     overlay(rgb, origin, fm, {"walkmesh", "exits", "triggers", "arrows", "markers"})
@@ -514,7 +640,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
     state = {"choice": start or models[0], "frames": 0, "anim": 0, "frame": 0.0, "play": True, "yaw": 0.6,
              "pitch": 0.2, "zoom": 1.0, "ps1": True, "renderer": None, "model": None, "center": None,
              "distance": 1.0, "filter": "", "map_filter": "", "map_zoom": 2.0, "layers": {0, 1, 2, 3},
-             "overlays": {"walkmesh", "exits", "triggers", "arrows", "markers"}, "vram": "model"}
+             "overlays": {"walkmesh", "exits", "triggers", "arrows", "markers"}, "vram": "model", "story": 0,
+             "characters": True}
 
     def choose(name: str):
         state["choice"], state["model"] = name, load(disc, name)
@@ -530,7 +657,11 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
 
     def choose_map(name: str):
         state["map"] = FieldMap(disc, name)
-        state["shown"] = state["map"].first_states()
+        start_map_at(state["story"])
+
+    def start_map_at(story: int):
+        state["entities"], state["shown"] = state["map"].start(story)
+        state["cast"] = state["map"].characters(disc, state["entities"])
         redraw()
 
     def maps_gui():
@@ -543,7 +674,8 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         imgui.same_line()
         fm = state["map"]
         if state["picture"] is None:  # drawn again only when something changes
-            rgb, state["origin"] = state["ps1view"].background(fm, state["layers"], state["shown"])
+            rgb, state["origin"] = state["ps1view"].background(fm, state["layers"], state["shown"],
+                                                               state["cast"] if state["characters"] else None)
             state["vram"] = "map"
             if rgb is None:
                 imgui.text_wrapped("The map view draws with the PS1 view's library. Build it with: make editor")
@@ -574,12 +706,25 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
             if imgui.checkbox(key, key in state["overlays"])[0]:
                 state["overlays"] ^= {key}
                 changed = True
+        if imgui.checkbox("characters", state["characters"])[0]:
+            state["characters"] = not state["characters"]
+            changed = True
+        imgui.set_next_item_width(120)
+        story_changed, story = imgui.input_int("story", state["story"])
+        if story_changed and story != state["story"]:
+            state["story"] = max(0, story)
+            start_map_at(state["story"])
         imgui.text(f"at {state['cursor']}" if state.get("cursor") else "")
         if fm.groups and imgui.collapsing_header("tile groups (state bits)"):
             for g, bit in fm.groups:
                 if imgui.checkbox(f"group {g}: {bit:08b}", (g, bit) in state["shown"])[0]:
                     state["shown"] ^= {(g, bit)}
                     changed = True
+        if imgui.collapsing_header("entities", imgui.TreeNodeFlags_.default_open):
+            for e in state["entities"]:
+                where = f"at {e['x']}, {e['y']}, facing {e['dir']}" if "x" in e else "not placed"
+                party = f", party {e['pc']}" if "pc" in e else ""
+                imgui.text(f"{e['name']}: model {e['model']}{party}, {where}{'' if e['visible'] else ', hidden'}")
         if imgui.collapsing_header("exits", imgui.TreeNodeFlags_.default_open):
             for i, e in enumerate(fm.map["exits"]):
                 if e:
@@ -685,11 +830,12 @@ def main():
     ap.add_argument("--frame", type=int, default=0)
     ap.add_argument("--yaw", type=float, default=0.6)
     ap.add_argument("--map", help="a map (MD1STIN) to start on, or with --shot to draw")
+    ap.add_argument("--story", type=int, default=0, help="with --map --shot, the story point the map starts at")
     ap.add_argument("--shot", type=Path, help="draw the model (or the map) to this PNG and quit")
     args = ap.parse_args()
     disc = next(p for p in sorted(args.assets.iterdir()) if (p / "FIELD/FIELD.BIN").exists())
     if args.shot and args.map:
-        map_shot(disc, args.map.upper(), args.shot)
+        map_shot(disc, args.map.upper(), args.shot, args.story)
     elif args.shot:
         shot(disc, args.model or "CLOUD.BCX", args.anim, args.frame, args.shot, args.yaw)
     else:

@@ -172,15 +172,25 @@ def apply(m: list, v) -> list[float]:
     return [sum(m[i][k] * v[k] for k in range(3)) for i in range(3)]
 
 
+def offsets(anim: dict | None, bone: int, frame: int) -> list[int]:
+    """A bone's x, y, z offset in a frame: a moving channel's (flag bits 4-6), a fixed one, or 0 (index FF)."""
+    if anim is None or bone >= len(anim["bones"]):
+        return [0, 0, 0]
+    record = anim["bones"][bone]
+    return [anim["offsets"][t][frame] if record["flags"] >> 4 + k & 1 else 0 if t == 0xFF else anim["fixed"][t]
+            for k, t in enumerate(record["offset"])]
+
+
 def pose(bones: list, anim: dict | None, frame: int) -> list[tuple[list, list]]:
     """Each bone's turn and start in a frame: its parent's turn times its own, and its parent's start plus the
-    parent's turn of (0, 0, its length). Vertices of a part on the bone go to turn x vertex + start. The animations'
-    offsets, which the field applies only in some modes, are left out."""
+    parent's turn of (x, y, its length + z), x, y, z its offsets (func_800AEE24 applies them whenever the field
+    draws a model). Vertices of a part on the bone go to turn x vertex + start."""
     out = []
     for i, bone in enumerate(bones):
         turn, start = ([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0]) if bone["parent"] < 0 else out[bone["parent"]]
+        x, y, z = offsets(anim, i, frame)
         out.append((matmul(turn, rotation(*angles(anim, i, frame))),
-                    [s + d for s, d in zip(start, apply(turn, (0, 0, bone["length"])))]))
+                    [s + d for s, d in zip(start, apply(turn, (x, y, bone["length"] + z)))]))
     return out
 
 

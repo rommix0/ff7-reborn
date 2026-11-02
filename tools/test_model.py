@@ -60,6 +60,11 @@ anim = {"frames": 1, "bones": [{"flags": 1, "rotation": [0, 0, 0], "offset": [25
 assert [[round(x) for x in t] for _, t in pose(bones, anim, 0)] == [[0, 0, 0], [0, 0, 100]]
 anim["bones"][0]["rotation"] = [0, 64, 0]  # rx is channel 0 (flags bit 0), 0 in its one frame; ry fixed at 64
 assert [[round(x) for x in t] for _, t in pose(bones, anim, 0)][1] == [100, 0, 0]
+# Offsets: a fixed one (an index) or a moving channel (flag bits 4-6), x and y beside the length, z along it.
+anim["bones"][0]["rotation"] = [0, 0, 0]
+anim["bones"][1] |= {"flags": 0x40, "offset": [0, 255, 0]}
+anim |= {"fixed": [7], "offsets": [[-30]]}
+assert [[round(x) for x in t] for _, t in pose(bones, anim, 0)][1] == [7, 0, 70]
 
 # Lighting as the GTE does it once at load (nccs): per light max(0, L.N), times its colour, plus the ambient,
 # times the stored colour; 255 in a light's colour is 4080/4096.

@@ -409,7 +409,9 @@ dumps and builds back byte for byte):
   in `MD1STIN` ("C'mon newcomer"), lit and shaded as before.
 - **What drawing them showed** (`tools/model_editor.py`):
   - **Posing:** a bone turns by its parent's turn times its own (Ry·Rx·Rz) and starts at its parent's start plus
-    the parent's turn of (0, 0, its length). Every model drawn that way stands as in the game.
+    the parent's turn of (x, y, its length + z), x, y, z the animation's offsets for the bone (a moving channel by
+    flag bits 4–6, a fixed value, or none at `FF`; `func_800AEE24` always applies them in the field). Every model
+    drawn that way stands as in the game.
   - **Lights:** `func_800B1E40` takes them from the `.BSX` entry in order, the colours at `+14`, `+20` and `+2C` and
     the vectors at `+C`, `+18` and `+24`, so the n-th colour goes with the n-th vector. The vectors and the normals
     are unit vectors at 4096.
@@ -418,6 +420,33 @@ dumps and builds back byte for byte):
     with each list's second entry, Cloud, Barret and the rest show their faces.
   - **Draw order:** within a depth bucket of the ordering table, the packet added last is drawn first, so a part's
     Gouraud polygons go under its textured ones (an eye on the face).
+- **A model on its map** (`func_800AAB24`, `func_800AEE24`, `func_800AE4DC`):
+  - **At load:** every bone length and vertex becomes `(v × scale) >> 12`, the scale from the `.BSX` entry (512 in
+    most, so ÷8).
+  - **Placing:** the model turns by `Rz(facing)·Rx(−64)`, so its −y is up and its −z ahead; facing 0 looks along
+    −y and 64 along +x. It stands at the entity's (x, y, z − 10), plus offsets scripts set.
+  - **Projecting:** then the map's camera, and `RotTransPers` with offset 0, so it lands in background pixels.
+    A model whose own point is deeper than `0xF00 << 2` isn't drawn. The facing drawn is entity `+0x38`; `+0x36`
+    is where it's moving, copied over when `+0x37` is 0.
+  - **Draw order:** a quad goes at slot `(SZ0 + SZ1 + SZ2 + SZ3) >> 4`, a triangle at avsz3's
+    `(0x155 · (SZ0 + SZ1 + SZ2)) >> 12`, back faces dropped (NCLIP). Models share the background's 4096-slot
+    ordering table, and are linked after it, so a tile at the same slot covers them.
+  - **Draw mode:** the tiles' `SetDrawMode` (`func_80044A68`) has dithering on, and the models drawn after it are
+    dithered too.
+  - **Before any script moves it:** an entity holds animation 0, frame 0 (`func_800BA7C4` clears them;
+    `func_800A6418` advances only to an end frame of 0). The player loops its animation.
+- **How a map starts:** at load each entity runs its first script up to its first `ret`, in entity order.
+  - `char` gives it the next model in section 7's list (a counter, `D_8009C6C4`; its operand goes to the entity's
+    `+0x66`). In 702 of the 703 maps the `char`s there equal the models.
+  - `pc` makes it a party member (`D_8009AD30[character]` = the entity); the player has no position of its own
+    until a gateway or a script gives one.
+  - `xyzi`, `xyi` and `xyz` place it, `dir` turns it, `visi 00` hides it and `dfanm` sets its animation.
+  - `bgon`, `bgoff` and `bgclr` set the background groups' bits (`D_8009ACE6[g]`), over the triggers' load state.
+  - Section 7's entry n is the `.BSX`'s model n in every map.
+- **Checked:** `tools/model_editor.py` draws `MD1STIN` as it starts at story 0, through the port's GPU. Against a lab
+  frame just after the opening movie, both guards stand in the same places and poses. Their pixels are a pixel
+  off at most and a few levels apart in colour, because the viewer poses and lights in floating point, not the GTE's
+  fixed point.
 
 **`MENU/SHOPMENU.MNU`, the shops** (`tools/shop.py` dumps them to a JSON file and builds them back): the module runs
 from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
@@ -1198,7 +1227,7 @@ same set). They give the original module and file split, and the staff folders b
   posing and the GTE's lighting; `tools/test_model.py` checks the layout, shared data, its limits, posing and light.
 - `tools/model_editor.py`: the field viewer, models and maps (`docs/model_editor.md`); its PS1 view and the maps'
   backgrounds are `pc/gpu.c` as a library (`make editor`, with `tools/ps1gpu.c`); `tools/test_model_editor.py`
-  checks the texture words, packets, the background's draw order and the projection.
+  checks the texture words, packets, the background's draw order, the projection and how a map starts.
 - `tools/world.py`: the world map's event scripts to JSON files and back (§2, the world map's event scripts), with
   a repacker that keeps an LZS stream up to a change; `tools/test_world.py` checks the encoding, the table and it.
 - `tools/movie.py`: each streamed movie becomes an AVI (MJPEG plus 16-bit PCM) and a `.cam` file (40 bytes per
