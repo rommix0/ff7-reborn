@@ -56,7 +56,11 @@ its entities, their scripts a line per operation (named as the game's own debug 
 `#12` or a variable `var[bank][address]`, or its name where the game's code shows it (`story`, `party1`,
 `menu_locked`, ...), other operands as hex bytes, jumps to labels, e.g.
 `if2 story == #0 L002D`, `batle #300`, `mes 03 1E ; ...` with the string shown) and its
-dialogue. `build` writes only the maps that differ from the originals (into every
+dialogue. The rest of the map follows: its walkmesh (triangles and their neighbours), background tiles (four
+layers, a line per tile), camera, exits and triggers (`"exits"`: a line on the floor and the map, position, triangle
+and facing it leads to), random encounters (two tables of six battles and four special ones, each with its chance
+out of 64, and a rate: bigger is rarer) and the models it loads. `tools/field.py`'s header lists each tile's numbers.
+A section taken out of a file stays as it was. `build` writes only the maps that differ from the originals (into every
 disc folder, keeping `.orig` copies) and moves `FIELD.BIN`'s table of where each map lies to match. A longer line
 may need its window made wider: the `wsize` before its `mes`.
 

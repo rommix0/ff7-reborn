@@ -1,4 +1,4 @@
-"""Dump the field maps' scripts and dialogue (FIELD/*.DAT) to files people can edit, and build them back.
+"""Dump the field maps (FIELD/*.DAT) to files people can edit, and build them back.
 
   python tools/field.py dump "assets/Final Fantasy VII (USA) (Disc 1)" field
   python tools/field.py build field assets
@@ -6,13 +6,25 @@
 A JSON file per map: its entities (a name and, for each of their 32 script slots, which script runs), the scripts a
 line per operation (the field module's own name for it, then its operand bytes in hex, jumps to labels), and the
 dialogue in the text format tools/kernel.py describes. Operations are named from the disc's FIELD.BIN, op_XX where
-it has no name. build writes the maps that differ from the originals into every disc folder under assets, keeping
-the first originals as .orig, and FIELD.BIN's table of where each map lies; the rest of a map comes from its
-original. A map unpacks to at most 77,852 bytes (the background is unpacked right after it).
+it has no name. Then the other sections:
+  walkmesh    triangles (three x, y, z, w; z the height, w unread) and the neighbour across each edge (-1 a wall)
+  background  four layers of runs of tiles (one row each) and texture-page switches; a tile is
+              layer 1: x, y, u, v, palette
+              layer 2: x, y, u, v, palette, page, depth, group, blended, state bits
+              layers 3 and 4: x, y, u, v, palette, group, blended, state bits
+  camera      the rotation, translation, screen offset and projection distance
+  map         its name, the pad's turn, the camera's focus and scroll box, layers 3 and 4's scrolling, 12 exits,
+              their arrows, 12 triggers (a line that sets or clears a background group's bit) and 12 markers
+  encounters  two tables: on, the rate, six battles and four special ones, each with its chance out of 64
+  models      each model's face, bones, parts, animations, whether it's loaded and its .BCX
+A section left out of a file stays as it was. build writes the maps that differ from the originals into every disc
+folder under assets, keeping the first originals as .orig, and FIELD.BIN's table of where each map lies. A map
+unpacks to at most 77,852 bytes (the background is unpacked right after it).
 """
 import argparse
 import gzip
 import json
+import re
 from pathlib import Path
 
 import kernel
@@ -127,6 +139,7 @@ VARS = {
     (15, 0x6F): "owns_all",  # a menu check: 1 when every item or materia in its list is owned
 }
 NAMED = {name: key for key, name in VARS.items()}
+MODEL = ("face", "bones", "parts", "animations", "load", "bcx")  # section 7's entry, less two bytes the loader fills
 
 
 def u16(data: bytes, at: int) -> int:
@@ -415,15 +428,207 @@ def section_raw(table: dict, original: bytes, names: list[str]) -> bytes:
     return bytes(out)
 
 
+def s16(data: bytes, at: int) -> int:
+    return int.from_bytes(data[at:at + 2], "little", signed=True)
+
+
+def walkmesh_json(sec: bytes) -> dict:
+    n = u16(sec, 0)
+    out = {"triangles": [{"vertices": [[s16(sec, 4 + 24 * t + 8 * v + 2 * c) for c in range(4)] for v in range(3)],
+                          "neighbours": [s16(sec, 4 + 24 * n + 6 * t + 2 * k) for k in range(3)]} for t in range(n)]}
+    if n % 2:  # the section is padded to a word with whatever was there
+        out["pad"] = u16(sec, 4 + 30 * n)
+    return out
+
+
+def walkmesh_raw(mesh: dict) -> bytes:
+    tris = mesh["triangles"]
+    if len(tris) > 512:  # idlck's bits
+        raise ValueError("walkmesh: at most 512 triangles")
+    out = len(tris).to_bytes(2, "little") + bytes(2)
+    out += b"".join(c.to_bytes(2, "little", signed=True) for t in tris for v in t["vertices"] for c in v)
+    out += b"".join(k.to_bytes(2, "little", signed=True) for t in tris for k in t["neighbours"])
+    return out + mesh.get("pad", 0).to_bytes(2, "little") if len(tris) % 2 else out
+
+
+def background_json(sec: bytes) -> dict:
+    tiles, pages = [u32(sec, 4 * i) for i in range(4)], u32(sec, 4)
+    at, next_tile, layers = 0x10, [tiles[0], tiles[2], tiles[3], tiles[3]], []
+    for layer in range(4):
+        items = []
+        for at in range(at, len(sec), 6):
+            y, n = s16(sec, at), s16(sec, at + 2)
+            if y == 0x7FFF:
+                break
+            if y == 0x7FFE:  # the next texture page; layers 3 and 4 have none of their own
+                items.append({"page": u16(sec, pages + 2 * n)})
+                continue
+            run, size = [], (8, 14, 10, 10)[layer]
+            for t in range(next_tile[layer], next_tile[layer] + size * s16(sec, at + 4), size):
+                b = sec[t:t + size]
+                tile = [s16(b, 0), s16(b, 2), b[4], b[5], u16(b, 6)]
+                if layer == 1:
+                    tile += [u16(b, 8), u16(b, 10)]  # its page, and its place in the ordering table
+                if layer:
+                    tile += [b[size - 2] & 0x3F, b[size - 2] >> 7, b[size - 1]]  # group, blended, state bits
+                run.append(tile)
+            next_tile[layer] += size * len(run)
+            if layer == 2:
+                next_tile[3] = next_tile[2]
+            items.append(run)
+        at += 2
+        layers.append(items)
+    out = {"layers": layers}
+    if next_tile[3] < len(sec):
+        out["pad"] = u16(sec, next_tile[3])
+    return out
+
+
+def background_raw(bg: dict) -> bytes:
+    if len(bg["layers"]) != 4:
+        raise ValueError("background: four layers")
+    runs, pages, tables, index = b"", b"", [b"", b"", b""], 0  # tables: layer 1's, layer 2's, layers 3 and 4's
+    for layer, items in enumerate(bg["layers"]):
+        for item in items:
+            if isinstance(item, dict):
+                if layer == 1:
+                    raise ValueError("background: layer 2's tiles carry their own pages")
+                runs += b"\xfe\x7f" + (len(pages) // 2).to_bytes(2, "little") + bytes(2)
+                pages += item["page"].to_bytes(2, "little")
+                continue
+            if any(tile[1] != item[0][1] for tile in item):
+                raise ValueError("background: a run's tiles share a row")
+            runs += b"".join(v.to_bytes(2, "little", signed=True) for v in (item[0][1], index, len(item)))
+            index += len(item)  # the tiles' place in the field's state bytes, across all four layers
+            for tile in item:
+                b = b"".join(v.to_bytes(2, "little", signed=True) for v in tile[:2]) + bytes(tile[2:4])
+                b += tile[4].to_bytes(2, "little")
+                if layer == 1:
+                    b += tile[5].to_bytes(2, "little") + tile[6].to_bytes(2, "little")
+                if layer:
+                    group, blend, state = tile[-3:]
+                    b += bytes([blend << 7 | group, state])
+                tables[min(layer, 2)] += b
+        runs += b"\xff\x7f"
+    offsets = [0x10 + len(runs)]
+    for size in (len(tables[0]), len(pages), len(tables[1])):
+        offsets.append(offsets[-1] + size)
+    out = b"".join(o.to_bytes(4, "little") for o in offsets) + runs + tables[0] + pages + tables[1] + tables[2]
+    return out + bg["pad"].to_bytes(2, "little") if "pad" in bg else out
+
+
+def camera_json(sec: bytes) -> dict:
+    return {"rotation": [[s16(sec, 6 * r + 2 * c) for c in range(3)] for r in range(3)], "pad": s16(sec, 0x12),
+            "translation": [int.from_bytes(sec[0x14 + 4 * i:0x18 + 4 * i], "little", signed=True) for i in range(3)],
+            "offset": [s16(sec, 0x20), s16(sec, 0x22)], "distance": s16(sec, 0x24), "unread": sec[0x26:].hex(" ")}
+
+
+def camera_raw(cam: dict) -> bytes:
+    out = b"".join(c.to_bytes(2, "little", signed=True) for row in cam["rotation"] for c in row)
+    out += cam["pad"].to_bytes(2, "little", signed=True)
+    out += b"".join(t.to_bytes(4, "little", signed=True) for t in cam["translation"])
+    out += b"".join(v.to_bytes(2, "little", signed=True) for v in cam["offset"] + [cam["distance"]])
+    return out + bytes.fromhex(cam["unread"])
+
+
+def map_json(sec: bytes) -> dict:
+    def line(at: int) -> list[list[int]]:
+        return [[s16(sec, at + 6 * e + 2 * c) for c in range(3)] for e in range(2)]
+
+    exits, triggers = [], []
+    for at in range(0x38, 0x158, 0x18):
+        b = sec[at:at + 0x18]
+        if u16(b, 0x12) == 0x7FFF:
+            exits.append(None)
+            continue
+        exits.append({"line": line(at), "map": u16(b, 0x12), "x": s16(b, 0xC), "y": s16(b, 0xE),
+                      "triangle": u16(b, 0x10), "facing": b[0x14]} |
+                     ({"unread": list(b[0x15:0x18])} if b[0x15:0x18] != bytes([b[0x14]] * 3) else {}))
+    for at in range(0x158, 0x218, 0x10):
+        b = sec[at:at + 0x10]
+        triggers.append(None if b[0xC] == 0xFF else
+                        {"line": line(at), "group": b[0xC], "bit": b[0xD], "kind": b[0xE], "sound": b[0xF]})
+    return {"name": sec[:8].rstrip(b"\0").decode("latin-1"), "turn": sec[9], "focus": s16(sec, 0xA),
+            "scroll": [s16(sec, 0xC + 2 * i) for i in range(4)], "scroll_mode": sec[0x14],
+            "layers": [{"wrap": [s16(sec, 0x18 + 4 * k), s16(sec, 0x1A + 4 * k)],
+                        "start": [s16(sec, 0x20 + 4 * k), s16(sec, 0x22 + 4 * k)],
+                        "parallax": [s16(sec, 0x28 + 4 * k), s16(sec, 0x2A + 4 * k)]} for k in range(2)],
+            "unread": (sec[8:9] + sec[0x15:0x18] + sec[0x30:0x38]).hex(" "),
+            "exits": exits, "arrows": list(sec[0x218:0x224]), "triggers": triggers,
+            "markers": [[s16(sec, at + 4 * i) for i in range(3)] + [u32(sec, at + 12)]
+                        for at in range(0x224, 0x2E4, 16)]}
+
+
+def map_raw(m: dict) -> bytes:
+    def coords(*values: int) -> bytes:
+        return b"".join(v.to_bytes(2, "little", signed=True) for v in values)
+
+    if not len(m["exits"]) == len(m["triggers"]) == len(m["arrows"]) == len(m["markers"]) == 12:
+        raise ValueError("map: 12 exits, triggers, arrows and markers")
+    unread = bytes.fromhex(m["unread"])
+    out = m["name"].encode("latin-1").ljust(8, b"\0") + unread[:1] + bytes([m["turn"]]) + coords(m["focus"])
+    out += coords(*m["scroll"]) + bytes([m["scroll_mode"]]) + unread[1:4]
+    out += b"".join(coords(*layer[key]) for key in ("wrap", "start", "parallax") for layer in m["layers"])
+    out += unread[4:]
+    for e in m["exits"]:
+        if e is None:
+            out += bytes(0x12) + b"\xff\x7f" + bytes(4)
+            continue
+        out += coords(*e["line"][0], *e["line"][1], e["x"], e["y"]) + e["triangle"].to_bytes(2, "little")
+        out += e["map"].to_bytes(2, "little") + bytes([e["facing"]] + e.get("unread", [e["facing"]] * 3))
+    for t in m["triggers"]:
+        out += bytes(12) + b"\xff" + bytes(3) if t is None else \
+            coords(*t["line"][0], *t["line"][1]) + bytes([t["group"], t["bit"], t["kind"], t["sound"]])
+    out += bytes(m["arrows"])
+    return out + b"".join(coords(x) + bytes(2) + coords(y) + bytes(2) + coords(z) + bytes(2) +
+                          kind.to_bytes(4, "little") for x, y, z, kind in m["markers"])
+
+
+def encounters_json(sec: bytes) -> list[dict]:
+    out = []
+    for t in range(2):
+        w = [u16(sec, 24 * t + 2 * i) for i in range(11)]
+        out.append({"on": w[0] & 1, "rate": w[0] >> 8, "battles": [[x & 0x3FF, x >> 10] for x in w[1:7]],
+                    "special": [[x & 0x3FF, x >> 10] for x in w[7:11]]})
+    return out
+
+
+def encounters_raw(tables: list[dict]) -> bytes:
+    out = b""
+    for t in tables:
+        pairs = t["battles"] + t["special"]
+        if len(t["battles"]) != 6 or len(t["special"]) != 4 or len(tables) != 2:
+            raise ValueError("encounters: two tables of 6 battles and 4 special ones")
+        if not all(0 <= b < 1024 and 0 <= c < 64 for b, c in pairs) or not 0 <= t["rate"] < 256:
+            raise ValueError("encounters: battles 0-1023, chances 0-63, rate 0-255")
+        words = [t["rate"] << 8 | t["on"]] + [c << 10 | b for b, c in pairs] + [0]
+        out += b"".join(w.to_bytes(2, "little") for w in words)
+    return out
+
+
+def models_json(sec: bytes) -> list[dict]:
+    return [dict(zip(MODEL, (b[0], b[1], b[2], b[3], b[5], b[7])))
+            for b in (sec[at:at + 8] for at in range(4, 4 + 8 * u16(sec, 2), 8))]
+
+
+def models_raw(models: list[dict]) -> bytes:
+    out = (4 + 8 * len(models)).to_bytes(2, "little") + len(models).to_bytes(2, "little")
+    for m in models:
+        face, bones, parts, anims, load, bcx = (m[k] for k in MODEL)
+        out += bytes([face, bones, parts, anims, 0, load, 0, bcx])  # +4 the loader's slot, filled at load
+    return out
+
+
 def sections(dat: bytes) -> list[int]:
     return [u32(dat, 4 * i) - LOAD for i in range(7)] + [len(dat)]
 
 
-def dat_raw(dat: bytes, sec1: bytes) -> bytes:
-    at = sections(dat)
-    shift = len(sec1) - (at[1] - at[0])
-    header = b"".join((LOAD + o + (shift if i else 0)).to_bytes(4, "little") for i, o in enumerate(at[:7]))
-    return header + sec1 + dat[at[1]:]
+def dat_raw(secs: list[bytes]) -> bytes:
+    at, header = 4 * len(secs), b""
+    for sec in secs:
+        header += (LOAD + at).to_bytes(4, "little")
+        at += len(sec)
+    return header + b"".join(secs)
 
 
 def lzs_pack(data: bytes, start: int = 0) -> bytes:
@@ -496,14 +701,30 @@ def module(disc: Path) -> bytes:
     return gzip.decompress((disc / "FIELD/FIELD.BIN").read_bytes()[8:])
 
 
+PARTS = {"walkmesh": (1, walkmesh_json, walkmesh_raw), "background": (2, background_json, background_raw),
+         "camera": (3, camera_json, camera_raw), "map": (4, map_json, map_raw),
+         "encounters": (5, encounters_json, encounters_raw), "models": (6, models_json, models_raw)}
+
+
+def split(dat: bytes) -> list[bytes]:
+    at = sections(dat)
+    return [dat[at[i]:at[i + 1]] for i in range(7)]
+
+
+def write_json(path: Path, table: dict):
+    """A list of numbers on one line (a battle and its chance, a tile), so a map reads and diffs line by line."""
+    text = json.dumps(table, indent=1, ensure_ascii=False)
+    text = re.sub(r"\[\s+([-\d,\s]*?)\s+\]", lambda m: "[" + " ".join(m.group(1).split()) + "]", text)
+    path.write_text(text + "\n", "utf-8")
+
+
 def dump(disc: Path, out: Path):
     names = op_names(module(disc))
     out.mkdir(parents=True, exist_ok=True)
     for path in maps(disc):
-        dat = lzs(path.read_bytes())
-        at = sections(dat)
-        table = section_json(dat[at[0]:at[1]], names)
-        (out / f"{path.stem}.json").write_text(json.dumps(table, indent=1, ensure_ascii=False) + "\n", "utf-8")
+        secs = split(lzs(path.read_bytes()))
+        table = section_json(secs[0], names) | {key: to_json(secs[i]) for key, (i, to_json, _) in PARTS.items()}
+        write_json(out / f"{path.stem}.json", table)
 
 
 def build(folder: Path, assets: Path):
@@ -517,14 +738,17 @@ def build(folder: Path, assets: Path):
         for path in sorted(folder.glob("*.json")):
             name = f"FIELD/{path.stem}.DAT"
             dat = lzs((disc / name).read_bytes())
-            at = sections(dat)
-            try:
-                sec1 = section_raw(json.loads(path.read_text("utf-8")), dat[at[0]:at[1]], names)
-            except ValueError as e:
-                raise SystemExit(f"{path}: {e}")
-            if sec1 == dat[at[0]:at[1]]:
+            secs, table = split(dat), json.loads(path.read_text("utf-8"))
+            try:  # a section the file leaves out stays as it was
+                secs[0] = section_raw(table, secs[0], names)
+                for key, (i, _, to_raw) in PARTS.items():
+                    if key in table:
+                        secs[i] = to_raw(table[key])
+            except (ValueError, KeyError, TypeError) as e:
+                raise SystemExit(f"{path}: {e!r}")
+            new = dat_raw(secs)
+            if new == dat:
                 continue
-            new = dat_raw(dat, sec1)
             if len(new) > ROOM:
                 raise SystemExit(f"{path}: the map unpacks to {len(new)} bytes; there's room for {ROOM}")
             kernel.replace(disc, name, lzs_pack(new))

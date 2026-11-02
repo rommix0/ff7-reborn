@@ -204,8 +204,7 @@ A movie name found on several discs has the same contents on each, so the PC por
   with the table for the new blocks, and the kernel tool takes the table from the folder's `SCENE.BIN` too, so
   rebuilding either keeps them in step.
 
-**`FIELD/*.DAT`, the maps** (`tools/field.py` dumps each map's scripts and dialogue to a JSON file and builds them
-back):
+**`FIELD/*.DAT`, the maps** (`tools/field.py` dumps each map to a JSON file and builds it back):
 - **Loading:** `FIELD.BIN` keeps a 24-byte entry per map at `0x800DA5B8` (file offset `0x3A5B8`): sector and size of
   its `.DAT`, `.MIM` and `.BSX`, by map number. `func_800A1368` unpacks the `.MIM` (LZS) to `0x80128000` and the
   `.DAT` to `0x80114FE4`, so a map unpacks to at most 77,852 bytes (`FRCYO`, the biggest, is 77,776). The `.DAT`
@@ -256,13 +255,89 @@ back):
 - **Checked in the lab:** Barret's "C'mon newcomer. Follow me." in `MD1STIN`, made longer, showed in the opening
   (the map 28 bytes bigger, `FIELD.BIN`'s entry moved with it), cut off by its window until the `wsize` before the
   `mes` was made wider in the script.
+- **The other sections** (`tools/field.py` dumps and builds all of them; every map on all three discs, 2,109,
+  byte for byte). At `0x800A1BB0` the field keeps where each header word is: section 2 `D_8009A044`, 3 `D_8009D848`,
+  4 `D_80083578`, 5 `D_8009AD28`, 6 `D_8009C55C`, 7 `D_80070784`. `func_800A1368` reads 5, 6 and 7 into
+  `D_800716C4`, `D_80071A54` and `D_8007E770`. The sections lie back to back and none holds its own length except 7.
+- **Section 2, the walkmesh:** a `u16` count n (at most 496 on the discs), a `u16` nothing reads, n triangles of three
+  vertices (`s16` x, y, z, w), then each triangle's three neighbours (`s16`), padded to a word with whatever was
+  there.
+  - `func_800A8968` finds the triangle a point is on: for each edge (v0→v1, v1→v2, v2→v0) a 2D side test on x and
+    y; on the wrong side it steps to that edge's neighbour. Inside, `func_800A8E34` gets the height z from the
+    triangle's plane. A negative neighbour is a wall (all are −1).
+  - Nothing reads w. It's z in most vertices and other values in about a fifth.
+  - `idlck` (`6D`) sets or clears a triangle's bit in `D_8009ACA6` (512 bits). A locked triangle is a wall too.
+- **Section 3, the background tiles** (`func_800A3020` builds the sprites, twice for the two buffers;
+  `func_800A364C` links them each frame):
+  - Four `u32` offsets: layer 1's tiles, the texture pages, layer 2's tiles, layers 3 and 4's tiles.
+  - At `+0x10`, a run list per layer: `s16` y, the first tile's index, a count; `7FFE` with an index picks the next
+    texture page (layers 1, 3 and 4); `7FFF` ends the list. A run's tiles share its y. The index counts across all
+    four layers, the tiles' place in the field's state bytes; the build works it out.
+  - Layer 1: 16×16 tiles, 8 bytes (`s16` x, y, `u8` u, v, `u16` palette), opaque, at the back of the ordering
+    table, culled by row and column against the camera (`D_80071A48`, `D_80071A4A`).
+  - Layer 2: 16×16 tiles, 14 bytes: also a texture page each, a depth (its slot in the ordering table, 0–4095), a
+    flags byte (bit 7 blended, bits 0–5 a group) and the state bits it shows in.
+  - Layers 3 and 4: 32×32 tiles, 10 bytes: the flags byte and state bits. Each layer is linked at one slot
+    (`D_8009ACA4`, `0xFFF` at load; `D_8009ACA2`, 1), and scrolls by section 5's values.
+  - A tile in group g shows when g is 0 or when `D_8009ACE6[g]` and its state bits share a bit. `bgon`, `bgoff`
+    and `bgclr` (`E0`, `E1`, `E4`) set and clear those bits.
+  - The padding after the last tile isn't always zero; the build keeps it.
+- **Section 4, the camera:** `func_800AB2B4` points `D_80071E40` at it (or at a movie's camera).
+  - A rotation (`s16` 3×3, 4.12) for `SetRotMatrix`; a word nothing reads (m[2][2] again in every map); a
+    translation (`s32` ×3) for `SetTransMatrix`; an `s16` screen offset x and y (0 everywhere); the projection
+    distance H (`SetGeomScreen`, `func_800A4BEC`).
+  - The rest (2 bytes, or 18 in 216 maps) is never read.
+- **Section 5, the map** (740 bytes everywhere):
+  - **Header:**
+    - The name (lower case) and a byte nothing reads.
+    - The pad's turn, a byte added to the direction pressed (`func_800A65A4`).
+    - The camera's focus height, added to the player's z (`D_8009AC0A`).
+    - The scroll box (`s16` min x, min y, max x, max y): `func_800A47F8` keeps the camera within it, less half the
+      screen.
+    - A mode byte: 1 or 2 slides the camera along one of its diagonals (`func_800A45D4`).
+    - Layers 3 and 4's wrap width and height, start scroll (1/16 pixel) and parallax (8.8, by the camera's
+      position; `func_800A4BEC`).
+  - **12 exits** at `0x38`, 24 bytes each: a line (two `s16` x, y, z), then the arrival x, y, triangle, map and
+    facing (copied to `D_8009ABF8`, `ABFA`, `AC16`, `ABF6`, `AC18`). Map `7FFF` is an unused slot. Three bytes after
+    the facing are never read (the facing again in every used exit).
+    - `func_800AA348` fires an exit when the player, within its collision radius of the line, crosses from one side
+      to the other. `D_8009ABF5` = 1 then asks for the map.
+    - `func_800A14D8` starts reading the nearest exit's background early.
+  - **12 triggers** at `0x158`, 16 bytes each: a line, a background group (`FF` unused), a bit, a kind and a sound
+    (one of 4).
+    - Even kinds set the bit when the player touches the line; odd kinds clear it. Kinds 2–5 also do the opposite
+      when the player leaves it (4 and 5 only on one side).
+    - At load, even kinds start with the bit clear and odd kinds with it set.
+  - **A flag per exit** at `0x218` draws an arrow at the line's middle (`func_800ABFE8`).
+  - **12 markers** at `0x224` (x, y, z as `u32`s read as `s16`, and a kind: 0 off, 2 drawn with the palette at (256, 488), others with
+    the default one).
+- **Section 6, random encounters:** two tables of 24 bytes; `btltb` (`4B`) picks one (`D_8009AC30`), and
+  `btlon` (`71`) with a value other than 0 stops random battles (`D_8009AC2F`; `MD1STIN` runs `btlon 01`).
+  - `func_800ABA70`, each step: the danger (`D_8007173C`) goes up by the player's actor `+0x70` over the rate (the
+    table's `+0` high byte; bit 0 is the table's on switch), and a battle comes when a random byte falls under the
+    danger times `D_80062F19`, over 4096. The main exe sets `D_80062F18`–`1B` from the party (`0x800176B0`).
+  - **The special battles** (`+0xE`, `+0x10`, `+0x12`, `+0x14`) are tried first, against a roll out of 64.
+    `D_80062F1B`'s bit 7 halves their chances.
+  - **Otherwise one of the six battles** (`+2` to `+0xC`), each a `u16` of the chance (6 bits) and the battle
+    (10 bits). The sixth takes whatever the others leave. A battle the same as the last is rolled once more.
+  - Another roll under `D_80062F1B`'s low 7 bits sets `D_800716D0` to 4 for the battle (the first two special
+    battles clear it again).
+  - The chances of the six add up to 64 in every table that's on.
+- **Section 7, the models:** a `u16` size, a `u16` count, then 8 bytes each: face id, bones, parts, animations, a
+  slot the loader fills in (0 in the file), whether to load it, a 0, the `.BCX` number (0: in the `.BSX`).
+  - `func_800BB1B4` sets "load" for the party's models before `func_800ADAA4` hands out slots.
+  - Entities whose model isn't loaded are hidden.
+- **Checked in the lab:**
+  - A second exit across Cloud's walk north in `MD1STIN`, after the opening fight, took him to the debug room
+    (`0x41`).
+  - `MD1_1`'s table, given only battle `0x144` and rate 1, started that battle within a few steps (the warp given
+    the arrival `MD1STIN`'s own exit uses).
 
 **`FIELD/*.BCX` and `.BSX`, the field's models** (`tools/model.py` dumps them to JSON files and builds them back;
 decoded from the loader and the drawing code, every `.BCX` and real `.BSX`, 721 files the same on all three discs,
 dumps and builds back byte for byte):
 - **Loading** (`func_800AA930`): all LZS.
-  1. The map's `.DAT` section 6 lists its models, 8 bytes each: face id, bones, parts, animations, run-time slot and
-     flags, `.BCX` number (0: the model is in the `.BSX`).
+  1. The map's `.DAT` section 7 lists its models (see the maps above).
   2. The `.BSX` (the third pair in the map's `FIELD.BIN` entry) unpacks to `0x801B0000`.
   3. `func_800ADC90` loads each `.BCX` once (table `D_800DF08C`: 1 `CLOUD`, 2 `EARITH`, 3 `BALLET`, 4 `TIFA`, 5 `RED`,
      6 `CID`, 7 `YUFI`, 8 `KETCY`, 9 `VINCENT`) and `FIELD.TDB` to `0x80128000`.
@@ -1097,8 +1172,9 @@ same set). They give the original module and file split, and the staff folders b
   checks the character set, the codes, the `F9` packing and its limits, and the archive.
 - `tools/scene.py`: `SCENE.BIN` to a JSON file per scene and back (§2, `BATTLE/SCENE.BIN`); `tools/test_scene.py`
   checks the block packing, the scene table and the names.
-- `tools/field.py`: each map's scripts and dialogue to a JSON file and back (§2, `FIELD/*.DAT`), with an LZS packer;
-  `tools/test_field.py` checks the disassembler, the names, the section layout and the packer.
+- `tools/field.py`: each map to a JSON file and back (§2, `FIELD/*.DAT`): scripts, dialogue, walkmesh, background
+  tiles, camera, exits and triggers, encounters, models; with an LZS packer. `tools/test_field.py` checks the
+  disassembler, the names, each section's layout and the packer.
 - `tools/shop.py`: `SHOPMENU.MNU`'s shops, titles, clerk lines and prices to a JSON file and back (§2,
   `MENU/SHOPMENU.MNU`); `tools/test_shop.py` checks the layout and its limits.
 - `tools/model.py`: the field's models (`.BCX`, `.BSX`) to JSON files and back (§2, `FIELD/*.BCX` and `.BSX`), with
