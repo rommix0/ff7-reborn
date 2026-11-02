@@ -370,7 +370,8 @@ def section_json(sec: bytes, names: list[str]) -> dict:
     texts = [offsets.index(o) if offsets.index(o) < i else  # a string shared with an earlier one
              kernel.decode(s[:-1] if s.endswith(b"\xff") else s, FIELD_ARGS)
              for i, (o, s) in enumerate(zip(offsets, strings))]
-    out = {"entities": [{"name": sec[0x20 + 8 * e:0x28 + 8 * e].rstrip(b"\0").decode("latin-1"),
+    # Entity names are Shift-JIS (CLSIN2_1's "　fire" opens with a full-width space).
+    out = {"entities": [{"name": sec[0x20 + 8 * e:0x28 + 8 * e].rstrip(b"\0").decode("shift_jis"),
                          "scripts": [starts.index(at) for at in slots[e]]} for e in range(n)],
            "scripts": [disassemble(sec[at:end], names, texts) for at, end in zip(starts, starts[1:] + [code_end])],
            "strings": texts}
@@ -389,7 +390,7 @@ def section_raw(table: dict, original: bytes, names: list[str]) -> bytes:
     out = bytearray(original[:0x20])
     out[2] = n
     for e in table["entities"]:
-        out += e["name"].encode("latin-1").ljust(8, b"\0")
+        out += e["name"].encode("shift_jis").ljust(8, b"\0")
     out += original[0x20 + 8 * old_n:0x20 + 8 * old_n + 4 * music]
     table_at = len(out)
     out += bytes(64 * n)

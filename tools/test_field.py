@@ -76,6 +76,10 @@ table = section_json(original, names)
 assert table["entities"] == [{"name": "one", "scripts": [0] * 32}, {"name": "two", "scripts": [0] + [1] * 31}]
 assert table["scripts"] == [["mes 00 05", "ret"], ["ret"]] and table["strings"] == ["there{FE DD}{FF}%", "Hi"]
 assert section_raw(table, original, names) == original
+# An entity's name is Shift-JIS (CLSIN2_1's "　fire" opens with a full-width space, 81 40).
+named = original.replace(b"one\0\0\0\0\0", b"\x81\x40fire\0\0")
+assert section_json(named, names)["entities"][0]["name"] == "　fire"
+assert section_raw(section_json(named, names), named, names) == named
 table["strings"][1] = "Hello"
 assert section_raw(table, original, names) == section([wait, encode("Hello") + b"\xff"])
 

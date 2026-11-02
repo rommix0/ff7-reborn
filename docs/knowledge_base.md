@@ -91,7 +91,10 @@ A movie name found on several discs has the same contents on each, so the PC por
 
 **Text and `KERNEL.BIN`** (`tools/kernel.py` dumps it to JSON and text files and builds it back):
 - **Characters:** a game byte plus 0x20 is Mac OS Roman. `WINDOW.BIN`'s second TIM is the font (4-bit, 12-pixel
-  cells, 21 a row) in that order; a few Mac Roman symbols (†, §, ©, ®, ™) are blank in it. From 0xE0 they're codes:
+  cells, 21 a row) in that order; a few Mac Roman symbols (†, §, ©, ®, ™) are blank in it. Past ASCII the US text
+  (kernel, scenes, every field's dialogue) uses only … “ ” ‘ ’ ·; the dummy enemies' names (`ENEMY000`-`009`) and
+  13 dummy attacks' are in another font's bytes, so the tools show any other byte as `{XX}`. A field entity's name is
+  Shift-JIS (`CLSIN2_1` has one opening with a full-width space, `81 40`). From 0xE0 they're codes:
   `EA`–`F1` take a big-endian `u16` that `func_80014E74` fills in (`EA` a character's name, `EB` an item, `EC` a
   number, `ED` a party member or enemy, `EE` and `F0` other name lists, `EF` one character, `F1` any list by list and
   index); `F8` (colour) and `FA`–`FE` (more glyph pages) take a byte (the drawing at `0x80026F7C`); `FF` ends a string.

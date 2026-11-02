@@ -53,17 +53,20 @@ LAYOUTS = {
 # offset table after it is what an overflow would hit.
 TEXT_SPACE = 0x8006947C - 0x80063690
 ARGS = {**dict.fromkeys(range(0xEA, 0xF2), 2), 0xF8: 1, **dict.fromkeys(range(0xFA, 0xFF), 1)}
+# Past ASCII the US text (kernel, scenes, every field's dialogue) uses only … “ ” ‘ ’ ·. The other bytes show up only in
+# the dummy enemies' and attacks' names, text in another font, so they stay hex rather than read as accented letters.
+GLYPHS = {0xA9, 0xB2, 0xB3, 0xB4, 0xB5, 0xC1}
 
 
 def decode(text: bytes, args: dict | None = None) -> str:
-    """A string's bytes (no FF) as text: Mac OS Roman less 0x20, codes from 0xE0 as {XX ...} with their arguments
-    (ARGS unless given; field text has its own)."""
+    """A string's bytes (no FF) as text: Mac OS Roman less 0x20 (past ASCII only GLYPHS), codes from 0xE0 as {XX ...}
+    with their arguments (ARGS unless given; field text has its own)."""
     args = ARGS if args is None else args
     out, i = [], 0
     while i < len(text):
         c = text[i]
         n = 1 + args.get(c, 0)
-        char = bytes([c + 0x20]).decode("mac_roman") if c < 0xE0 else ""
+        char = bytes([c + 0x20]).decode("mac_roman") if c < 0x5F or c in GLYPHS else ""
         out.append(char if char and char.isprintable() and char != "{" else
                    "{" + " ".join(f"{b:02X}" for b in text[i:i + n]) + "}")
         i += n if c >= 0xE0 else 1

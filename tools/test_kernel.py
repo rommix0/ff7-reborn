@@ -1,10 +1,13 @@
 from kernel import decode, encode, pack_kernel, pack_text, read_text, scene_table
 from unpack import bingz
 
-# Characters are Mac OS Roman less 0x20 (the order of WINDOW.BIN's font): every byte below 0xE0 survives a round trip,
-# and the ones that would read ambiguously in a text file ({, DEL, the no-break space, the Apple logo) come out as hex.
+# Characters are Mac OS Roman less 0x20 (the order of WINDOW.BIN's font): every byte below 0xE0 survives a round trip.
+# Past ASCII the US text uses only … “ ” ‘ ’ ·, so any other byte comes out as hex (the dummy enemies' and attacks'
+# names are text in another font: "{70}{7C}{79}0(...)", not "êúô0(...)"), as does { (it would read ambiguously).
 assert encode("Ä…“·") == bytes([0x60, 0xA9, 0xB2, 0xC1])
-assert decode(bytes(range(0xE0))).count("{") == 4 and encode(decode(bytes(range(0xE0)))) == bytes(range(0xE0))
+every = bytes(range(0xE0))
+assert decode(every).count("{") == 1 + 0x81 - 6 and encode(decode(every)) == every
+assert decode(bytes([0x70, 0x7C, 0x79, 0x10, 0x08, 0xA9, 0xB2, 0xB3, 0xB4, 0xB5, 0xC1])) == "{70}{7C}{79}0(…“”‘’·"
 assert decode(b"\x5b") == "{5B}"
 
 # Codes take their arguments: EA-F1 two (the battle text's inserts), F8 and FA-FE one (colour, glyph pages).
