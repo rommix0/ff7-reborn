@@ -642,6 +642,33 @@ N % 4):
     attacks here hold the camera (-1).
   - Drawn by the port's GPU, Cloud's Attack matches the lab's frames on 89-96% of the 3D area; the rest is the
     sword trails and dust (effects aren't played) and posing in floating point.
+- **Effects** (`MAGIC/*.BIN`, code loaded at `0x801B0000`; Ice, `BRIZAD.BIN`, as the example):
+  - The battle enters one through `func_800D0C80(attacker)`: the attacker's record (`D_801518E4` + attacker ×
+    `0xB9C`) holds the kind of action at `+0x23` and the effect's number at `+0x22`, and most kinds call
+    `D_800EFAF0[effect](targets, D_801590CC)`, the target mask from `D_80151774` (bit 4 the first enemy). Ice's entry
+    is `0x801B037C`.
+  - An effect is tasks. `func_800BBEAC(fn)` takes one of 100 slots and returns it: the functions at `D_80161EF0`, a
+    32-byte record each at `D_80162978`, how many run at `D_80162080`. `func_800BC348` runs each once a battle frame
+    in slot order, the one running at `D_8015169C`; one ends by setting its record's `+0` to -1. Ice's count their
+    frames in `+2` and stand still while `D_80062D98` is set. The action script (`func_800C7C4C`) waits until no task
+    runs.
+  - Ice's entry starts three things. A task that flips the effect's packet buffer each frame (`D_801D1014` points
+    into `0x801B1014` or `0x801C1014`, the 64 KB after the file each) and ends once it's the only task left. A task
+    (`func_800D5444`, running `func_800D5350`) that walks the target mask and calls `func_801B02D4(target)` for each
+    target, 4 frames apart. And sound `0x18`, panned to the middle of the targets (`func_800D574C`, then
+    `func_800D55F4` with request `0x20`).
+  - For each target a task (`func_801B018C`) runs once: it starts the crystal's task at the target's bone (the bone
+    at `+0x2B` of its record, placed by `func_800D3994`), unturned, sized by the target (`func_800D55A4`: `+6` ×
+    `+0x12` × 16 >> 12); then it queues the hit (`func_800D5774`: kind 4 into the 16-entry ring at `D_800F4CEC`, 6 for
+    a target with its bit in `D_800F836C`), which shows the damage and the target's hurt.
+  - The crystal (`func_801B0000`) lasts 15 frames, scaled by frame × size × 877 >> 12 (at most `0x7FFF`), put under
+    the camera (`D_800FA63C`), and drawn into the packet buffer by `BATTLE.X`'s hand-written renderer
+    (`func_800D29D4`, the same that draws the stage) from the file's model at `0x801B03F0` (its header at
+    `0x801B1004`; `+0xA` is set to 292 × the frame each frame, not traced further), linked into the frame's ordering
+    table (`D_801517C0` + `0x70`).
+  - So an effect has the battle's whole state to hand and needs no arguments past the targets: it reads the actors'
+    records and the camera, and draws with the battle's own renderer. The editor's Battles tab doesn't rewrite them;
+    "play in the lab" has the game play the command (below).
 
 **`MENU/SHOPMENU.MNU`, the shops** (`tools/shop.py` dumps them to a JSON file and builds them back): the module runs
 from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
@@ -1789,7 +1816,9 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   `D_800A0240` cut it at 8, so entry 11 (`0x800A5454`, an actor script byte of 13) left `func_800A5250` without its
   epilogue, and the caller's saved registers came back wrong: a world battle with Vincent jumped to 0. A game
   address that still turns up is looked up in the code tables. The point after a `jal setjmp` is an entry of its own:
-  libetc's interrupt entry resumes there, through the BIOS's custom exit.
+  libetc's interrupt entry resumes there, through the BIOS's custom exit. So is a branch target inside another
+  function: libgte's `VectorNormalS` ends with `b` into the middle of `VectorNormalSS` (`0x8003A0CC`), which Shiva's
+  effect (`SIVA.BIN`) reached.
 - **Modules:** the Makefile's `PC_MODULES` lists each with its file and load address (`ENDING.X` and the field's
   `FIELD.BIN` at `0x800A0000`, the 13 `MENU/*.MNU` at `0x801D0000`, all the same on every disc; `FIELD.BIN` is
   gzipped behind an 8-byte header, so the list names `FIELD.BIN.dec`, which `tools/unpack.py` makes). `make split`
@@ -1856,6 +1885,19 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     field) and nothing is asked for, until the field is the one wanted: a field setting up clears what's asked.
     `--field 0x41` from NEW GAME lands in the debug room 21 frames after the first field loads, before the
     opening movie is asked for.
+  - `--battle N` asks for battle N the same way (request 2, `D_8009ABF6` = N), until the main loop leaves the field
+    (game mode 2 is the battle). From NEW GAME it goes in as the first field loads, before the opening movie.
+  - `--command A,C,X,T` puts in party member A's command as the battle menu does once A's menu waits on one
+    (`func_800A4350`, from the menu): the next of the 16 entries in the ring at `D_800F3958` (priority 6, 5 for a
+    limit; then actor, command, attack `u16` and target mask `u16`, written at `D_800F39DC`, read at `D_800F39D8`),
+    A off the menu's list of who waits (`D_800E7A48`, `FF` ends it; `func_800A4D88`) and A's bit moved from waiting
+    (`D_800F7DAC`) to chosen (`D_800F7DC2`). An item isn't used up (`func_800A5660` isn't called). The battle then
+    queues it (`func_800AF0C4`: `D_800F6B34` + 8 × actor, into the 64 entries at `D_800F6934`, `func_800A3D4C`) and
+    plays it as it would: script, camera, effect, damage and sound. In the first battle the menu's own Attack is
+    queued as priority 6, sequence 3, actor 0, command 1, attack 0, targets `0x10`; the enemies' turns go through
+    the same ring as command `FF` (their AI).
+  - `--shots K N` saves N pictures of the screen (`shot_FRAME.bmp`), K frames apart, from when the command goes in,
+    then exits. K = 4 is one a battle frame.
   - What the traces showed: a field loads its `.MIM` (background), `.DAT` and `.BSX`, then each character's `.BCX`
     and `FIELD.TDB`. The opening field `MD1STIN` loads `CLOUD.BCX` and `BALLET.BCX`; the debug room (`STARTMAP`)
     `CLOUD.BCX`, `TIFA.BCX` and `CID.BCX`, then `BLACKBG3`, `5` and `1.MIM` as it runs. The opening movie is

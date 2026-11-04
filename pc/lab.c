@@ -1,10 +1,12 @@
-/* The reversing lab (ff7 --trace FILE --input FILE --field N --minigame N --dump-at N --code "AAAAAAAA VVVV", and F11
- * in the window): a trace of what the game does each frame, the pad played from a script, a warp to a field, a
- * mini-game, GameShark codes, and dumps of RAM, VRAM and SPU RAM.
+/* The reversing lab (ff7 --trace FILE --input FILE --field N --minigame N --battle N --command A,C,X,T --shots K N
+ * --dump-at N --code "AAAAAAAA VVVV", and F11 in the window): a trace of what the game does each frame, the pad
+ * played from a script, a warp to a field, a mini-game, a battle, a party member's command in it, pictures of the
+ * screen, GameShark codes, and dumps of RAM, VRAM and SPU RAM.
  *
  * The trace has a line for each change: "FRAME state mode M field F request R ID" (the main loop's mode, the field
  * loaded, and the field module's request: 1 a field change, 2 a battle, 3 a movie, with its number), "FRAME pad
- * BUTTONS", "FRAME read PATH +SECTOR" where a CD read starts, "FRAME warp F", "FRAME minigame N" and "FRAME dump".
+ * BUTTONS", "FRAME read PATH +SECTOR" where a CD read starts, "FRAME warp F", "FRAME minigame N", "FRAME battle N",
+ * "FRAME command A C X T" and "FRAME dump".
  * An input script has a line for each change too: a frame, then the buttons held from it on ("-" for none); '#' starts
  * a comment. */
 #include <stdio.h>
@@ -18,6 +20,14 @@
 #define REQUEST ((volatile unsigned char *)0x8009ABF5)
 #define REQUEST_ID ((volatile unsigned short *)0x8009ABF6)
 #define MINIGAME ((volatile unsigned char *)0x8009ACE6) /* which, with request 0xC */
+/* BATTLE.X's (game mode 2): the members whose menu waits on a command, those with one chosen, the menu's list of who
+ * waits (FF ends it), and the ring of 16 commands chosen (8 bytes each) with its read and write places */
+#define WAITING ((volatile unsigned short *)0x800F7DAC)
+#define CHOSEN ((volatile unsigned short *)0x800F7DC2)
+#define MENU_LIST ((volatile unsigned char *)0x800E7A48)
+#define CHOICES ((volatile unsigned char *)0x800F3958)
+#define CHOICE_READ ((volatile int *)0x800F39D8)
+#define CHOICE_WRITE ((volatile int *)0x800F39DC)
 #define MAX_INPUTS 4096
 #define MAX_CODES 64
 
@@ -35,7 +45,10 @@ static struct {
     int bits;
 } codes[MAX_CODES];
 static int code_count, input_count, next_input, warp_field = -1, dump_frame = -1, dump_every, frame;
-static int minigame = -1, minigame_asked;
+static int minigame = -1, minigame_asked, battle = -1, battle_asked, shot_every, shots_left, shots_from;
+static struct {
+    int actor, command, attack, targets;
+} command = {-1};
 static int last_state[4] = {-1, -1, -1, -1}, last_pad = -1;
 
 static void write_file(const char *suffix, const void *data, size_t size)
@@ -129,6 +142,37 @@ void lab_minigame(int game)
     minigame = game;
 }
 
+/* A battle, asked for from a field as an encounter asks, after any warp. */
+void lab_battle(int number)
+{
+    battle = number;
+}
+
+/* A command for a party member (0-2) to carry out, put in once the battle's menu waits on that member: its command
+ * number, attack (the spell, item or limit; 0 for a plain command) and target mask (bit 4 the first enemy). */
+void lab_command(int actor, int command_, int attack, int targets)
+{
+    command.actor = actor, command.command = command_, command.attack = attack, command.targets = targets;
+}
+
+/* count pictures of the screen, every frames apart, from when the command goes in (from the start without one);
+ * the lab is done after the last. */
+void lab_shots(int every, int count)
+{
+    shot_every = every, shots_left = count;
+}
+
+static void shoot(void)
+{
+    static unsigned int rgba[640 * 512];
+    char path[32];
+    Display d = gpu_display();
+
+    snprintf(path, sizeof path, "shot_%05d.bmp", frame);
+    display_to_rgba(&d, rgba);
+    save_bmp(path, rgba, d.w, d.h);
+}
+
 /* Where a CD read starts (cd_native.c). */
 void lab_file(const char *path, unsigned int sector)
 {
@@ -136,10 +180,11 @@ void lab_file(const char *path, unsigned int sector)
         fprintf(trace, "%d read %s +%u\n", frame, path, sector);
 }
 
-/* Once a vblank, after the window has read the keyboard and pads. */
-void lab_frame(void)
+/* Once a vblank, after the window has read the keyboard and pads; 1 when the lab is done. */
+int lab_frame(void)
 {
-    int state[4], i;
+    volatile unsigned char *choice;
+    int state[4], i, done = 0;
 
     frame++;
     while (next_input < input_count && inputs[next_input].frame <= frame)
@@ -167,6 +212,42 @@ void lab_frame(void)
         if (trace)
             fprintf(trace, "%d minigame %d\n", frame, minigame);
     }
+    if (battle_asked && *GAME_MODE != 1)
+        battle = -1;
+    if (battle >= 0 && warp_field < 0 && *GAME_MODE == 1 && *FIELD && !*REQUEST) {
+        *REQUEST = 2;
+        *REQUEST_ID = battle;
+        battle_asked = 1;
+        if (trace)
+            fprintf(trace, "%d battle %04X\n", frame, battle);
+    }
+    /* the command as the menu puts it in (func_800A4350), a limit ahead of the rest; an item isn't used up
+     * (func_800A5660 isn't called) */
+    if (command.actor >= 0 && *GAME_MODE == 2 && *WAITING >> command.actor & 1
+        && *CHOICE_READ != ((*CHOICE_WRITE + 1) & 15)) {
+        choice = CHOICES + 8 * *CHOICE_WRITE;
+        choice[0] = command.command == 0x14 ? 5 : 6;
+        choice[2] = command.actor;
+        choice[3] = command.command;
+        *(volatile unsigned short *)(choice + 4) = command.attack;
+        *(volatile unsigned short *)(choice + 6) = command.targets;
+        for (i = 0; i < 16 && MENU_LIST[i] != command.actor; i++)
+            ;
+        for (; i < 15 && MENU_LIST[i] != 0xFF; i++) /* off the menu's list (func_800A4D88) */
+            MENU_LIST[i] = MENU_LIST[i + 1];
+        *WAITING &= ~(1u << command.actor);
+        *CHOSEN |= 1u << command.actor;
+        *CHOICE_WRITE = (*CHOICE_WRITE + 1) & 15;
+        if (trace)
+            fprintf(trace, "%d command %d %d %d %04X\n", frame, command.actor, command.command, command.attack,
+                    command.targets);
+        command.actor = -1;
+        shots_from = frame;
+    }
+    if (shots_left && command.actor < 0 && !((frame - shots_from) % shot_every)) {
+        shoot();
+        done = !--shots_left;
+    }
     for (i = 0; i < code_count; i++) {
         if (codes[i].bits == 16)
             *(volatile unsigned short *)codes[i].addr = codes[i].value;
@@ -177,7 +258,7 @@ void lab_frame(void)
                                 && !((frame - dump_frame) % dump_every)))
         lab_dump();
     if (!trace)
-        return;
+        return done;
     state[0] = *GAME_MODE, state[1] = *FIELD, state[2] = *REQUEST, state[3] = *REQUEST_ID;
     if (memcmp(state, last_state, sizeof state)) {
         fprintf(trace, "%d state mode %d field %04X request %d %04X\n", frame, state[0], state[1], state[2], state[3]);
@@ -193,4 +274,5 @@ void lab_frame(void)
         last_pad = pad_buttons;
     }
     fflush(trace);
+    return done;
 }

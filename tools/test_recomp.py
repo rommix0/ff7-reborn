@@ -183,6 +183,14 @@ def setjmp_return_is_an_entry():
     assert run(words, body, {BASE: "f", s: "setjmp"}) == ["5", "6"]
 
 
+def branch_into_another_function_enters_it_there():
+    # libgte's VectorNormalS ends with b into the middle of VectorNormalSS: f sets v0 to 10 and branches past g's
+    # first instruction, so g's second adds 5
+    g = BASE + 0x10
+    words = [addiu(V0, ZERO, 10), i_type(4, 0, 0, 3), NOP, NOP, addiu(V0, ZERO, 1), addiu(V0, V0, 5), JR_RA, NOP]
+    assert run(words, call({}) + '    printf("%u", ctx.r[2]);\n', {BASE: "f", g: "g"}) == ["15"]
+
+
 def jr_to_an_address_built_inside_the_function():
     # BATTLE.X's hand-written code builds one of its own labels' address in $at and jumps there later
     target = BASE + 0x14
@@ -261,7 +269,8 @@ if __name__ == "__main__":
                  mult_is_signed_64_bit, function_address_becomes_native,
                  module_call_goes_indirect, function_address_kept_for_compares,
                  stored_function_address_becomes_native, module_calls_exe_and_keeps_its_names_private,
-                 setjmp_return_is_an_entry, address_stored_in_return_slot_becomes_native,
+                 setjmp_return_is_an_entry, branch_into_another_function_enters_it_there,
+                 address_stored_in_return_slot_becomes_native,
                  code_pointers_found_whatever_splat_typed, jr_ra_at_the_image_end_has_a_nop_slot,
                  jr_to_an_address_built_inside_the_function, callee_jr_lands_in_its_caller,
                  function_ends_where_its_code_does, jump_table_runs_past_a_label_inside_it):

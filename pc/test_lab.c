@@ -3,24 +3,35 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include "gpu.h"
 #include "memory.h"
 
 int lab_open(const char *trace_path, const char *input_path, int warp_field, int dump_frame);
-void lab_frame(void);
+int lab_frame(void);
 void lab_file(const char *path, unsigned int sector);
 int lab_code(const char *code);
 void lab_minigame(int game);
+void lab_battle(int battle);
+void lab_command(int actor, int command, int attack, int targets);
+void lab_shots(int every, int count);
 
 #define GAME_MODE ((volatile short *)0x8009C560)
 #define FIELD ((volatile unsigned short *)0x8009A05C)
 #define REQUEST ((volatile unsigned char *)0x8009ABF5)
 #define REQUEST_ID ((volatile unsigned short *)0x8009ABF6)
 #define MINIGAME ((volatile unsigned char *)0x8009ACE6)
+#define WAITING ((volatile unsigned short *)0x800F7DAC)
+#define CHOSEN ((volatile unsigned short *)0x800F7DC2)
+#define MENU_LIST ((volatile unsigned char *)0x800E7A48)
+#define CHOICES ((volatile unsigned char *)0x800F3958)
+#define CHOICE_READ ((volatile int *)0x800F39D8)
+#define CHOICE_WRITE ((volatile int *)0x800F39DC)
 
 unsigned short pad_buttons = 0xFFFF;
 unsigned short vram[512][1024];
 static unsigned short spu[0x40000];
 const unsigned short *spu_memory(void) { return spu; }
+Display gpu_display(void) { Display d = {0, 0, 4, 2, 0}; return d; }
 
 static long file_size(const char *path)
 {
@@ -94,6 +105,35 @@ int main(void)
     lab_frame();
     assert(!*REQUEST);
 
+    /* a battle (frames 12-14), asked for as an encounter asks (request 2, its number), until the main loop has left
+     * the field for it */
+    lab_battle(0x12C);
+    *REQUEST = 0;
+    lab_frame();
+    assert(*REQUEST == 2 && *REQUEST_ID == 0x12C);
+    *GAME_MODE = 2, *REQUEST = 0;
+    lab_frame();
+    *GAME_MODE = 1;
+    lab_frame();
+    assert(!*REQUEST);
+
+    /* a command (frames 15-19): nothing while Cloud's menu isn't waiting; then as the menu puts one in
+     * (func_800A4350): the ring's next choice, Cloud off the menu's list, his bit moved from waiting to chosen; once
+     * only. Pictures from then on, every 2nd frame, 2 of them, and the lab is done. */
+    lab_command(0, 1, 0, 0x10);
+    lab_shots(2, 2);
+    *GAME_MODE = 2, *CHOICE_READ = 3, *CHOICE_WRITE = 15, *WAITING = 4, *CHOSEN = 0;
+    memcpy((void *)MENU_LIST, "\x02\x00\x01\xFF", 4);
+    assert(!lab_frame() && *CHOICE_WRITE == 15 && file_size("shot_00015.bmp") < 0);
+    *WAITING = 5;
+    assert(!lab_frame() && *CHOICE_WRITE == 0);
+    assert(!memcmp((void *)(CHOICES + 15 * 8 + 2), "\x00\x01\x00\x00\x10\x00", 6) && CHOICES[15 * 8] == 6);
+    assert(!memcmp((void *)MENU_LIST, "\x02\x01\xFF", 3) && *WAITING == 4 && *CHOSEN == 1);
+    assert(file_size("shot_00016.bmp") == 54 + 4 * 2 * 4);
+    *WAITING = 5;
+    assert(!lab_frame() && *CHOICE_WRITE == 0 && file_size("shot_00017.bmp") < 0);
+    assert(lab_frame() && file_size("shot_00018.bmp") == 54 + 4 * 2 * 4);
+
     f = fopen("lab_trace.txt", "r");
     n = fread(text, 1, sizeof text - 1, f);
     fclose(f);
@@ -112,6 +152,8 @@ int main(void)
     remove("dump_00004_ram.bin");
     remove("dump_00004_vram.bin");
     remove("dump_00004_spu.bin");
+    remove("shot_00016.bmp");
+    remove("shot_00018.bmp");
     puts("ok");
     return 0;
 }

@@ -417,9 +417,10 @@ LIMITS = 0x1324  # LIMTMENU.MNU's records of the characters' own limits (ids 0x8
 
 
 def party_commands(module: bytes, sections: list[bytes], limits: bytes, character: int | None,
-                   at_party: bool) -> list[tuple[str, list[tuple[str, int, int, int]]]]:
-    """A party member's commands as the battle plays them: each command's choices as (name, action script, camera at
-    one target, at all; -1 holds it). The script is BATTLE.X's first byte of 4 a command at 0x800A0000; the cameras
+                   at_party: bool) -> list[tuple[str, int, list[tuple[str, int, int, int, int]]]]:
+    """A party member's commands as the battle plays them: each command's number and choices as (name, action script,
+    camera at one target, at all (-1 holds it), the attack the menu queues: a spell's place in its command, an item's
+    number, a limit's id, else 0). The script is BATTLE.X's first byte of 4 a command at 0x800A0000; the cameras
     the command record's +4 and +6, or, where the choice has a record (a spell's, an item's, a limit's), its +8 and
     +0xA (func_800A79CC; an item's +8 for both, func_800A80DC). A limit plays 0x3C on by the character's slots filled
     before it (kernel section 2's 12 at +0xC + character * 0x38; none without a character); an item 0x21 at the
@@ -434,22 +435,22 @@ def party_commands(module: bytes, sections: list[bytes], limits: bytes, characte
     for command, name in enumerate(names[0][:28]):
         script = module[4 * command]
         if command in SPELLS:
-            choices = [(names[1][a], script, *cameras(sections[1], 28 * a + 8)) for a in SPELLS[command]
-                       if names[1][a]]
+            choices = [(names[1][a], script, *cameras(sections[1], 28 * a + 8), a - SPELLS[command].start)
+                       for a in SPELLS[command] if names[1][a]]
         elif command == ITEM:
-            choices = [(n, 0x20 + at_party, *cameras(sections[4], 28 * k + 8)[:1] * 2)
+            choices = [(n, 0x20 + at_party, *cameras(sections[4], 28 * k + 8)[:1] * 2, k)
                        for k, n in enumerate(names[2]) if n]
         elif command == LIMIT:
             slots = [a for a in sections[2][0xC + 0x38 * character:0xC + 0x38 * character + 12]
                      if a != 0xFF] if character is not None else []
-            choices = [(names[1][a], 0x3C + k, *cameras(limits, LIMITS + 28 * (a - 0x80) + 8))
+            choices = [(names[1][a], 0x3C + k, *cameras(limits, LIMITS + 28 * (a - 0x80) + 8), a)
                        for k, a in enumerate(slots)]
         elif script:
-            choices = [(name, script, *cameras(sections[0], 8 * command + 4))]
+            choices = [(name, script, *cameras(sections[0], 8 * command + 4), 0)]
         else:
             continue
         if name and choices and command not in (21, 22, 23):
-            listed.append((name, choices))
+            listed.append((name, command, choices))
     return listed
 
 

@@ -14,6 +14,7 @@ calls hw_poll() first, so interrupts get in. R3000 load-delay slots and add/addi
 GCC's code never depends on them.
 """
 import argparse
+import bisect
 import re
 from pathlib import Path
 
@@ -72,6 +73,17 @@ def recompile(image: bytes, base: int, funcs: dict[int, str], native: set[str], 
     resumes = {a: [p + 8 for p in range(a, end_of[a], 4) if image[p - base + 3] >> 2 == 3
                    and (0x80000000 | (int.from_bytes(image[p - base:p - base + 4], "little") & 0x3FFFFFF) << 2)
                    in setjmp_at] for a in chosen}
+    # A branch into the middle of another function (libgte's VectorNormalS into VectorNormalSS) enters it there too.
+    for a in chosen:
+        for p in range(a, end_of[a], 4):
+            ins = rabbitizer.Instruction(int.from_bytes(image[p - base:p - base + 4], "little"), vram=p)
+            if not (ins.isBranch() or ins.getOpcodeName() == "j"):
+                continue
+            target = ins.getBranchVramGeneric() if ins.isBranch() else ins.getInstrIndexAsVram()
+            into = chosen[bisect.bisect_right(chosen, target) - 1] if target > chosen[0] else None
+            if not a <= target < end_of[a] and into and into < target < end_of[into] and target not in resumes[into]:
+                resumes[into].append(target)
+    entries = {e for a in chosen for e in resumes[a]}
     out = ['#include "recomp.h"\n\n']
     out += [f"{scope[a]}void r_{a:08X}(void);\n" for a in starts if a not in native_at]
     out += [f"{scope[a]}void r_{e:08X}(void);\n" for a in chosen for e in resumes[a]]
@@ -79,7 +91,7 @@ def recompile(image: bytes, base: int, funcs: dict[int, str], native: set[str], 
     for a in chosen:
         for e in [None] + resumes[a]:
             out.append("\n" + scope[a] + function(image, base, a, end_of[a], funcs, native_at, names,
-                                                  jtbls.get(a, []), e))
+                                                  jtbls.get(a, []), e, entries))
         out.append(f"""
 {scope[a]}int {names[a]}(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7)
 {{
@@ -137,7 +149,7 @@ def code_pointers(image: bytes, base: int, data_asm: list[str], funcs: dict[int,
     return found
 
 
-def function(image, base, start, end, funcs, native_at, names, table, entry=None):
+def function(image, base, start, end, funcs, native_at, names, table, entry=None, entries=frozenset()):
     words = [int.from_bytes(image[p - base:p - base + 4], "little") for p in range(start, end, 4)]
     instrs = [rabbitizer.Instruction(w, vram=start + 4 * i) for i, w in enumerate(words)]
     inside = range(start, end)
@@ -213,14 +225,14 @@ def function(image, base, start, end, funcs, native_at, names, table, entry=None
     def call(target):
         if target in native_at:
             return f"ctx.r[2] = (unsigned int){names[target]}({ARGS});"
-        if target in funcs:
+        if target in funcs or target in entries:
             return f"r_{target:08X}();"
         if target >= MODULES:  # a module loaded at run time: dispatch.c finds it
             return f"call_indirect({target:#010x});"
         return f"recomp_missing({target:#010x});"
 
     lines = [f"void r_{start:08X}(void) /* {funcs[start]} */\n{{\n" if not entry else
-             f"void r_{entry:08X}(void) /* {funcs[start]}, from its setjmp */\n{{\n    goto L_{entry:08X};\n"]
+             f"void r_{entry:08X}(void) /* {funcs[start]}, entered here */\n{{\n    goto L_{entry:08X};\n"]
     i = 0
     while i < len(instrs):
         pc = start + 4 * i

@@ -227,7 +227,10 @@ card.
 field module asks for, the pad, and each file a CD read starts); `--input FILE` plays the pad from a script (lines of
 a frame and the buttons held from it); `--field N` warps to field N once the first field is up (`0x41` is the debug
 room); `--minigame N` then starts mini-game N (0 bike, 1 chocobo race, 2 snowboard, 3 Fort Condor, 4 submarine,
-5 Speed Square, 6 Gold Saucer snowboard); `--code "80AAAAAA VVVV"` holds a GameShark code every frame (16-bit `80`, 8-bit `30`; repeatable);
+5 Speed Square, 6 Gold Saucer snowboard); `--battle N` asks for battle N the same way; `--command A,C,X,T` puts
+in party member A's command C (attack X, target mask T, bit 4 the first enemy) once the battle's menu waits on A, and
+`--shots K N` saves N pictures (`shot_*.bmp`) K frames apart from then on and exits; `--code "80AAAAAA VVVV"` holds
+a GameShark code every frame (16-bit `80`, 8-bit `30`; repeatable);
 `--dump-at N` or F11 dumps RAM, VRAM and SPU RAM to `dump_*.bin` (`--dump-every K`: again every K frames after);
 `--fast` runs frames as fast as the PC can (about 7× real time without a window). The build is deterministic, so
 `python tools/lab_diff.py A_ram.bin B_ram.bin --noise A2_ram.bin` shows what two scripts did differently (A2 is a

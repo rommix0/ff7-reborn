@@ -1,9 +1,10 @@
+import struct
 from types import SimpleNamespace
 
 import numpy as np
 
 import battle
-from model_editor import Battle, FieldMap, Model, Ps1View, overlay, texture
+from model_editor import Battle, FieldMap, Model, Ps1View, bmp, overlay, texture
 
 # A texture word: kind (0, 1: in the model's slot of one of two areas, the palette in the slot's row; 2: where it
 # is), depth, texture page, palette x / 16 and y.
@@ -96,4 +97,8 @@ if ps1.gpu:
 battle.opening = lambda module, setup, ticks: [([k], [k]) for k in range(ticks)]
 fresh = SimpleNamespace(opening=[], module=b"", setup={})
 assert Battle.camera(fresh, -1, 0) == ([0], [0]) and Battle.camera(fresh, -1, 200) == ([199], [199])
+# A lab picture (pc/display.c's save_bmp): 32-bit BGRA rows, the bottom one first, read as RGB rows from the top.
+header = struct.pack("<2sIIIIiiHH", b"BM", 54 + 16, 0, 54, 40, 2, 2, 1, 32).ljust(54, bytes(1))
+rows = bytes([0, 0, 255, 255, 0, 255, 0, 255]) + bytes([255, 0, 0, 255, 9, 9, 9, 255])
+assert bmp(header + rows).tolist() == [[[0, 0, 255], [9, 9, 9]], [[255, 0, 0], [0, 255, 0]]]
 print("ok")

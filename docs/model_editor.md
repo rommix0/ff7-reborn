@@ -166,7 +166,10 @@ The PS1 view is the exact one.
      lists and order, played at 15 frames a second from the opening camera (or a setup camera), with shadows,
      idle animations and moving stages; and an action played from the start: an actor's action script at a target
      (an enemy's attacks listed by name, a party member's commands and their spells, items and limits too), the
-     hurt it causes, and its attack camera (`CAMDAT`), not its effects.
+     hurt it causes, and its attack camera (`CAMDAT`), not its effects. "Play in the lab" has the game itself play
+     a party member's command, effect and all: the lab (`make pc`) runs headless from a new game (Cloud alone) or
+     Continue on a memory card's file 01 saved in a field, asks for the battle, puts the command in once the menu
+     waits on that member, and the tab plays its pictures. The party, stats and luck are the save's.
    - **World** (a tab of its own): the world map (`WM0`, `WM2`, `WM3.MAP`, any `map_stage`) round a point picked on
      an overview of the whole map, drawn through the port's GTE and `pc/gpu.c` as `WORLD.BIN` draws it: sky, terrain,
      light zones, the party leader (`WM0`-`WM2.BSZ`) and its shadow, from the camera's view modes, and the world's

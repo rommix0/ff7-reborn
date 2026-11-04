@@ -219,7 +219,7 @@ PC_TEST_CARD := build/pc/obj/test_card.o build/pc/obj/card.o
 build/pc/test_card$(PC_EXE): $(PC_TEST_CARD)
 	$(PC_CC) $(PC_TEST_CARD) $(PC_LDFLAGS) -o $@
 
-PC_TEST_LAB := build/pc/obj/test_lab.o build/pc/obj/lab.o build/pc/obj/memory.o
+PC_TEST_LAB := build/pc/obj/test_lab.o build/pc/obj/lab.o build/pc/obj/memory.o build/pc/obj/display.o
 build/pc/test_lab$(PC_EXE): $(PC_TEST_LAB)
 	$(PC_CC) $(PC_TEST_LAB) $(PC_LDFLAGS) -o $@
 

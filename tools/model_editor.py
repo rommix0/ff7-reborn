@@ -28,7 +28,12 @@ view mode (L2/R2): sky, terrain, light zones, the party leader standing at the p
 import argparse
 import ctypes
 import gzip
+import shutil
 import struct
+import subprocess
+import sys
+import tempfile
+import threading
 import zlib
 from pathlib import Path
 from types import SimpleNamespace
@@ -51,6 +56,13 @@ DITHER = [-4, 0, -3, 1, 2, -2, 3, -1, -3, 1, -4, 0, 3, -1, 2, -2]  # the GPU's 4
 FOV = np.radians(25)  # half the view's angle, both views
 PACKETS = {"GT4": 0x3C, "GT3": 0x34, "FT4": 0x2C, "FT3": 0x24, "F3": 0x20, "F4": 0x28, "G3": 0x30, "G4": 0x38}
 LIBRARY = Path(__file__).resolve().parent.parent / "build/editor"  # make editor
+LAB = Path(__file__).resolve().parent.parent / "build/pc" / ("ff7.exe" if sys.platform == "win32" else "ff7")  # make pc
+# The pad from boot into the game, in the lab's input script: past the credits and the title's movie, then NEW GAME
+# (the first field is up at frame 2501), or Continue, slot 1, file 01 (up by 2692).
+NEW_GAME = ("2040 up\n2050 -\n2100 circle\n2110 -\n2160 start\n2170 -\n2220 up\n2230 -\n2280 circle\n2290 -\n"
+            "2340 start\n2350 -\n2400 up\n2410 -\n2460 circle\n2470 -\n")
+CONTINUE = ("2040 up\n2050 -\n2100 circle\n2110 -\n2160 start\n2170 -\n2390 circle\n2400 -\n2520 circle\n2530 -\n"
+            "2660 circle\n2670 -\n")
 
 VERTEX_SHADER = """#version 330
 uniform mat4 mvp;
@@ -698,6 +710,26 @@ def map_shot(disc: Path, name: str, out: Path, story: int):
 
 
 # The party's ENEMY6 files by character (kernel order; their other forms by a trailing digit), for their limits.
+def bmp(data: bytes) -> np.ndarray:
+    """A lab picture (pc/display.c's save_bmp: 32-bit BGRA, the bottom row first) as RGB rows from the top."""
+    w, h = struct.unpack_from("<ii", data, 18)
+    return np.frombuffer(data, np.uint8, offset=54).reshape(h, w, 4)[::-1, :, 2::-1]
+
+
+def lab_frames(assets: Path, number: int, command: tuple, card: Path | None, count: int = 150) -> list[np.ndarray]:
+    """Battle number as the game plays it, in the lab (pc/lab.c) from a new game or Continue on card: command (party
+    member, command, attack, target mask) put in once the battle's menu waits on the member, then count pictures, one
+    a battle frame (4 vblanks)."""
+    with tempfile.TemporaryDirectory() as work:
+        Path(work, "in.txt").write_text(CONTINUE if card else NEW_GAME)
+        if card:
+            shutil.copy(card, Path(work, "memcard1.mcd"))
+        subprocess.run([LAB, assets.resolve(), "--fast", "--input", "in.txt", "--battle", hex(number),
+                        "--command", ",".join(map(str, command)), "--shots", "4", str(count)],
+                       cwd=work, check=True, capture_output=True, timeout=300)
+        return [bmp(p.read_bytes()) for p in sorted(Path(work).glob("shot_*.bmp"))]
+
+
 CHARACTERS = {"CLOUD": 0, "HICLOUD": 0, "BARRETT": 1, "TIFA": 2, "EARITH": 3, "RED13": 4, "YUFI": 5, "KETCY": 6,
               "VINSENT": 7, "CID": 8}
 
@@ -1076,7 +1108,9 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
              "battle_filter": "", "camera": -1, "party": "CLOUD,BARRETT,TIFA", "battle_picture": None,
              "battle_frame": 0.0, "battle_play": True, "battle_drawn": None, "acting": False,
              "action": {"attacker": 0, "script": 20, "target": 4, "camera": -1, "variant": 0}, "command": 0,
-             "commands": {},
+             "commands": {}, "lab_command": (1, 0), "lab_card": "", "lab_frames": [], "lab_count": 150,
+             "lab_status": "In the lab: from a new game (Cloud alone), or Continue on a memory card's file 01 in a "
+                           "field (needs make pc)",
              "world_kind": 0 if start_world is None else start_world, "world_stage": 0, "world": None,
              "world_at": [185636, 123325], "world_yaw": 0, "world_view": 0, "world_leader": 0,
              "world_container": 0, "world_entities": [],
@@ -1200,7 +1234,9 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         frame, b = int(state["battle_frame"]), state["battle_obj"]
         drawn = (frame, state["camera"], state["acting"])
         if state["battle_drawn"] != drawn or state["vram"] != "battle":
-            if state["acting"]:
+            if state["acting"] == "lab":
+                rgb = state["lab_frames"][min(frame, len(state["lab_frames"]) - 1)]
+            elif state["acting"]:
                 poses, camera = b.action_frame(frame)
                 rgb = state["ps1view"].battle(b.vram, b.packets(*camera, frame, poses=poses), (0, 239))
             else:
@@ -1268,10 +1304,11 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
             imgui.set_next_item_width(200)
             _, state["command"] = imgui.combo("command", state["command"], [c[0] for c in commands])
             imgui.begin_list_box("##choices", imgui.ImVec2(280, 150))
-            for k, (label, script, one, every) in enumerate(commands[state["command"]][1]):
+            _, number, choices = commands[state["command"]]
+            for k, (label, script, one, every, attack) in enumerate(choices):
                 text = f"{label}: script {script}, camera {one}" + (f" (all {every})" if every != one else "")
-                if imgui.selectable(f"{text}##{k}", action["script"] == script and action["camera"] == one)[0]:
-                    action["script"], action["camera"] = script, one
+                if imgui.selectable(f"{text}##{k}", state["lab_command"] == (number, attack))[0]:
+                    action["script"], action["camera"], state["lab_command"] = script, one, (number, attack)
             imgui.end_list_box()
         for key, top in (("script", 73), ("camera", 500), ("variant", 2)):
             imgui.set_next_item_width(200)
@@ -1283,7 +1320,32 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         imgui.same_line()
         if imgui.button("stance"):
             state["acting"] = False
+        if action["attacker"] < len(party):  # the game itself plays the command, effect and all
+            imgui.same_line()
+            if imgui.button("play in the lab") and state["lab_status"] != "playing in the lab...":
+                command = (action["attacker"], *state["lab_command"], 1 << action["target"])
+                threading.Thread(target=play_in_lab, args=(state["battle"], command, state["lab_card"],
+                                                           state["lab_count"]), daemon=True).start()
+            imgui.set_next_item_width(200)
+            _, state["lab_card"] = imgui.input_text("memory card", state["lab_card"])
+            imgui.set_next_item_width(200)  # a summon takes 400 or more
+            _, state["lab_count"] = imgui.input_int("lab frames", state["lab_count"])
+            state["lab_count"] = max(1, min(state["lab_count"], 600))
+            imgui.text_wrapped(state["lab_status"])
         imgui.end_child()
+
+    def play_in_lab(number: int, command: tuple, card: str, count: int):
+        state["lab_status"] = "playing in the lab..."
+        try:
+            frames = lab_frames(disc.parent, number, command, Path(card) if card else None, count)
+        except subprocess.CalledProcessError as e:
+            state["lab_status"] = f"the lab stopped: {e.stderr.decode(errors='replace').strip()}"
+            return
+        except (OSError, subprocess.SubprocessError) as e:
+            state["lab_status"] = f"the lab failed: {e}"
+            return
+        state.update(lab_frames=frames, acting="lab", battle_frame=0.0, battle_play=True, battle_drawn=None,
+                     lab_status=f"the lab's {len(frames)} frames (the party, stats and luck are the game's)")
 
     def world_gui():
         wm = state["world"]

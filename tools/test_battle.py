@@ -222,9 +222,12 @@ sections = [bytes(commands), bytes(spells), bytes(growth), b"", bytes(items)] + 
     text({0: "Cure", 0x39: "Shiva", 0x87: "{F8 02}Big Shot", 0x89: "{F8 02}Mindblow"}, 256),
     text({1: "Potion"}, 128)]
 listed = party_commands(bytes(module), sections, bytes(limits), 1, True)
-assert listed == [("Attack", [("Attack", 0x14, -1, -1)]), ("Magic", [("Cure", 0x1D, 0, 0x28)]),
-                  ("Summon", [("Shiva", 0x1F, 0x50, 0x51)]), ("Item", [("Potion", 0x21, 0x1E, 0x1E)]),
-                  ("Steal", [("Steal", 0x22, 0xB8, 0xB9)]), ("Limit", [("Big Shot", 0x3C, -1, -1),
-                                                                      ("Mindblow", 0x3D, 0x60, 0x61)])]
-assert party_commands(bytes(module), sections, bytes(limits), 1, False)[3][1] == [("Potion", 0x20, 0x1E, 0x1E)]
+# Each command comes with its number and each choice with the attack the menu queues for it (func_800A4350's third
+# argument): a spell's place in its command's list (the program adds 0x38 for a summon), an item's number, a limit's
+# id; 0 for a plain command.
+assert listed == [("Attack", 1, [("Attack", 0x14, -1, -1, 0)]), ("Magic", 2, [("Cure", 0x1D, 0, 0x28, 0)]),
+                  ("Summon", 3, [("Shiva", 0x1F, 0x50, 0x51, 1)]), ("Item", 4, [("Potion", 0x21, 0x1E, 0x1E, 1)]),
+                  ("Steal", 5, [("Steal", 0x22, 0xB8, 0xB9, 0)]),
+                  ("Limit", 20, [("Big Shot", 0x3C, -1, -1, 0x87), ("Mindblow", 0x3D, 0x60, 0x61, 0x89)])]
+assert party_commands(bytes(module), sections, bytes(limits), 1, False)[3][2] == [("Potion", 0x20, 0x1E, 0x1E, 1)]
 print("ok")
