@@ -1898,6 +1898,21 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     plays it as it would: script, camera, effect, damage and sound. In the first battle the menu's own Attack is
     queued as priority 6, sequence 3, actor 0, command 1, attack 0, targets `0x10`; the enemies' turns go through
     the same ring as command `FF` (their AI).
+  - For an enemy (actor 4-9), `--command` waits for its turn in the queue, command `FF` (the ring drains straight
+    into it, `func_800A3D4C`), and makes it command `0x20` with the attack and targets. When the entry comes up,
+    `func_800A23E0` runs the AI only for `FF`; anything else goes to `func_800A1798`, as the AI's own picks do
+    (queued at priority 2, command `0x20`). The attack is the enemy's slot (0-15), not the attack's id: the first
+    battle's MP is Machine Gun 0 and Tonfa 1, and an id there gives "MP A's skill power is used up". The command's
+    program turns the slot into the attack's id, and `func_800B11B4` finds that among the scene's 32
+    (`D_800F64EC`); an empty slot is the game's "Data Error", code `0x20`.
+  - Swept: the 760 enemy attacks, each once in the first battle that has it, from NEW GAME, 4 at a time in 30
+    minutes. 728 play to the end, reading 126 effect files between them. 26 never got their turn by frame 12000
+    (Cloud died first, or the enemy doesn't act; holding `0x800F8410` didn't keep him alive). The rest:
+    - Battle 0's dummy enemy: its empty slots hold junk, and the battle reads through a wild pointer.
+    - Hundred Gunner's Sub Artillery and Mirage's Reflection load `CAREL.BIN` (Cure's) and enter `0x801B0364`,
+      another file's entry ("no module for 801B0364"); Safer Sephiroth's Super Nova enters `0x801B0040` with no
+      file loaded. Not traced: whether their AI sets something up first. Reflection copies the party's last
+      spell, and none had been cast.
   - Swept: all 219 of Cloud's choices (54 spells, 16 summons, 105 items, 24 E.Skills, 7 limits, the other commands)
     in the first battle from NEW GAME, headless, 4 at a time in 11½ minutes. All run to the end but three kinds,
     each the game's own doing:

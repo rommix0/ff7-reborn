@@ -28,6 +28,7 @@
 #define CHOICES ((volatile unsigned char *)0x800F3958)
 #define CHOICE_READ ((volatile int *)0x800F39D8)
 #define CHOICE_WRITE ((volatile int *)0x800F39DC)
+#define QUEUE ((volatile unsigned char *)0x800F6934) /* the 64 actions waiting: priority (FF free), turn, actor, ... */
 #define MP(actor) ((volatile unsigned short *)(0x800F8408 + 0x68 * (actor))) /* +0x28 of a member's record */
 #define MAX_INPUTS 4096
 #define MAX_CODES 64
@@ -150,7 +151,8 @@ void lab_battle(int number)
 }
 
 /* A command for a party member (0-2) to carry out, put in once the battle's menu waits on that member: its command
- * number, attack (the spell, item or limit; 0 for a plain command) and target mask (bit 4 the first enemy). */
+ * number, attack (the spell, item or limit; 0 for a plain command) and target mask (bit 4 the first enemy). For an
+ * enemy (4-9), on its next turn: command 0x20 and the attack's slot (0-15) among the enemy's own. */
 void lab_command(int actor, int command_, int attack, int targets)
 {
     command.actor = actor, command.command = command_, command.attack = attack, command.targets = targets;
@@ -224,14 +226,12 @@ int lab_frame(void)
     }
     /* the command as the menu puts it in (func_800A4350), a limit ahead of the rest; an item isn't used up
      * (func_800A5660 isn't called), and the member gets 999 MP, as the battle checks it when the spell is cast */
-    if (command.actor >= 0 && *GAME_MODE == 2 && *WAITING >> command.actor & 1
+    choice = 0;
+    if (command.actor >= 0 && command.actor < 4 && *GAME_MODE == 2 && *WAITING >> command.actor & 1
         && *CHOICE_READ != ((*CHOICE_WRITE + 1) & 15)) {
         choice = CHOICES + 8 * *CHOICE_WRITE;
         choice[0] = command.command == 0x14 ? 5 : 6;
         choice[2] = command.actor;
-        choice[3] = command.command;
-        *(volatile unsigned short *)(choice + 4) = command.attack;
-        *(volatile unsigned short *)(choice + 6) = command.targets;
         for (i = 0; i < 16 && MENU_LIST[i] != command.actor; i++)
             ;
         for (; i < 15 && MENU_LIST[i] != 0xFF; i++) /* off the menu's list (func_800A4D88) */
@@ -240,6 +240,18 @@ int lab_frame(void)
         *CHOSEN |= 1u << command.actor;
         *MP(command.actor) = 999;
         *CHOICE_WRITE = (*CHOICE_WRITE + 1) & 15;
+    }
+    /* an enemy's turn waits in the queue as command FF, for its AI (func_800A23E0); any other command skips the AI
+     * for func_800A1798, as the AI's own 0x20 does (the attack by its slot: Machine Gun 0, Tonfa 1 in the first
+     * battle; an id there reads past them, "MP A's skill power is used up") */
+    for (i = 0; command.actor >= 4 && *GAME_MODE == 2 && !choice && i < 64; i++) {
+        if (QUEUE[8 * i] != 0xFF && QUEUE[8 * i + 2] == command.actor && QUEUE[8 * i + 3] == 0xFF)
+            choice = QUEUE + 8 * i;
+    }
+    if (choice) {
+        choice[3] = command.command;
+        *(volatile unsigned short *)(choice + 4) = command.attack;
+        *(volatile unsigned short *)(choice + 6) = command.targets;
         if (trace)
             fprintf(trace, "%d command %d %d %d %04X\n", frame, command.actor, command.command, command.attack,
                     command.targets);

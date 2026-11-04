@@ -717,9 +717,9 @@ def bmp(data: bytes) -> np.ndarray:
 
 
 def lab_frames(assets: Path, number: int, command: tuple, card: Path | None, count: int = 150) -> list[np.ndarray]:
-    """Battle number as the game plays it, in the lab (pc/lab.c) from a new game or Continue on card: command (party
-    member, command, attack, target mask) put in once the battle's menu waits on the member, then count pictures, one
-    a battle frame (4 vblanks)."""
+    """Battle number as the game plays it, in the lab (pc/lab.c) from a new game or Continue on card: command (actor,
+    command, attack, target mask) put in once the battle's menu waits on a party member, or on an enemy's next turn
+    (0x20 and its attack's slot), then count pictures, one a battle frame (4 vblanks)."""
     with tempfile.TemporaryDirectory() as work:
         Path(work, "in.txt").write_text(CONTINUE if card else NEW_GAME)
         if card:
@@ -1294,6 +1294,7 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
             label = f"{attack['name'] if attack else enemy[f'attack_{n}']}: script {enemy[f'animation_{n}']}"
             if imgui.selectable(label, action["script"] == enemy[f"animation_{n}"])[0]:
                 action["script"], action["camera"] = enemy[f"animation_{n}"], camera - 0x10000 * (camera > 0x7FFF)
+                state["lab_command"] = (0x20, n - 1)  # the battle takes an enemy's attack by its slot
         if action["attacker"] < len(party):  # the camera at one target; the one at all is shown after it
             stem, at_party = party[action["attacker"]], action["target"] < 4
             if (stem, at_party) not in state["commands"]:
@@ -1320,10 +1321,13 @@ def run(disc: Path, start: str | None, start_map: str | None = None, frames: int
         imgui.same_line()
         if imgui.button("stance"):
             state["acting"] = False
-        if action["attacker"] < len(party):  # the game itself plays the command, effect and all
+        if action["attacker"] < len(party) or action["attacker"] in records:  # the game itself plays it
             imgui.same_line()
             if imgui.button("play in the lab") and state["lab_status"] != "playing in the lab...":
-                command = (action["attacker"], *state["lab_command"], 1 << action["target"])
+                number, attack = state["lab_command"]
+                if (action["attacker"] >= 4) != (number == 0x20):  # picked for the other side: the first choice
+                    number, attack = (0x20, 0) if action["attacker"] >= 4 else (1, 0)
+                command = (action["attacker"], number, attack, 1 << action["target"])
                 threading.Thread(target=play_in_lab, args=(state["battle"], command, state["lab_card"],
                                                            state["lab_count"]), daemon=True).start()
             imgui.set_next_item_width(200)

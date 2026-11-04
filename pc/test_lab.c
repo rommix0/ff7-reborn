@@ -26,6 +26,7 @@ void lab_shots(int every, int count);
 #define CHOICES ((volatile unsigned char *)0x800F3958)
 #define CHOICE_READ ((volatile int *)0x800F39D8)
 #define CHOICE_WRITE ((volatile int *)0x800F39DC)
+#define QUEUE ((volatile unsigned char *)0x800F6934)
 
 unsigned short pad_buttons = 0xFFFF;
 unsigned short vram[512][1024];
@@ -136,6 +137,18 @@ int main(void)
     assert(!lab_frame() && *CHOICE_WRITE == 0 && file_size("shot_00017.bmp") < 0);
     assert(lab_frame() && file_size("shot_00018.bmp") == 54 + 4 * 2 * 4);
 
+    /* an enemy's attack (frames 19-20): an enemy's turn waits in the battle's queue (64 entries, FF free) as command
+     * FF, for its AI; the lab makes the chosen enemy's command 0x20 with the attack (its slot, here 1) and targets
+     * instead, once */
+    lab_command(4, 0x20, 1, 1);
+    memset((void *)QUEUE, 0xFF, 64 * 8);
+    memcpy((void *)(QUEUE + 8 * 5), "\x06\x03\x05\xFF\x00\x00\x00\x00", 8);
+    lab_frame();
+    assert(QUEUE[8 * 5 + 3] == 0xFF);
+    memcpy((void *)(QUEUE + 8 * 9), "\x06\x04\x04\xFF\x00\x00\x00\x00", 8);
+    lab_frame();
+    assert(!memcmp((void *)(QUEUE + 8 * 9), "\x06\x04\x04\x20\x01\x00\x01\x00", 8) && QUEUE[8 * 5 + 3] == 0xFF);
+
     f = fopen("lab_trace.txt", "r");
     n = fread(text, 1, sizeof text - 1, f);
     fclose(f);
@@ -149,6 +162,8 @@ int main(void)
     assert(strstr(text, "4 dump\n"));
     assert(strstr(text, "5 pad -\n"));
     assert(strstr(text, "8 minigame 2\n") && strstr(text, "9 minigame 2\n") && !strstr(text, "10 minigame"));
+    assert(strstr(text, "12 battle 012C\n") && !strstr(text, "13 battle"));
+    assert(strstr(text, "16 command 0 1 0 0010\n") && strstr(text, "20 command 4 32 1 0001\n"));
     remove("lab_input.txt");
     remove("lab_trace.txt");
     remove("dump_00004_ram.bin");
