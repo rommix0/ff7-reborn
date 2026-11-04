@@ -119,7 +119,8 @@ int main(void)
 
     /* a command (frames 15-19): nothing while Cloud's menu isn't waiting; then as the menu puts one in
      * (func_800A4350): the ring's next choice, Cloud off the menu's list, his bit moved from waiting to chosen; once
-     * only. Pictures from then on, every 2nd frame, 2 of them, and the lab is done. */
+     * only. His MP (+0x28 of his battle record) goes to 999, so any spell casts. Pictures from then on, every 2nd
+     * frame, 2 of them, and the lab is done. */
     lab_command(0, 1, 0, 0x10);
     lab_shots(2, 2);
     *GAME_MODE = 2, *CHOICE_READ = 3, *CHOICE_WRITE = 15, *WAITING = 4, *CHOSEN = 0;
@@ -129,6 +130,7 @@ int main(void)
     assert(!lab_frame() && *CHOICE_WRITE == 0);
     assert(!memcmp((void *)(CHOICES + 15 * 8 + 2), "\x00\x01\x00\x00\x10\x00", 6) && CHOICES[15 * 8] == 6);
     assert(!memcmp((void *)MENU_LIST, "\x02\x01\xFF", 3) && *WAITING == 4 && *CHOSEN == 1);
+    assert(*(volatile unsigned short *)0x800F8408 == 999);
     assert(file_size("shot_00016.bmp") == 54 + 4 * 2 * 4);
     *WAITING = 5;
     assert(!lab_frame() && *CHOICE_WRITE == 0 && file_size("shot_00017.bmp") < 0);

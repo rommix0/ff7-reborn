@@ -6,8 +6,8 @@
  * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded,
  * --minigame N then starts mini-game N (0-6) as a field would, --battle N battle N; --command puts in party member
  * A's command C (attack X, target mask T) once the battle's menu waits on A, and --shots saves N pictures K frames
- * apart from then on, then exits; --code holds a GameShark code every frame; --fast runs frames as quickly as the
- * host can instead of at 59.94 Hz. */
+ * apart from then on, then exits (like --frames, without a window); --code holds a GameShark code every frame;
+ * --fast runs frames as quickly as the host can instead of at 59.94 Hz. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,7 +42,7 @@ void lab_dump_every(int frames);
 
 Ctx ctx;
 unsigned int cop0[32];
-static int frames_left = -1;
+static int frames_left = -1, window = 1;
 static const char *shot = "screenshot.bmp";
 
 void recomp_missing(unsigned int addr)
@@ -62,7 +62,7 @@ void pc_vblank(void)
     static unsigned int rgba[640 * 512];
     Display d;
 
-    if (frames_left < 0 && !sdl_frame())
+    if (window && !sdl_frame())
         exit(0);
     if (lab_frame())
         exit(0);
@@ -81,7 +81,7 @@ int main(int argc, char **argv)
 
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc)
-            frames_left = atoi(argv[++i]);
+            frames_left = atoi(argv[++i]), window = 0;
         else if (!strcmp(argv[i], "--shot") && i + 1 < argc)
             shot = argv[++i];
         else if (!strcmp(argv[i], "--trace") && i + 1 < argc)
@@ -104,6 +104,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--shots") && i + 2 < argc) {
             a = atoi(argv[++i]);
             lab_shots(a, atoi(argv[++i]));
+            window = 0;
         }
         else if (!strcmp(argv[i], "--dump-at") && i + 1 < argc)
             dump_at = atoi(argv[++i]);
@@ -131,7 +132,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s: can't map the PS1's memory or load the exe\n", exe);
         return 1;
     }
-    if (frames_left < 0 && sdl_open())
+    if (window && sdl_open())
         return 1;
     code_register(exe_code, exe_code_count);
     patch_code_pointers(exe_patches, exe_patch_count);

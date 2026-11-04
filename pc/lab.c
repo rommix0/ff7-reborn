@@ -28,6 +28,7 @@
 #define CHOICES ((volatile unsigned char *)0x800F3958)
 #define CHOICE_READ ((volatile int *)0x800F39D8)
 #define CHOICE_WRITE ((volatile int *)0x800F39DC)
+#define MP(actor) ((volatile unsigned short *)(0x800F8408 + 0x68 * (actor))) /* +0x28 of a member's record */
 #define MAX_INPUTS 4096
 #define MAX_CODES 64
 
@@ -222,7 +223,7 @@ int lab_frame(void)
             fprintf(trace, "%d battle %04X\n", frame, battle);
     }
     /* the command as the menu puts it in (func_800A4350), a limit ahead of the rest; an item isn't used up
-     * (func_800A5660 isn't called) */
+     * (func_800A5660 isn't called), and the member gets 999 MP, as the battle checks it when the spell is cast */
     if (command.actor >= 0 && *GAME_MODE == 2 && *WAITING >> command.actor & 1
         && *CHOICE_READ != ((*CHOICE_WRITE + 1) & 15)) {
         choice = CHOICES + 8 * *CHOICE_WRITE;
@@ -237,6 +238,7 @@ int lab_frame(void)
             MENU_LIST[i] = MENU_LIST[i + 1];
         *WAITING &= ~(1u << command.actor);
         *CHOSEN |= 1u << command.actor;
+        *MP(command.actor) = 999;
         *CHOICE_WRITE = (*CHOICE_WRITE + 1) & 15;
         if (trace)
             fprintf(trace, "%d command %d %d %d %04X\n", frame, command.actor, command.command, command.attack,

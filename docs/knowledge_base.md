@@ -1891,11 +1891,23 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     (`func_800A4350`, from the menu): the next of the 16 entries in the ring at `D_800F3958` (priority 6, 5 for a
     limit; then actor, command, attack `u16` and target mask `u16`, written at `D_800F39DC`, read at `D_800F39D8`),
     A off the menu's list of who waits (`D_800E7A48`, `FF` ends it; `func_800A4D88`) and A's bit moved from waiting
-    (`D_800F7DAC`) to chosen (`D_800F7DC2`). An item isn't used up (`func_800A5660` isn't called). The battle then
+    (`D_800F7DAC`) to chosen (`D_800F7DC2`). An item isn't used up (`func_800A5660` isn't called), and A's MP goes
+    to 999: the battle checks it as the spell is cast, so with Cloud's 54 Cure3 came out "Not enough MP!!" (MP is
+    `+0x28` of a member's `0x68`-byte record at `D_800F83E0`, HP `+0x30`). The battle then
     queues it (`func_800AF0C4`: `D_800F6B34` + 8 × actor, into the 64 entries at `D_800F6934`, `func_800A3D4C`) and
     plays it as it would: script, camera, effect, damage and sound. In the first battle the menu's own Attack is
     queued as priority 6, sequence 3, actor 0, command 1, attack 0, targets `0x10`; the enemies' turns go through
     the same ring as command `FF` (their AI).
+  - Swept: all 219 of Cloud's choices (54 spells, 16 summons, 105 items, 24 E.Skills, 7 limits, the other commands)
+    in the first battle from NEW GAME, headless, 4 at a time in 11½ minutes. All run to the end but three kinds,
+    each the game's own doing:
+    - Shiva first reached `0x8003A0CC`, a branch from one libgte function into another (fixed in `recomp.py`).
+    - Throw with item 0 (a Potion) calls address 4: Throw takes the effect from a table by the item's effect number
+      (`func_800D0B4C`: `D_800EF9D8`, or `D_800EFFE0`), and a Potion has none. The menu only offers what throws.
+      `call_indirect` folds such addresses into RAM, so the lab stops with "no module for 80000004".
+    - Blade Beam to Omnislash: the game's "Data Error" (battle text 110-112, `func_800A3ED0`, once `D_80062F14`
+      passes `0x100`), code `0x20`. `func_800A79CC` finds a limit only among the three records of the member's
+      level (`D_8009D8F8` + member × `0x440`, from `+8`, `0x1C` apart); a new game's Cloud is at level 1.
   - `--shots K N` saves N pictures of the screen (`shot_FRAME.bmp`), K frames apart, from when the command goes in,
     then exits. K = 4 is one a battle frame.
   - What the traces showed: a field loads its `.MIM` (background), `.DAT` and `.BSX`, then each character's `.BCX`

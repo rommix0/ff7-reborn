@@ -145,6 +145,7 @@ void call_indirect(unsigned int addr)
         ctx.r[2] = bios_call(addr, ctx.r[9]);
         return;
     }
+    addr = (unsigned int)mem_ptr(addr); /* KUSEG and KSEG1 are RAM too (Throw with an item that has no effect, 4) */
     f = addr >= RAM_START && addr < RAM_START + RAM_SIZE ? code_at(addr) : (void *)addr;
     ctx.r[2] = ((NativeCall)f)(ctx.r[4], ctx.r[5], ctx.r[6], ctx.r[7], mem_r32(sp + 0x10), mem_r32(sp + 0x14),
                                mem_r32(sp + 0x18), mem_r32(sp + 0x1C));
