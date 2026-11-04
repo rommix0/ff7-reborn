@@ -15,7 +15,7 @@ names[0x00], names[0x0F], names[0x10], names[0x12], names[0x14], names[0x28], na
 # offset in the script (one may land at the script's end). spcal's lengths go by its sub-code; kawai's length byte
 # is left out and worked out again.
 code = bytes.fromhex("140102030009 400005 2805aabbcc 0ff601020304 1001 1202 1001")
-lines = ["if #2 == var[1][03] L000E", "mes 00 05", "kawai AA BB CC", "L000E:", "spcal F6 01 02 03 04", "L0014:",
+lines = ["if #2 == var[1][03] L000E", "mes #0 #5", "kawai AA BB CC", "L000E:", "spcal F6 01 02 03 04", "L0014:",
          "skip L0016", "L0016:", "back L0014", "skip L001A", "L001A:"]
 assert disassemble(code, names) == lines and assemble(lines, names) == code
 
@@ -23,7 +23,7 @@ assert disassemble(code, names) == lines and assemble(lines, names) == code
 # (var[bank][address]); the nibbles go back into their bytes. The if family puts its operator between its values;
 # mes shows the string it opens. An operation these can't say exactly stays in hex.
 code = bytes.fromhex("80122B07 14102B050001 0707 400005 950210 953210")
-lines = ["set var[1][2B] var[2][07]", "if var[1][2B] == #5 L000A", "L000A:", "retto 07", "mes 00 05 ; Hello",
+lines = ["set var[1][2B] var[2][07]", "if var[1][2B] == #5 L000A", "L000A:", "retto 07", "mes #0 #5 ; Hello",
          "inc var[2][10]", "inc 32 10"]
 names[0x07] = "retto"
 assert disassemble(code, names, ["Hello"] * 6) == lines and assemble(lines, names) == code
@@ -34,7 +34,16 @@ assert assemble(["kawai 01 02 03 04", "skip 05"], names) == bytes.fromhex("28060
 names[0x16] = "if2"
 assert disassemble(bytes.fromhex("162000002C010401"), names) == ["if2 story >= #300 L0008", "L0008:"]
 assert assemble(["if2 story >= #300 L0008", "L0008:"], names) == bytes.fromhex("162000002C010401")
-for wrong in (["mes 00"], ["mes 00 L0000", "L0000:"], ["skip L0200"] + ["mes 00 00"] * 90 + ["L0200:"]):
+# Operands that are plain numbers show as # too: wait's frames; wsize's window, x, y, width and height; turnr's angle,
+# which way (2 the shortest), frames and easing; mes's window and string. A variable can't go where a number goes.
+names[0x24], names[0x50], names[0xB4] = "wait", "wsize", "turnr"
+code = bytes.fromhex("241e00 50032800140085002900 b4000002 0f01")
+lines = ["wait #30", "wsize #3 #40 #20 #133 #41", "turnr #0 #2 #15 #1"]
+assert disassemble(code, names) == lines and assemble(lines, names) == code
+assert assemble(["wait 1E 00"], names) == bytes.fromhex("241e00")  # hex still builds
+assert assemble(["turnr #0 02 0F 01"], names) == code[-6:]  # as do bytes written before these were numbers
+for wrong in (["wait var[1][03]"], ["mes 00"], ["mes 00 L0000", "L0000:"],
+              ["skip L0200"] + ["mes 00 00"] * 90 + ["L0200:"]):
     try:
         assemble(wrong, names)
         raise AssertionError(wrong)
@@ -74,7 +83,7 @@ wait = encode("there") + b"\xfe\xdd\xff\x05\xff"  # a code's argument can be FF;
 original = section([wait, encode("Hi") + b"\xff"])
 table = section_json(original, names)
 assert table["entities"] == [{"name": "one", "scripts": [0] * 32}, {"name": "two", "scripts": [0] + [1] * 31}]
-assert table["scripts"] == [["mes 00 05", "ret"], ["ret"]] and table["strings"] == ["there{FE DD}{FF}%", "Hi"]
+assert table["scripts"] == [["mes #0 #5", "ret"], ["ret"]] and table["strings"] == ["there{FE DD}{FF}%", "Hi"]
 assert section_raw(table, original, names) == original
 # An entity's name is Shift-JIS (CLSIN2_1's "　fire" opens with a full-width space, 81 40).
 named = original.replace(b"one\0\0\0\0\0", b"\x81\x40fire\0\0")

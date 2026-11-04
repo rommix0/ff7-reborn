@@ -4,7 +4,8 @@
   python tools/field.py build field assets
 
 A JSON file per map: its entities (a name and, for each of their 32 script slots, which script runs), the scripts a
-line per operation (the field module's own name for it, then its operand bytes in hex, jumps to labels), and the
+line per operation (the field module's own name for it, then its operands: #numbers and variables where the
+handlers show what they are, the rest as bytes in hex; jumps to labels), and the
 dialogue in the text format tools/kernel.py describes. Operations are named from the disc's FIELD.BIN, op_XX where
 it has no name. Then the other sections:
   walkmesh    triangles (three x, y, z, w; z the height, w unread) and the neighbour across each edge (-1 a wall)
@@ -110,6 +111,19 @@ SPEC = {
     0xF1: ((2, 2, 1), (4, 1, 2)), 0xF2: ((5, 1, 1), (6, 2, 2), (8, 2, 3), (10, 2, 4), (12, 2, 6)),
     0xF7: ((2, 1, 1), (3, 1, 2)), 0xFE: ((2, 1, 2),),
 }
+# Operands that are plain numbers (offset, bytes), from their handlers: wait's frames; mes's window and string;
+# wsize's window, x, y, width, height (the window kept 8 in from the screen's edges); fade's end level, type and
+# start; dfanm's default animation and its speed divisor; anime's (and AE's) animation and speed divisor, waiting for
+# it to end (AE doesn't); canim's, canm!'s and B1's animation, first frame, last frame and speed; visi's 1 shown,
+# tlkon's and solid's 1 off; uc's 1 the player locked; turnr's way (0 and 1 one way each, 2 the shortest), frames
+# and easing (1 linear, 2 smooth), turn's frames and easing (its angle unwrapped: 256 a whole turn more).
+NUMBERS = {0x24: ((1, 2),), 0x40: ((1, 1), (2, 1)), 0x50: ((1, 1), (2, 2), (4, 2), (6, 2), (8, 2)),
+           0x6B: ((6, 1), (7, 1), (8, 1)), 0xA2: ((1, 1), (2, 1)), 0xA3: ((1, 1), (2, 1)), 0xAE: ((1, 1), (2, 1)),
+           0xA4: ((1, 1),), 0x7E: ((1, 1),), 0xC7: ((1, 1),), 0x33: ((1, 1),),
+           0xB0: ((1, 1), (2, 1), (3, 1), (4, 1)), 0xB1: ((1, 1), (2, 1), (3, 1), (4, 1)),
+           0xBC: ((1, 1), (2, 1), (3, 1), (4, 1)), 0xB4: ((3, 1), (4, 1), (5, 1)), 0xB5: ((4, 1), (5, 1))}
+for _op, _numbers in NUMBERS.items():  # bank nibble 0: no bank byte
+    SPEC[_op] = SPEC.get(_op, ()) + tuple((at, size, 0) for at, size in _numbers)
 COMPARE = ["==", "!=", ">", "<", ">=", "<=", "&", "^", "|", "bit", "!bit"]  # the if family's operator byte
 COMPARE_AT = {0x14: 4, 0x15: 4, 0x16: 6, 0x17: 6, 0x18: 6, 0x19: 6}
 TEXT_AT = {0x40: 2, 0x43: 1, 0x48: 3}  # mes, mpnam, ask: the string they show
@@ -193,7 +207,7 @@ def tokens(op: bytes, label: str | None, plain: bool = False) -> list[str]:
     """An operation's operands as text: SPEC's values as #literal or var[bank][address] (their bank bytes left out),
     the if family's operator by its sign and between its values, a jump's label, the rest (all, if plain) as hex."""
     fields = {} if plain else {at: (size, n) for at, size, n in SPEC.get(op[0], ())}
-    banks = {(n + 1) // 2 for size, n in fields.values()}
+    banks = {(n + 1) // 2 for size, n in fields.values() if n}
     jump = JUMPS[op[0]] if label else None
     out, at = [], 2 if op[0] == 0x28 else 1  # kawai's length byte is worked out again
     while at < len(op):
@@ -204,7 +218,7 @@ def tokens(op: bytes, label: str | None, plain: bool = False) -> list[str]:
             at += 1
         elif at in fields:
             size, n = fields[at]
-            bank = op[(n + 1) // 2] >> 4 if n % 2 else op[(n + 1) // 2] & 15
+            bank = 0 if not n else op[(n + 1) // 2] >> 4 if n % 2 else op[(n + 1) // 2] & 15
             value = int.from_bytes(op[at:at + size], "little")
             out.append(VARS.get((bank, value), f"var[{bank}][{value:02X}]") if bank else f"#{value}")
             at += size
@@ -224,7 +238,7 @@ def operands(op: int, words: list[str]) -> tuple[bytearray, str | None]:
     with its bytes left zero."""
     nice = any(w.startswith(("#", "var[")) or w in COMPARE or w in NAMED for w in words)
     fields = {at: (size, n) for at, size, n in SPEC.get(op, ())} if nice else {}
-    banks = {(n + 1) // 2 for size, n in fields.values()}
+    banks = {(n + 1) // 2 for size, n in fields.values() if n}
     if nice and len(words) > 2 and words[1] in COMPARE:
         words = [words[0], words[2], words[1]] + words[3:]
     out, label, at = bytearray(), None, 2 if op == 0x28 else 1
@@ -243,7 +257,9 @@ def operands(op: int, words: list[str]) -> tuple[bytearray, str | None]:
             at += JUMPS[op][1]
         elif at in fields:
             size, n = fields[at]
-            if word.startswith("#"):
+            if not n and size == 1 and is_byte(word):  # text from before it was a number
+                bank, value = 0, int(word, 16)
+            elif word.startswith("#"):
                 bank, value = 0, int(word[1:])
             elif word in NAMED:
                 bank, value = NAMED[word]
@@ -253,7 +269,10 @@ def operands(op: int, words: list[str]) -> tuple[bytearray, str | None]:
                 raise ValueError(f"{word} isn't #value, var[bank][address] or a variable's name")
             if not 0 <= bank < 16:
                 raise ValueError(f"{word}: banks go 0 to 15")
-            out[(n + 1) // 2 - 1] |= bank << 4 if n % 2 else bank
+            if not n and bank:
+                raise ValueError(f"{word}: a number goes here")
+            if n:
+                out[(n + 1) // 2 - 1] |= bank << 4 if n % 2 else bank
             out += (value & (1 << 8 * size) - 1).to_bytes(size, "little")
             at += size
         elif nice and COMPARE_AT.get(op) == at and word in COMPARE:

@@ -39,7 +39,12 @@ from, how long to record) builds the map, runs the lab, makes the MP4, and puts 
 2. **Operands named** for the ones scenes use (`move`, `dir`, `turnr`, `anime`/`animw`, `xyzi`, `mes`, `scr2d`,
    `fade`): read from their handlers in the field module, written into `field.py`'s text so a scene reads as
    words and numbers, not hex.
-3. **`tools/scene.py`** as above, with a test that a scene builds and the map comes back byte for byte afterwards.
+   **Done (2026-11-04):** `wait`, `mes`, `wsize`, `turnr`, `turn`, `anime`, `canim`, `dfanm`, `visi`, `solid`,
+   `tlkon`, `uc` and `fade` show their operands as numbers (`NUMBERS` in `field.py`, the meanings in its
+   comment and the knowledge base); every map still builds back byte for byte. The first scene, rewritten that
+   way, plays identically. `animw` after `anime` isn't needed: `anime` waits for its animation's end.
+3. **A scene tool** (`tools/scene.py` is taken by the battle scenes; another name) as above, with a test that a
+   scene builds and the map comes back byte for byte afterwards.
 
 ## Non-goals
 

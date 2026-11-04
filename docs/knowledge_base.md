@@ -240,6 +240,21 @@ A movie name found on several discs has the same contents on each, so the PC por
   `if var[1][2B] == #5 L0034`; an operation that can't be said that way exactly (177 `mpara`/`mpra2` use a nibble
   the table doesn't name) stays in hex. Checked in the lab: `batle #300` in `MD1STIN` made `#324` opened the opening
   fight as battle `0x144`, Guard Scorpion's.
+- **Plain number operands** (`tools/field.py`'s `NUMBERS`, from their handlers in `asm/field/1368.s`) show as
+  `#value` too: `wait`'s frames (a `u16`; `func_800C0C18` counts it down in `D_800716DC`, 0 a one-frame
+  yield); `mes` window and string (`func_800D4EB4` opens the window, waits for a press and returns once it's
+  closed); `wsize` window, x, y, width and height (`func_800D4C68`, kept 8 in from the screen's edges, at
+  `D_80083278` + window × `0x30`); `turnr`'s way to turn (0 and 1 one way each, 2 the shortest), frames
+  (model `+0x39`) and easing (`+0x3B`: 1 linear `func_800A4094`, 2 smooth `func_800A4134`); `turn`'s frames
+  and easing (its angle unwrapped, so 512 is two turns more); `anime` and `AE` animation and speed divisor
+  (`anime` waits for the end, `AE` doesn't; `func_800C5B38`); `canim`, `canm!` and `B1` animation, first and
+  last frame, speed (`canim` doesn't wait); `dfanm` default animation and speed; `visi` 1 shown, `tlkon` and
+  `solid` 1 off, `uc` 1 the player locked (model `+0x5C`, `+0x5B`, `+0x59`; the debug overlay's V, T, S);
+  `fade` end level, type (0-10) and start. Every use on the three discs (285,000 lines) says it this way and
+  builds back byte for byte. A script's entity owns the model at `D_8009C544` + `D_8007EB98[entity]` ×
+  `0x84` (`FF` none). `req`, `reqsw` and `reqew` stay in hex: byte 1 the entity, byte 2 its priority (top 3
+  bits, 0 the most urgent) and script slot (low 5); `req` gives up if the entity is busy, `reqsw` waits to
+  place it, `reqew` waits for the script to end too.
 - **Saved variables with a known meaning** go by name in the dump (`tools/field.py`'s `VARS`), each from the code
   that uses it outside the scripts: `story` (bank 2 `00`; set only to constants, 0 to 1999, and the world map picks
   its version by 1000, 1580 and 1620), the play time and countdown (bank 1 `10`–`12` and `14`–`16`, from the
