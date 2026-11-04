@@ -1,7 +1,7 @@
 /* The reversing lab (ff7 --trace FILE --input FILE --field N --minigame N --battle N --command A,C,X,T --shots K N
- * --wav FILE --dump-at N --code "AAAAAAAA VVVV", and F11 in the window): a trace of what the game does each frame,
- * the pad played from a script, a warp to a field, a mini-game, a battle, a party member's command in it, pictures of
- * the screen and its sound, GameShark codes, and dumps of RAM, VRAM and SPU RAM.
+ * --from N --wav FILE --dump-at N --code "AAAAAAAA VVVV", and F11 in the window): a trace of what the game does each
+ * frame, the pad played from a script, a warp to a field, a mini-game, a battle, a party member's command in it,
+ * pictures of the screen and its sound, GameShark codes, and dumps of RAM, VRAM and SPU RAM.
  *
  * The trace has a line for each change: "FRAME state mode M field F request R ID" (the main loop's mode, the field
  * loaded, and the field module's request: 1 a field change, 2 a battle, 3 a movie, with its number), "FRAME pad
@@ -168,6 +168,12 @@ void lab_shots(int every, int count)
     shot_every = every, shots_left = count;
 }
 
+/* The pictures start at this frame instead (a command still moves them to its own). */
+void lab_from(int frame)
+{
+    shots_from = frame;
+}
+
 /* The WAV's header, with the sizes so far: kept right each frame, so the file plays however the run ends. The port is
  * little-endian throughout, so the sizes go out as they are. */
 static void wav_header(void)
@@ -300,7 +306,7 @@ int lab_frame(void)
         command.actor = -1;
         shots_from = frame;
     }
-    if (shots_left && command.actor < 0 && !((frame - shots_from) % shot_every)) {
+    if (shots_left && command.actor < 0 && frame >= shots_from && !((frame - shots_from) % shot_every)) {
         shoot();
         shooting = 1;
         done = !--shots_left;

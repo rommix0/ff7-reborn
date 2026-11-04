@@ -16,6 +16,7 @@ void lab_command(int actor, int command, int attack, int targets);
 void lab_shots(int every, int count);
 void lab_wav(const char *path);
 void lab_audio(const short *lr, int frames);
+void lab_from(int frame);
 
 #define GAME_MODE ((volatile short *)0x8009C560)
 #define FIELD ((volatile unsigned short *)0x8009A05C)
@@ -162,6 +163,12 @@ int main(void)
     lab_frame();
     assert(!memcmp((void *)(QUEUE + 8 * 9), "\x06\x04\x04\x20\x01\x00\x01\x00", 8) && QUEUE[8 * 5 + 3] == 0xFF);
 
+    /* pictures from a given frame (frames 21-23): none before it */
+    lab_shots(1, 1);
+    lab_from(23);
+    assert(!lab_frame() && !lab_frame() && file_size("shot_00021.bmp") < 0 && file_size("shot_00022.bmp") < 0);
+    assert(lab_frame() && file_size("shot_00023.bmp") > 0);
+
     f = fopen("lab_trace.txt", "r");
     n = fread(text, 1, sizeof text - 1, f);
     fclose(f);
@@ -184,6 +191,7 @@ int main(void)
     remove("dump_00004_spu.bin");
     remove("shot_00016.bmp");
     remove("shot_00018.bmp");
+    remove("shot_00023.bmp");
     remove("lab_sound.wav");
     puts("ok");
     return 0;

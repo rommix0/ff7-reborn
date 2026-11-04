@@ -1935,6 +1935,13 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     then exits. K = 4 is one a battle frame. `--wav FILE` keeps the SPU's sound from the first picture on: with
     `--shots 1 1800`, Shiva in the first battle made a 30 s clip whose picture and sound end within a frame of each
     other. The 999 MP the lab gives shows as the MP counting up through the summon.
+  - A scene written as a field script plays as the game's own: in `MD1STIN`, a new Cloud script (slot 5: `msped
+    #2048`, `move #3700 #27800`, `turnr #0 02 0F 01`, `wait 14 00`, `anime 03 01`, `animw`, `wsize`, `mes`) asked
+    for by the director with `reqew 01 45` after Barret's line. Cloud walked down the platform, turned to the camera,
+    flipped (animation 3 is his jump off the train) and said a new line; `--from 10720 --shots 1 720 --wav` with
+    ○ at frame 10,800 recorded it from a new game (Barret's line is up from about 10,680). `{EA}` this early prints
+    "Ex-SOLDIE", the name not yet set; a scene writes the name out. An empty folder given to `field.py build` puts
+    the originals back byte for byte.
   - From a new game the win is silent, as the game means it: `MD1STIN`'s script sets the battle mode
     (`D_8009AC32`) to `0x20` as the field loads, `func_800111E4` hands it to the battle (`D_800707BE`, then
     `D_8016376A`), and with bit `0x20` set `func_800BB804` skips reading the fanfare (`ENEMY6/FAN2.SND`, sector
