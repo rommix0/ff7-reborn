@@ -1922,7 +1922,15 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
       `call_indirect` folds such addresses into RAM, so the lab stops with "no module for 80000004".
     - Blade Beam to Omnislash: the game's "Data Error" (battle text 110-112, `func_800A3ED0`, once `D_80062F14`
       passes `0x100`), code `0x20`. `func_800A79CC` finds a limit only among the three records of the member's
-      level (`D_8009D8F8` + member × `0x440`, from `+8`, `0x1C` apart); a new game's Cloud is at level 1.
+      level (`D_8009D8F8` + member × `0x440`: their ids less `0x80` at `+0`-`+2`, `FF` for none, the records
+      from `+8`, `0x1C` apart); a new game's Cloud is at level 1.
+  - The other limits, from the 57 playthrough saves: Continue, battle `0x12C` and a RAM dump read each member's
+    character (`D_801636B8` + 16 × member, `FF` an empty place) and those three ids. 35 saves are in a field (the
+    others on the world map, where `--battle` doesn't ask). They hold 19 limits: Cloud's levels 1-2 (`80`-`83`),
+    Barret's (`87` `89`, `88` `8A`), Tifa's (`95` `96`), Aeris's (`8E` `8F`), Red XIII's (`A3` `A7`), Cait Sith's
+    (`AA`, `AC`), Vincent's (`AD`) and Cid's (`9C` `9F`); no field save has Yuffie. The 17 not yet run all play to
+    the end, each reading its own effect file but Tifa's (none) and Galian Beast (`ENEMY6/GALL.LZS`). With the
+    party's and the enemies' sweeps, 222 of the 289 effect files have run.
   - `--shots K N` saves N pictures of the screen (`shot_FRAME.bmp`), K frames apart, from when the command goes in,
     then exits. K = 4 is one a battle frame.
   - What the traces showed: a field loads its `.MIM` (background), `.DAT` and `.BSX`, then each character's `.BCX`
