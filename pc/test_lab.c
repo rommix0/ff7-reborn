@@ -14,6 +14,8 @@ void lab_minigame(int game);
 void lab_battle(int battle);
 void lab_command(int actor, int command, int attack, int targets);
 void lab_shots(int every, int count);
+void lab_wav(const char *path);
+void lab_audio(const short *lr, int frames);
 
 #define GAME_MODE ((volatile short *)0x8009C560)
 #define FIELD ((volatile unsigned short *)0x8009A05C)
@@ -50,6 +52,8 @@ static long file_size(const char *path)
 int main(void)
 {
     static char text[4096];
+    static const short heard[4] = {1, -2, 3, -4}, unheard[2] = {9, 9};
+    unsigned char wav[64];
     FILE *f;
     size_t n;
 
@@ -121,9 +125,11 @@ int main(void)
     /* a command (frames 15-19): nothing while Cloud's menu isn't waiting; then as the menu puts one in
      * (func_800A4350): the ring's next choice, Cloud off the menu's list, his bit moved from waiting to chosen; once
      * only. His MP (+0x28 of his battle record) goes to 999, so any spell casts. Pictures from then on, every 2nd
-     * frame, 2 of them, and the lab is done. */
+     * frame, 2 of them, and the lab is done. The sound is kept from the first picture on. */
     lab_command(0, 1, 0, 0x10);
     lab_shots(2, 2);
+    lab_wav("lab_sound.wav");
+    lab_audio(unheard, 1);
     *GAME_MODE = 2, *CHOICE_READ = 3, *CHOICE_WRITE = 15, *WAITING = 4, *CHOSEN = 0;
     memcpy((void *)MENU_LIST, "\x02\x00\x01\xFF", 4);
     assert(!lab_frame() && *CHOICE_WRITE == 15 && file_size("shot_00015.bmp") < 0);
@@ -133,9 +139,16 @@ int main(void)
     assert(!memcmp((void *)MENU_LIST, "\x02\x01\xFF", 3) && *WAITING == 4 && *CHOSEN == 1);
     assert(*(volatile unsigned short *)0x800F8408 == 999);
     assert(file_size("shot_00016.bmp") == 54 + 4 * 2 * 4);
+    lab_audio(heard, 2);
     *WAITING = 5;
     assert(!lab_frame() && *CHOICE_WRITE == 0 && file_size("shot_00017.bmp") < 0);
     assert(lab_frame() && file_size("shot_00018.bmp") == 54 + 4 * 2 * 4);
+    f = fopen("lab_sound.wav", "rb");
+    assert(fread(wav, 1, sizeof wav, f) == 44 + 8);
+    fclose(f);
+    assert(!memcmp(wav, "RIFF\x2C\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x02\x00\x44\xAC\x00\x00", 28));
+    assert(!memcmp(wav + 28, "\x10\xB1\x02\x00\x04\x00\x10\x00" "data\x08\x00\x00\x00", 16));
+    assert(!memcmp(wav + 44, heard, 8));
 
     /* an enemy's attack (frames 19-20): an enemy's turn waits in the battle's queue (64 entries, FF free) as command
      * FF, for its AI; the lab makes the chosen enemy's command 0x20 with the attack (its slot, here 1) and targets
@@ -171,6 +184,7 @@ int main(void)
     remove("dump_00004_spu.bin");
     remove("shot_00016.bmp");
     remove("shot_00018.bmp");
+    remove("lab_sound.wav");
     puts("ok");
     return 0;
 }

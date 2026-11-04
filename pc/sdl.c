@@ -17,6 +17,7 @@ static SDL_atomic_t audio_in, audio_out; /* frames written and played, counted o
 static SDL_GameController *controller;
 
 void lab_dump(void);
+void lab_audio(const short *lr, int frames);
 
 /* Keys for the pad's bits, in the PS1's order (bit 0 Select ... bit 15 Square). */
 static const struct {
@@ -73,6 +74,7 @@ void pc_audio(const short *lr, int frames)
     unsigned int in = SDL_AtomicGet(&audio_in), out = SDL_AtomicGet(&audio_out);
     int i;
 
+    lab_audio(lr, frames);
     for (i = 0; i < frames && in - out < AUDIO_RING; i++, in++) {
         audio_ring[in % AUDIO_RING][0] = lr[2 * i];
         audio_ring[in % AUDIO_RING][1] = lr[2 * i + 1];

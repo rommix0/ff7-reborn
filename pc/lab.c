@@ -1,7 +1,7 @@
 /* The reversing lab (ff7 --trace FILE --input FILE --field N --minigame N --battle N --command A,C,X,T --shots K N
- * --dump-at N --code "AAAAAAAA VVVV", and F11 in the window): a trace of what the game does each frame, the pad
- * played from a script, a warp to a field, a mini-game, a battle, a party member's command in it, pictures of the
- * screen, GameShark codes, and dumps of RAM, VRAM and SPU RAM.
+ * --wav FILE --dump-at N --code "AAAAAAAA VVVV", and F11 in the window): a trace of what the game does each frame,
+ * the pad played from a script, a warp to a field, a mini-game, a battle, a party member's command in it, pictures of
+ * the screen and its sound, GameShark codes, and dumps of RAM, VRAM and SPU RAM.
  *
  * The trace has a line for each change: "FRAME state mode M field F request R ID" (the main loop's mode, the field
  * loaded, and the field module's request: 1 a field change, 2 a battle, 3 a movie, with its number), "FRAME pad
@@ -47,7 +47,10 @@ static struct {
     int bits;
 } codes[MAX_CODES];
 static int code_count, input_count, next_input, warp_field = -1, dump_frame = -1, dump_every, frame;
-static int minigame = -1, minigame_asked, battle = -1, battle_asked, shot_every, shots_left, shots_from;
+static int minigame = -1, minigame_asked, battle = -1, battle_asked, shot_every, shots_left, shots_from,
+           shooting;
+static FILE *wav;
+static unsigned int wav_bytes;
 static struct {
     int actor, command, attack, targets;
 } command = {-1};
@@ -165,6 +168,45 @@ void lab_shots(int every, int count)
     shot_every = every, shots_left = count;
 }
 
+/* The WAV's header, with the sizes so far: kept right each frame, so the file plays however the run ends. The port is
+ * little-endian throughout, so the sizes go out as they are. */
+static void wav_header(void)
+{
+    static const unsigned char format[16] = {1, 0, 2, 0, 0x44, 0xAC, 0, 0, 0x10, 0xB1, 2, 0, 4, 0, 16, 0};
+    unsigned int riff = 36 + wav_bytes, format_size = 16;
+
+    fseek(wav, 0, SEEK_SET);
+    fwrite("RIFF", 1, 4, wav);
+    fwrite(&riff, 4, 1, wav);
+    fwrite("WAVEfmt ", 1, 8, wav);
+    fwrite(&format_size, 4, 1, wav);
+    fwrite(format, 1, 16, wav);
+    fwrite("data", 1, 4, wav);
+    fwrite(&wav_bytes, 4, 1, wav);
+    fseek(wav, 0, SEEK_END);
+    fflush(wav);
+}
+
+/* The SPU's sound (44.1 kHz 16-bit stereo) into a WAV, from the first picture on, so it starts with them (from the
+ * start without --shots). */
+void lab_wav(const char *path)
+{
+    wav = fopen(path, "wb");
+    if (!wav) {
+        fprintf(stderr, "%s: can't write it\n", path);
+        exit(1);
+    }
+    wav_header();
+}
+
+/* The SPU's frames as they're mixed (sdl.c). */
+void lab_audio(const short *lr, int frames)
+{
+    if (!wav || (shot_every && !shooting))
+        return;
+    wav_bytes += 4 * fwrite(lr, 4, frames, wav);
+}
+
 static void shoot(void)
 {
     static unsigned int rgba[640 * 512];
@@ -260,8 +302,11 @@ int lab_frame(void)
     }
     if (shots_left && command.actor < 0 && !((frame - shots_from) % shot_every)) {
         shoot();
+        shooting = 1;
         done = !--shots_left;
     }
+    if (wav)
+        wav_header();
     for (i = 0; i < code_count; i++) {
         if (codes[i].bits == 16)
             *(volatile unsigned short *)codes[i].addr = codes[i].value;

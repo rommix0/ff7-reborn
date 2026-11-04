@@ -1,12 +1,14 @@
 /* The PC build's entry: maps the PS1's RAM, loads the user's own exe into it, and runs the game from the exe's entry
  * point, recompiled. usage: ff7 [ASSETS] [--frames N] [--shot FILE.bmp] [--trace FILE] [--input FILE] [--field N]
- * [--minigame N] [--battle N] [--command A,C,X,T] [--shots K N] [--dump-at N] [--code "AAAAAAAA VVVV"]... [--fast]
+ * [--minigame N] [--battle N] [--command A,C,X,T] [--shots K N] [--wav FILE] [--dump-at N] [--code "AAAAAAAA VVVV"]...
+ * [--fast]
  *
  * With --frames, it saves what's on screen after N frames (to --shot, or screenshot.bmp) and exits. The rest is the
  * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded,
  * --minigame N then starts mini-game N (0-6) as a field would, --battle N battle N; --command puts in party member
  * A's command C (attack X, target mask T) once the battle's menu waits on A, and --shots saves N pictures K frames
- * apart from then on, then exits (like --frames, without a window); --code holds a GameShark code every frame;
+ * apart from then on, then exits (like --frames, without a window); --wav keeps the sound from the first of them
+ * (from the start without --shots); --code holds a GameShark code every frame;
  * --fast runs frames as quickly as the host can instead of at 59.94 Hz. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +40,7 @@ void lab_minigame(int game);
 void lab_battle(int number);
 void lab_command(int actor, int command, int attack, int targets);
 void lab_shots(int every, int count);
+void lab_wav(const char *path);
 void lab_dump_every(int frames);
 
 Ctx ctx;
@@ -106,6 +109,8 @@ int main(int argc, char **argv)
             lab_shots(a, atoi(argv[++i]));
             window = 0;
         }
+        else if (!strcmp(argv[i], "--wav") && i + 1 < argc)
+            lab_wav(argv[++i]);
         else if (!strcmp(argv[i], "--dump-at") && i + 1 < argc)
             dump_at = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--dump-every") && i + 1 < argc)

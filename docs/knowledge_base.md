@@ -1932,7 +1932,14 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     the end, each reading its own effect file but Tifa's (none) and Galian Beast (`ENEMY6/GALL.LZS`). With the
     party's and the enemies' sweeps, 222 of the 289 effect files have run.
   - `--shots K N` saves N pictures of the screen (`shot_FRAME.bmp`), K frames apart, from when the command goes in,
-    then exits. K = 4 is one a battle frame.
+    then exits. K = 4 is one a battle frame. `--wav FILE` keeps the SPU's sound from the first picture on: with
+    `--shots 1 1800`, Shiva in the first battle made a 30 s clip whose picture and sound end within a frame of each
+    other. The 999 MP the lab gives shows as the MP counting up through the summon.
+  - From a new game the win is silent, as the game means it: `MD1STIN`'s script sets the battle mode
+    (`D_8009AC32`) to `0x20` as the field loads, `func_800111E4` hands it to the battle (`D_800707BE`, then
+    `D_8016376A`), and with bit `0x20` set `func_800BB804` skips reading the fanfare (`ENEMY6/FAN2.SND`, sector
+    `0x77E7`, into `0x801D0000`). From a later save (`epsxe000_47`) the battle reads it as the results come up and
+    it plays.
   - What the traces showed: a field loads its `.MIM` (background), `.DAT` and `.BSX`, then each character's `.BCX`
     and `FIELD.TDB`. The opening field `MD1STIN` loads `CLOUD.BCX` and `BALLET.BCX`; the debug room (`STARTMAP`)
     `CLOUD.BCX`, `TIFA.BCX` and `CID.BCX`, then `BLACKBG3`, `5` and `1.MIM` as it runs. The opening movie is
