@@ -58,6 +58,8 @@ entities, shown = fm.start(0)
 assert entities == [{"name": "guard", "visible": False, "dir": 64, "anim": 0, "model": 0, "x": 100, "y": -100,
                      "z": 5, "triangle": 2}] and shown == {(2, 2), (3, 1)}
 assert "x" not in fm.start(3)[0][0]
+fm.scripts["scripts"][1][5:5] = ["visi #1", "dfanm #3 #1", "visi #0"]  # the dump's numbers, as well as hex bytes
+assert fm.start(0)[0][0]["visible"] is False and fm.start(0)[0][0]["anim"] == 3
 
 # Drawn from the far end, each slot's last linked first, a page switch covers the tiles before it in the list.
 ps1 = Ps1View()

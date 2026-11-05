@@ -316,6 +316,9 @@ class FieldMap:
         def value(word: str) -> int:
             return int(word[1:]) if word.startswith("#") else values.get(word, 0)
 
+        def number(word: str) -> int:  # an operand field.py shows as #n, or as a hex byte
+            return int(word[1:]) if word.startswith("#") else int(word, 16)
+
         for entity in self.scripts["entities"]:
             lines = self.scripts["scripts"][entity["scripts"][0]]
             labels = {line[:-1]: i for i, line in enumerate(lines) if line.endswith(":")}
@@ -350,9 +353,9 @@ class FieldMap:
                 elif op == "dir" and literal:
                     me["dir"] = value(args[0])
                 elif op == "visi":
-                    me["visible"] = args[0] != "00"
+                    me["visible"] = number(args[0]) != 0
                 elif op == "dfanm":
-                    me["anim"] = int(args[0], 16)
+                    me["anim"] = number(args[0])
                 elif op in ("bgon", "bgoff") and literal:
                     g, bit = value(args[0]), value(args[1])
                     groups[g] = groups.get(g, 0) | 1 << bit if op == "bgon" else groups.get(g, 0) & ~(1 << bit)
