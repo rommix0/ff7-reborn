@@ -382,6 +382,14 @@ def bsx_raw(table: dict) -> bytes:
     return struct.pack("<2I", 8 + len(body), h) + body
 
 
+def work_area(table: dict, old: bytes) -> int:
+    """unknown_0C for the table built in place of the .BSX old: where the field puts its work area for the map's
+    models (func_800AC35C), past the file's end by room for their packets twice, so it moves with what grew."""
+    packets = lambda t: sum(PACKET[g["kind"]] for m in t["models"] for p in m["parts"] for g in p["polygons"])
+    new = bsx_raw(table)
+    return (table["unknown_0C"] + len(new) - u32(new, 4) - (len(old) - u32(old, 4))
+            + 2 * (packets(table) - packets(bsx_json(old))))
+
 def files(disc: Path) -> list[Path]:
     """The .BCX and .BSX files that are models (75 .BSX are 2 KB stubs whose LZS length doesn't match)."""
     return [p for p in sorted((disc / "FIELD").glob("*.B[CS]X")) if u32(p.read_bytes(), 0) == p.stat().st_size - 4]
@@ -420,7 +428,10 @@ def build(folder: Path, assets: Path):
             packed = (disc / "FIELD" / name).read_bytes()
             old = lzs(packed)
             try:
-                new = to_raw(name, json.loads(path.read_text("utf-8")))
+                table = json.loads(path.read_text("utf-8"))
+                if name.upper().endswith(".BSX"):  # the dump's word is the original's; grown models need more room
+                    table["unknown_0C"] = work_area(table, old)
+                new = to_raw(name, table)
             except ValueError as e:
                 raise SystemExit(f"{path}: {e}")
             if new == old:

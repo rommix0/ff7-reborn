@@ -1,6 +1,6 @@
 import struct
 
-from model import bcx_json, bcx_raw, bsx_json, bsx_raw, light, PACKET, pose
+from model import bcx_json, bcx_raw, bsx_json, bsx_raw, light, PACKET, pose, work_area
 
 # A .BCX: u32 size, u32 header offset H; the parts' and animations' data from 8; at H a 0x24-byte header, then the
 # bones (4 bytes), parts (32) and animations (16). This one: two bones, a part on the second with a Gouraud textured
@@ -73,4 +73,15 @@ lights = {"ambient": "000000", "light_colors": ["FFFFFF", "000000", "000000"],
 assert light("80808000", [0, 0, 4096], lights) == (127, 127, 127)
 assert light("80808000", [0, 0, -4096], lights) == (0, 0, 0)
 assert light("80808000", [0, 0, -4096], {**lights, "ambient": "808080"}) == (64, 64, 64)
+# A .BSX's word at H + 0xC (unknown_0C) is where the field puts its work area for the map's models: past the file's
+# end, with room for every model's packets twice (func_800AC35C). Built in place of a file, it moves by the growth of
+# the file past H and twice the growth of the packets: here 4 bytes of image data and a G4. Unchanged, it stays.
+lit = {"face": 33, "bcx": 0, "ambient": "000000", "unknown_0B": 0, "light_colors": ["000000"] * 3,
+       "light_vectors": [[0, 0, 0]] * 3, "first_bone": 0, "first_part": 0, "first_animation": 0}
+bsx = {"unknown_0C": 0x6000, "models": [bcx_json(bytes(bcx)) | lit], "textures": {"images": [], "unused": "00" * 12}}
+old = bsx_raw(bsx)
+assert work_area(bsx, old) == 0x6000
+bsx["models"][0]["parts"][0]["polygons"].append({"kind": "G4", "vertices": [0, 1, 2, 3], "colors": ["00000000"] * 4})
+bsx["textures"]["images"].append({"x": 0, "y": 0, "w": 2, "h": 1, "data": "00000000"})
+assert work_area(bsx, old) == 0x6000 + 4 + 2 * PACKET["G4"]
 print("ok")

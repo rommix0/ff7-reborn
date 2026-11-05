@@ -383,6 +383,10 @@ dumps and builds back byte for byte):
   model: face id, `.BCX` number, scale, its block's offset, an ambient colour, and three lights (`func_800B1E40`: a
   colour each, the columns of the GTE's light colour matrix, and an `s16` x, y, z each, turned by the bone into the
   light matrix). For a `.BCX` model the entry only adds animations (`MD1STIN`: Cloud's 3).
+  - **H + `0xC`** (`unknown_0C` in the dumps): where `func_800AC35C` puts its work area for the map's models (it
+    copies the entries there), as an offset from H. In 710 of the 712 files it lies past the file's end, with room for
+    every model's packets twice and more. A model that grows without it moving draws its packets into that area:
+    stray polygons, or the whole screen garbled once the map's scene gets going.
 - **Bone:** `s16` length, `s8` parent (-1 for the root, else lower than its own index), a byte set when a part hangs on
   it. A bone sits at its parent's matrix times (tx, ty, length + tz).
 - **Part** (32 bytes): its bone, vertex and UV counts, the count of each of the eight polygon kinds (GT4, GT3, FT4,
@@ -395,7 +399,8 @@ dumps and builds back byte for byte):
   so the Gouraud colours drawn are the stored ones lit once, not each frame.
 - **Drawing** (`func_800AE4DC`): `rtpt`, back faces dropped by `nclip`, the depth for the ordering table from the
   vertices' average (`avsz3` for triangles). The packets are the GPU's own: GT4 `3C`, GT3 `34`, FT4 `2C`, FT3 `24`,
-  F3 `20`, F4 `28`, G3 `30`, G4 `38`, `+2` when semi-transparent. On disc 1: 307,208 G4, 288,268 G3, 9,121 GT4, 4,448
+  F3 `20`, F4 `28`, G3 `30`, G4 `38`, `+2` when semi-transparent. A part's vertices are turned into the 1 KB
+  scratchpad from `0x1F800008`, 8 bytes each: at most 127 (the game's parts stop at 120). On disc 1: 307,208 G4, 288,268 G3, 9,121 GT4, 4,448
   GT3, 4,109 FT3, 779 FT4, 762 F3, 112 F4.
 - **Textures:**
   - **Texture word:** its kind places the texture in a slot of VRAM per model, or keeps it where it is. It also holds
@@ -405,6 +410,7 @@ dumps and builds back byte for byte):
   - **`FIELD.TDB`:** 127 images of 32×32 at 4 bits and 34 palettes. For a face id below 33 the model gets its palette
     and three images in its slot (`func_800B1C7C`, called again at run time): textures it swaps, two side by side and
     one apart.
+    A model with a face id of 33 or more has no slot face and only ever uses texture words that keep their place.
 - **Animation** (16 bytes; `func_800AEE24`): frames, bones, and per bone three rotation angles (a byte, 256 to a turn;
   applied Ry·Rx·Rz, the sine table `D_800DF120`) and three offsets, each either fixed or a channel with a value per
   frame. Scripts pick it by number (`anime`, `canim`, `dfanm`, `animw` ...; `func_800C5B38`). 36 animations have a
@@ -422,7 +428,8 @@ dumps and builds back byte for byte):
 - **Building:** a file is packed again only from its first changed byte (`field.repack`); its size goes into
   `FIELD.BIN` (the map's entry for a `.BSX`, `0x800DF08C` for a `.BCX`). `field.py` and `model.py` each restore only
   their own files and patch only their own entries, and `FIELD.BIN` goes back to its original bytes when nothing in it
-  differs.
+  differs. `model.py` moves a `.BSX`'s work-area word by the growth of the file past H plus twice the growth of its
+  packets (an unchanged dump keeps every word).
 - **Checked in the lab:** Cloud's parts 0 and 1 (his shirt) given `FF0000` with their normals kept showed bright red
   in `MD1STIN` ("C'mon newcomer"), lit and shaded as before.
 - **What drawing them showed** (`tools/model_editor.py`):
