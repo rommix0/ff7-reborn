@@ -1,7 +1,7 @@
 /* The PC build's entry: maps the PS1's RAM, loads the user's own exe into it, and runs the game from the exe's entry
  * point, recompiled. usage: ff7 [ASSETS] [--frames N] [--shot FILE.bmp] [--trace FILE] [--input FILE] [--field N]
  * [--minigame N] [--battle N] [--command A,C,X,T] [--shots K N] [--from N] [--wav FILE] [--dump-at N]
- * [--code "AAAAAAAA VVVV"]... [--fast]
+ * [--code "AAAAAAAA VVVV"]... [--fast] [--buttons xbox|keys]
  *
  * With --frames, it saves what's on screen after N frames (to --shot, or screenshot.bmp) and exits. The rest is the
  * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded,
@@ -9,7 +9,8 @@
  * A's command C (attack X, target mask T) once the battle's menu waits on A, and --shots saves N pictures K frames
  * apart from then on (from frame N with --from), then exits (like --frames, without a window); --wav keeps the
  * sound from the first of them (from the start without --shots); --code holds a GameShark code every frame;
- * --fast runs frames as quickly as the host can instead of at 59.94 Hz. */
+ * --fast runs frames as quickly as the host can instead of at 59.94 Hz; --buttons xbox (or keys) shows the Xbox pad's
+ * glyphs (or the keyboard's) from the start; the window shows those of the device last used. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,6 +84,7 @@ int main(int argc, char **argv)
     char exe[600];
     int i, field = -1, dump_at = -1, a, c, x, t;
 
+    gpu_uploaded = buttons_uploaded;
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--frames") && i + 1 < argc)
             frames_left = atoi(argv[++i]), window = 0;
@@ -118,6 +120,9 @@ int main(int argc, char **argv)
             dump_at = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--dump-every") && i + 1 < argc)
             lab_dump_every(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--buttons") && i + 1 < argc)
+            i++, buttons_show(!strcmp(argv[i], "xbox") ? BUTTONS_XBOX
+                              : !strcmp(argv[i], "keys") ? BUTTONS_KEYS : BUTTONS_PLAYSTATION);
         else if (!strcmp(argv[i], "--fast"))
             hw_set_clock(ps1_seconds);
         else if (!strcmp(argv[i], "--code") && i + 1 < argc) {

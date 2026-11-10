@@ -215,8 +215,9 @@ make split && make pc    # build/pc/ff7.exe, with SDL2.dll beside it
 make pc-test             # the recompiler, the emulated hardware, and the CD layer reading every file on all discs
 ```
 
-Run `build/pc/ff7.exe assets` from the project folder. Keys: arrows, Z/X/A/S (×, ○, □, △), Q/W (L1, R1), 1/2 (L2,
-R2), Enter (Start), Backspace (Select), F12 saves `screenshot.bmp`, Esc quits; a game controller works too.
+Run `build/pc/ff7.exe assets` from the project folder. Keys: WASD or the arrows, J (OK, ○), K (cancel, ×), I (menu,
+△), L (□), Q/E (L1, R1), 1/3 (L2, R2), Enter (Start), Tab (Select), F12 saves `screenshot.bmp`; close the window to
+quit. A game controller works too: A is OK, B cancel. The game's button pictures show the keys or the pad last used.
 `--frames N --shot FILE.bmp` runs without a window and saves frame N.
 
 **Saves** go to memory card images in the working directory, `memcard1.mcd` (slot 1) and `memcard2.mcd` (slot 2):

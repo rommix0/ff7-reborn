@@ -1,6 +1,7 @@
 /* The window: the PS1's display scaled to 640x480 at 4:3, the keyboard and the first game controller as pad 1, and
  * the SPU's sound. */
 #include <stdio.h>
+#include <stdlib.h>
 #define SDL_MAIN_HANDLED /* main.c keeps its own main */
 #include <SDL.h>
 #include "gpu.h"
@@ -19,18 +20,19 @@ static SDL_GameController *controller;
 void lab_dump(void);
 void lab_audio(const short *lr, int frames);
 
-/* Keys for the pad's bits, in the PS1's order (bit 0 Select ... bit 15 Square). */
+/* Keys for the pad's bits, in the PS1's order (bit 0 Select ... bit 15 Square): WASD or the arrows move, the right
+ * hand's J K L I are the face buttons as a pad's diamond (J OK, K cancel), Q/E and 1/3 the shoulders. */
 static const struct {
     SDL_Scancode key;
     int bit;
 } keys[] = {
-    {SDL_SCANCODE_BACKSPACE, 0}, {SDL_SCANCODE_RETURN, 3}, {SDL_SCANCODE_UP, 4}, {SDL_SCANCODE_RIGHT, 5},
-    {SDL_SCANCODE_DOWN, 6}, {SDL_SCANCODE_LEFT, 7}, {SDL_SCANCODE_1, 8}, {SDL_SCANCODE_2, 9},
-    {SDL_SCANCODE_Q, 10}, {SDL_SCANCODE_W, 11}, {SDL_SCANCODE_S, 12}, {SDL_SCANCODE_X, 13},
-    {SDL_SCANCODE_Z, 14}, {SDL_SCANCODE_A, 15},
+    {SDL_SCANCODE_TAB, 0}, {SDL_SCANCODE_RETURN, 3}, {SDL_SCANCODE_W, 4}, {SDL_SCANCODE_UP, 4},
+    {SDL_SCANCODE_D, 5}, {SDL_SCANCODE_RIGHT, 5}, {SDL_SCANCODE_S, 6}, {SDL_SCANCODE_DOWN, 6}, {SDL_SCANCODE_A, 7},
+    {SDL_SCANCODE_LEFT, 7}, {SDL_SCANCODE_1, 8}, {SDL_SCANCODE_3, 9}, {SDL_SCANCODE_Q, 10}, {SDL_SCANCODE_E, 11},
+    {SDL_SCANCODE_I, 12}, {SDL_SCANCODE_J, 13}, {SDL_SCANCODE_K, 14}, {SDL_SCANCODE_L, 15},
 };
 
-/* A controller's buttons by where they sit: the bottom face button is ×, the right one ○. */
+/* A controller's buttons by function, as PC games have them: A (SDL's, by label) is OK, ○; B is cancel, ×. */
 static const struct {
     SDL_GameControllerButton button;
     int bit;
@@ -39,9 +41,19 @@ static const struct {
     {SDL_CONTROLLER_BUTTON_START, 3}, {SDL_CONTROLLER_BUTTON_DPAD_UP, 4}, {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 5},
     {SDL_CONTROLLER_BUTTON_DPAD_DOWN, 6}, {SDL_CONTROLLER_BUTTON_DPAD_LEFT, 7},
     {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, 10}, {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 11},
-    {SDL_CONTROLLER_BUTTON_Y, 12}, {SDL_CONTROLLER_BUTTON_B, 13}, {SDL_CONTROLLER_BUTTON_A, 14},
+    {SDL_CONTROLLER_BUTTON_Y, 12}, {SDL_CONTROLLER_BUTTON_A, 13}, {SDL_CONTROLLER_BUTTON_B, 14},
     {SDL_CONTROLLER_BUTTON_X, 15},
 };
+
+/* The glyphs for the controller: a PlayStation pad's are the game's own. */
+static int pad_glyphs(void)
+{
+    SDL_GameControllerType type = SDL_GameControllerGetType(controller);
+
+    if (type == SDL_CONTROLLER_TYPE_PS3 || type == SDL_CONTROLLER_TYPE_PS4 || type == SDL_CONTROLLER_TYPE_PS5)
+        return BUTTONS_PLAYSTATION;
+    return BUTTONS_XBOX;
+}
 
 /* On SDL's audio thread: the SPU's frames, or silence until enough have come. */
 static void play(void *unused, Uint8 *stream, int len)
@@ -119,8 +131,8 @@ int sdl_open(void)
     return 0;
 }
 
-/* Once a vblank: show the display area, read the keyboard and controller. 0 when the player closes the window. F12
- * saves a screenshot, F11 dumps memory for the lab. */
+/* Once a vblank: show the display area, read the keyboard and controller, and show the glyphs of the one last used.
+ * 0 when the player closes the window. F12 saves a screenshot, F11 dumps memory for the lab. */
 int sdl_frame(void)
 {
     static unsigned int rgba[640 * 512];
@@ -140,8 +152,13 @@ int sdl_frame(void)
     SDL_RenderCopy(renderer, texture, &area, 0);
     SDL_RenderPresent(renderer);
     while (SDL_PollEvent(&e)) {
-        if (e.type == SDL_QUIT || (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE))
+        if (e.type == SDL_QUIT)
             return 0;
+        if (e.type == SDL_KEYDOWN)
+            buttons_show(BUTTONS_KEYS);
+        if (controller && (e.type == SDL_CONTROLLERBUTTONDOWN
+                           || (e.type == SDL_CONTROLLERAXISMOTION && abs(e.caxis.value) > 0x4000)))
+            buttons_show(pad_glyphs());
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F12 && !e.key.repeat)
             save_bmp("screenshot.bmp", rgba, d.w, d.h);
         if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_F11 && !e.key.repeat)

@@ -345,12 +345,17 @@ static void start_transfer(const unsigned int *w, int is_upload)
     transfer->active = 1;
 }
 
+void (*gpu_uploaded)(int x, int y, int w, int h);
+
 static void upload_halfword(int hw)
 {
     if (upload.i < upload.w * upload.h)
         put_pixel(upload.x + upload.i % upload.w, upload.y + upload.i / upload.w, hw);
-    if (++upload.i >= upload.w * upload.h)
-        upload.active = 0;
+    if (++upload.i < upload.w * upload.h)
+        return;
+    upload.active = 0;
+    if (gpu_uploaded)
+        gpu_uploaded(upload.x, upload.y, upload.w, upload.h);
 }
 
 static void settings(unsigned int w)

@@ -1987,6 +1987,18 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     go through the table `D_8009D7C0` first (bit n becomes bit `table[n]`).
   - `func_8001C980`, which the battle calls, keeps a second set from those: `D_80062D88` held, `D_80062D8C`
     pressed, `D_80062D8E` pressed-or-repeating (after 8 frames, every 2); port 2 in `D_80062D90`–`D_80062D96`.
+- **Button glyphs:** dialogue bytes `F6`-`F9` draw ○ △ □ ✕ (`func_8001D6A8`, reached from the field and the world
+  map through `func_8001F1BC`) as 16×16 sprites from `WINDOW.BIN`'s first texture at VRAM (960, 256), 4-bit: u `0x60`
+  ○, `0x70` ✕, `0x80` □, `0x90` △ at v `0x40`, palette row (256, 490). Below them R1, R2, L1, L2 (v `0x50`), and Select
+  and Start (v `0x60`). Config's Customize screen shows all ten, the shoulders in a palette of its own. Nothing reads the
+  remap table to pick a glyph: after a swap in Customize, the tutorials still show the original buttons. The texture is
+  uploaded once, whole (64×256 halfwords), and nothing else wrote over the strip in a new game, a battle, the world map
+  or mini-games 0-1.
+  - The PC build (`pc/buttons.c`) draws its own over the strip for an Xbox-style pad (A/B/X/Y, LB/RB/LT/RT, View and
+    Menu) and for the keyboard (key caps as bound: J K L I, E 3 Q 1, Tab, Enter), in the game's style and colours,
+    when the texture arrives and when the player switches device; a PlayStation pad gets the game's own back. The
+    lower two strips use colour 1 for their marks, as the game's shoulders do: the menu draws them with another
+    palette. Checked on Customize with `--buttons xbox` and `--buttons keys`.
 - **Battle controls**, each one press (or hold) on Cloud's command menu in the first battle, diffed in the lab:
   - Start (`D_80062D7C & 0x800`, battle state `D_80163C7C` = 4): toggles the pause flag `D_80062D99` and plays
     sound 0x99 (paused) or 0x98.

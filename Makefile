@@ -207,6 +207,10 @@ PC_TEST_GPU := build/pc/obj/test_gpu.o build/pc/obj/gpu.o
 build/pc/test_gpu$(PC_EXE): $(PC_TEST_GPU)
 	$(PC_CC) $(PC_TEST_GPU) $(PC_LDFLAGS) -o $@
 
+PC_TEST_BUTTONS := build/pc/obj/test_buttons.o build/pc/obj/buttons.o build/pc/obj/gpu.o
+build/pc/test_buttons$(PC_EXE): $(PC_TEST_BUTTONS)
+	$(PC_CC) $(PC_TEST_BUTTONS) $(PC_LDFLAGS) -o $@
+
 PC_TEST_SPU := build/pc/obj/test_spu.o build/pc/obj/spu.o
 build/pc/test_spu$(PC_EXE): $(PC_TEST_SPU)
 	$(PC_CC) $(PC_TEST_SPU) $(PC_LDFLAGS) -o $@
@@ -245,7 +249,7 @@ build/pc/test_cd$(PC_EXE): $(PC_TEST_CD) build/pc/test_cd.ld
 
 # The game: its C, the PC runtime, and the rest of the exe recompiled from the user's copy.
 PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o sound_init.o sound.o cd.o movie.o)
-PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o gte.o display.o cd_native.o sdl.o lab.o card.o)
+PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o buttons.o gte.o display.o cd_native.o sdl.o lab.o card.o)
 build/pc/obj/sdl.o: PC_CFLAGS += $(PC_SDL_CFLAGS)
 build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)
 	$(PC_NM) $^ > $@
@@ -273,7 +277,7 @@ build/pc/SDL2.dll: $(SDL2_DIR)/bin/SDL2.dll
 	cp $< $@
 pc: build/pc/ff7$(PC_EXE)
 
-PC_TESTS := memory recomp bridge bios modules hw mdec spu gpu gte display cd lab card
+PC_TESTS := memory recomp bridge bios modules hw mdec spu gpu buttons gte display cd lab card
 pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_EXE)
 	$(PYTHON) tools/test_recomp.py
 	$(PYTHON) tools/test_module_yaml.py
@@ -288,6 +292,7 @@ pc-test: $(foreach t,$(PC_TESTS),build/pc/test_$(t)$(PC_EXE)) build/pc/ff7$(PC_E
 	build/pc/test_mdec$(PC_EXE)
 	build/pc/test_spu$(PC_EXE)
 	build/pc/test_gpu$(PC_EXE)
+	build/pc/test_buttons$(PC_EXE)
 	build/pc/test_gte$(PC_EXE)
 	build/pc/test_display$(PC_EXE)
 	build/pc/test_cd$(PC_EXE) "$(PC_EXE_FILE)" assets

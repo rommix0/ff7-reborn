@@ -17,6 +17,13 @@ typedef struct Display {
 } Display;
 
 Display gpu_display(void);
+/* Called after each upload to VRAM, when set: buttons.c watches for the game's window texture. */
+extern void (*gpu_uploaded)(int x, int y, int w, int h);
+
+/* buttons.c: the button glyphs the game's text draws, for the device in use. */
+enum { BUTTONS_PLAYSTATION, BUTTONS_XBOX, BUTTONS_KEYS };
+void buttons_uploaded(int x, int y, int w, int h);
+void buttons_show(int which);
 
 /* display.c: the display area as 0xAARRGGBB pixels (w x h), and a 32-bit BMP of such pixels. */
 void display_to_rgba(const Display *d, unsigned int *out);
