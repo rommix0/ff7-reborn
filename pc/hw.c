@@ -15,6 +15,11 @@ static double host_seconds(void)
     QueryPerformanceFrequency(&rate);
     return (double)now.QuadPart / rate.QuadPart;
 }
+
+static void host_sleep(double seconds)
+{
+    Sleep((DWORD)(seconds * 1000));
+}
 #else
 #include <time.h>
 
@@ -24,6 +29,13 @@ static double host_seconds(void)
 
     clock_gettime(CLOCK_MONOTONIC, &now);
     return now.tv_sec + now.tv_nsec / 1e9;
+}
+
+static void host_sleep(double seconds)
+{
+    struct timespec wait = {0, (long)(seconds * 1e9)};
+
+    nanosleep(&wait, 0);
 }
 #endif
 
@@ -200,12 +212,15 @@ void hw_poll(void)
     irq_raise(IRQ_VBLANK);
     pc_vblank();
     /* A frame takes real time: wait for the host to catch up, or, after a long stall (a load), start counting again
-     * rather than rush. ponytail: spins a core while waiting; sleep when that matters. */
+     * rather than rush. The wait sleeps but for its last 2 ms, which a sleep's 1 ms ticks could overshoot. */
     now = clock_now();
     if (now - host_start - ps1_time > 0.25)
         host_start = now - ps1_time;
-    while (now - host_start < ps1_time)
+    while (now - host_start < ps1_time) {
+        if (clock_now == host_seconds && ps1_time - (now - host_start) > 0.003)
+            host_sleep(ps1_time - (now - host_start) - 0.002);
         now = clock_now();
+    }
 }
 
 /* A register's value as a word; a 16- or 8-bit access takes or replaces its part of it. */

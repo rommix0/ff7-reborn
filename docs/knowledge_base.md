@@ -2123,7 +2123,9 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     instructions, and 600-frame straight walks bring on 28 battles (fields and world map, spells and summons cast, six
     of them over, one a loss through the game over screen) with no crash once the jump table above is read whole. A
     random walk on the world map meets few battles: it turns before it covers ground.
-- **Not yet:** waiting for the host's clock spins a core.
+- **Waiting for the host's clock** after each vblank sleeps but for its last 2 ms: a 900-frame run uses 3% of a core,
+  not 98%, and still takes its 15 s. Windows wakes a sleep on 1 ms ticks once SDL is up (its default timer
+  resolution); a run with no window wakes on the system's coarser ticks, so its frames land less evenly.
 - `make pc-test` runs the recompiler on hand-assembled fixtures and C tests of the memory map, the C/recompiled
   bridge, the BIOS, modules, the hardware registers, MDEC, SPU, GPU, GTE, display, the CD layer and the memory cards.
 
