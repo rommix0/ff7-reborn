@@ -631,3 +631,25 @@ config = 0x8009D7BE;
 magic_places = 0x800831C4;
 magic_rows = 0x8001029C;
 
+// The controllers (src/main/pad.c).
+pad_buf = 0x800696AC;
+button_map = 0x8009D7C0;
+demo_input = 0x80062FA0;
+demo_script = 0x80062E9C;
+demo_wait = 0x80062E94;
+pad_started = 0x80062D70;
+demo_text_shown = 0x80062D71;
+demo_text_x = 0x80062D72;
+demo_text_y = 0x80062D74;
+field_repeating1 = 0x80062D60;
+field_repeating2 = 0x80062D62;
+field_wait1 = 0x80062D64;
+field_wait2 = 0x80062D66;
+menu_repeating1 = 0x80062D68;
+menu_repeating2 = 0x80062D6A;
+menu_wait1 = 0x80062D6C;
+menu_wait2 = 0x80062D6E;
+field_pad1 = 0x80062D78;
+field_pad2 = 0x80062D80;
+menu_pad1 = 0x80062D88;
+menu_pad2 = 0x80062D90;
