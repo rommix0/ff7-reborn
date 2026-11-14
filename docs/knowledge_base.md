@@ -1743,8 +1743,8 @@ same set). They give the original module and file split, and the staff folders b
   them; the default is `sound.c`'s). Run it with the venv's `bin` on `PATH` (command in the script's header). Treat a
   find as a hint and rewrite it by hand in the file's style.
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical to
-  retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6 and 231 of the sound driver's 232
-  functions are C; the rest is assembly.
+  retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16 and
+  231 of the sound driver's 232 functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2019,7 +2019,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     turn to the next ready member and R1 switches single and all targets while one is chosen, and only Cloud is on
     the menu. R2's flag is the manual's target cursor by the same reading; neither is checked further yet.
 - **Battle** (`BATTLE.X`, `BATINI.X`, `BATRES.X` in `PC_MODULES`):
-  - A module file's 8-byte header is its unpacked size and a BSS size, which `func_80015CA0` zeroes after the image.
+  - A module file's 8-byte header is its unpacked size and a BSS size, which `unpack_module` zeroes after the image.
     `BATRES.X` ends on a `jr $ra` whose delay slot is that BSS.
   - `BATTLE.X` runs at `0x800A0000` from `func_800A1158` (`run_overlay(5, …)`); `loader.c` called it and the file-3
     entry by `D_` names, which the PC link took as plain addresses, so they're `func_` names now, given to the PS1 link
@@ -2260,7 +2260,11 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   loop optimizer turns into a pointer set up after the loop's other addresses; a `do { } while (0)` around two
   statements (a macro, by the look of it); one exit through a result variable; a held-buttons global that's
   `volatile` (an `andi` stays after its first load); a battle field as a struct member, not a plain variable (its
-  read-modify-write goes through a register); `--expand-div` for a division's zero check.
+  read-modify-write goes through a register); `--expand-div` for a division's zero check; a header field read twice
+  (CSE leaves a copy in the delay slot); a counter of its own for a zeroing loop (GCC reverses it with a scratch
+  register); `return f()` turned into a jump where the original recursed (assign, then one return).
+- C that's undefined in order (two `x++` in one expression, `t = (--t)->v`) has to be split for the PC compiler,
+  in a form that still matches: read the bytes into locals first, `t[-1]`.
 
 **Switches.**
 - A jump table runs to the highest listed case: `cd_cancel` lists states that do what `default` does, because the
@@ -2310,11 +2314,11 @@ Before it sit the hand-written entry at `0x800110C0` (clears BSS, sets `$sp`/`$g
   - `load_sound_files` puts INSTR.ALL at `0x800F0000`, EFFECT.ALL at `0x801B0000` and INSTR.DAT at `0x801BC800`, then
     calls `snd_init` and `snd_load_effects`; `snd_load_bank2` loads the second bank into `0x800A0000`/`0x800E0000`.
   - `load_boot_files` reads files 1 and 2 with read callbacks that walk their numbered entries
-    (`func_80015B44`/`B50`/`B88`/`BC0`): file 1's entry 0 is an image for VRAM, file 2's entries go to the addresses
+    (`archive_open`, `archive_entry_id`, `archive_entry_unpacked_size`, `archive_unpack_next`): file 1's entry 0 is an image for VRAM, file 2's entries go to the addresses
     in `D_80048DD4`. It and `func_800148A0` reach `D_80062F88` and `D_80063014` (the scratchpad pointer) through
     `$gp`.
 - **Modules:** `run_overlay(file, entry)` reads the file to `0x801B0000`, unpacks it to `0x800A0000`
-  (`func_80015CA0`) and calls `entry`. `func_800146A4` loops on `game_mode`: 4 starts file 3, 2 file 5.
+  (`unpack_module`) and calls `entry`. `func_800146A4` loops on `game_mode`: 4 starts file 3, 2 file 5.
 - **Display:** two `DISPENV`s (`disp_env`, y 232 and 0) and two `DRAWENV`s (`draw_env`, y 8 and 240, `dtd` on).
   `init_display` sets them up, `flip_frame` toggles `frame` and puts the next pair and its ordering table,
   `copy_frame` copies the shown buffer to the other. `vsync_callback` runs what `D_80095DD4` picks (1 `flip_frame`),

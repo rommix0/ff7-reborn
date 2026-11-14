@@ -16,15 +16,15 @@ extern unsigned char D_80063048[];
 extern void *D_80048DD4[]; /* where func_80014750 puts each entry of its file */
 
 void copy_words(int *dst, int *src, int bytes);
-void func_80015C3C(void *src, void *dest, int n);
+void archive_unpack_id(void *src, void *dest, int n);
 void func_800148A0(void);
 void text_reset(void);
 void *text_alloc(unsigned short size);
 /* A file of numbered entries: start reading it, the next entry's number (0xFFFF at the end) and size, copy it out. */
-void func_80015B44(void *file);
-unsigned short func_80015B50(void);
-unsigned short func_80015B88(void);
-void func_80015BC0(void *dest);
+void archive_open(void *file);
+unsigned short archive_entry_id(void);
+unsigned short archive_entry_unpacked_size(void);
+void archive_unpack_next(void *dest);
 void load_tim(unsigned int *tim);
 void func_800149E0(void);
 void func_80044000(void *rect, unsigned int *data); /* VRAM upload */
@@ -82,7 +82,7 @@ void run_overlay(int file, void (*entry)(void))
 {
     read_disc_file(file, (void *)0x801B0000, 0);
     wait_disc_read(0);
-    func_80015CA0((void *)0x801B0000, (void *)0x800A0000);
+    unpack_module((void *)0x801B0000, (void *)0x800A0000);
     entry();
 }
 
@@ -112,13 +112,13 @@ void func_80014750(void)
     unsigned short id;
     int size;
 
-    func_80015B44((void *)0x801B0000);
-    while ((id = func_80015B50()) != 0xFFFF) {
-        size = func_80015B88();
+    archive_open((void *)0x801B0000);
+    while ((id = archive_entry_id()) != 0xFFFF) {
+        size = archive_entry_unpacked_size();
         if (id == 9)
-            func_80015BC0(text_alloc(size));
+            archive_unpack_next(text_alloc(size));
         else if (D_80048DD4[id])
-            func_80015BC0(D_80048DD4[id]);
+            archive_unpack_next(D_80048DD4[id]);
     }
 }
 
@@ -127,16 +127,16 @@ void func_80014804(void)
 {
     unsigned short id;
 
-    func_80015B44((void *)0x801B0000);
-    while ((id = func_80015B50()) != 0xFFFF) {
+    archive_open((void *)0x801B0000);
+    while ((id = archive_entry_id()) != 0xFFFF) {
         switch (id) {
         case 0:
-            func_80015BC0((void *)0x801C0000);
+            archive_unpack_next((void *)0x801C0000);
             func_800149E0();
             load_tim((unsigned int *)0x801C0000);
             break;
         case 1:
-            func_80015BC0(D_80063048);
+            archive_unpack_next(D_80063048);
             break;
         }
     }
@@ -167,7 +167,7 @@ void func_80014934(void)
     func_800148A0();
     read_disc_file(2, (void *)0x801B0000, 0);
     wait_disc_read(0);
-    func_80015C3C((void *)0x801B0000, D_8009C738, 3);
+    archive_unpack_id((void *)0x801B0000, D_8009C738, 3);
 }
 
 void load_tim(unsigned int *tim)

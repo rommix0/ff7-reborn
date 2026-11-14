@@ -56,7 +56,7 @@ int cd_seek(unsigned int lba, void (*callback)(void));
 int cd_step(void);
 void read_disc_file(int i, void *dest, void (*callback)(void));
 void wait_disc_read(void (*idle)(void));
-void func_80015CA0(void *src, void *dest); /* unpacks a module */
+void unpack_module(void *src, void *dest); /* unpacks a module */
 void func_800140F4(void);
 int DrawSync(int mode);
 void ClearImage(RECT *rect, int r, int g, int b);

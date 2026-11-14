@@ -57,6 +57,42 @@ inventory = 0x8009CBE0;
 kernel_characters = 0x80082268;
 D_800F83A4 = 0x800F83A4; // the battle's state
 
+// gzip unpacking (src/main/inflate.c).
+archive_open = 0x80015B44; // type:func
+archive_entry_id = 0x80015B50; // type:func
+archive_entry_unpacked_size = 0x80015B88; // type:func
+archive_unpack_next = 0x80015BC0; // type:func
+archive_unpack_id = 0x80015C3C; // type:func
+unpack_module = 0x80015CA0; // type:func
+huffman_alloc = 0x80015D14; // type:func
+huffman_build = 0x80015D64; // type:func
+huffman_free = 0x80016320; // type:func
+inflate_codes = 0x80016340; // type:func
+inflate_stored = 0x800166C0; // type:func
+inflate_fixed = 0x80016808; // type:func
+inflate_dynamic = 0x800169B8; // type:func
+inflate_block = 0x80016F90; // type:func
+inflate = 0x8001708C; // type:func
+gunzip = 0x80017108; // type:func
+archive = 0x80062E30;
+inflate_out = 0x80062E34;
+inflate_in = 0x80062E38;
+inflate_src = 0x80062E3C;
+inflate_dst = 0x80062E40;
+huffman_pool = 0x80062E44;
+bit_buf = 0x80062E48;
+bit_count = 0x80062E4C;
+huffman_count = 0x80062E50;
+huffman_pool_used = 0x80062D54;
+lit_bits = 0x80062D58;
+dist_bits = 0x80062D5C;
+code_length_order = 0x80048DF8;
+length_base = 0x80048E44;
+length_extra = 0x80048E84;
+dist_base = 0x80048EC4;
+dist_extra = 0x80048F00;
+bit_masks = 0x80048F3C;
+
 // Sound driver (0x800293D0-0x80033A90). Names are ours, from reading the code; see docs/knowledge_base.md §4.
 snd_run_command = 0x8002DF88; // type:func
 snd_flush_queue = 0x8002E1A8; // type:func

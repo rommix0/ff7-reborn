@@ -202,14 +202,14 @@ void func_800112E8(void)
     if (D_800965EC == 2) {
         while (cd_step())
             ;
-        func_80015CA0((void *)0x801C0000, (void *)0x800A0000);
+        unpack_module((void *)0x801C0000, (void *)0x800A0000);
     } else {
         while (cd_step())
             ;
         cd_read(D_80048D2C.lba, D_80048D2C.size, (void *)0x80180000, 0);
         while (cd_step())
             ;
-        func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+        unpack_module((void *)0x80180000, (void *)0x800A0000);
     }
     if (D_80071E28 != 2) {
         if (D_800965EC == 2)
@@ -313,11 +313,11 @@ void func_80011860(void)
             cd_read(D_80048D24.lba, D_80048D24.size, (void *)0x80180000, 0);
             while (cd_step())
                 ;
-            func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+            unpack_module((void *)0x80180000, (void *)0x800A0000);
         } else {
             while (cd_step())
                 ;
-            func_80015CA0((void *)0x801C0000, (void *)0x800A0000);
+            unpack_module((void *)0x801C0000, (void *)0x800A0000);
         }
     }
     func_800CF60C();
@@ -672,7 +672,7 @@ int main(void)
                     cd_read(D_80048D74.lba, D_80048D74.size, (void *)0x80180000, 0);
                     while (cd_step())
                         ;
-                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    unpack_module((void *)0x80180000, (void *)0x800A0000);
                     func_800A00D0();
                     D_800965EC = 6;
                     game_mode = 1;
@@ -682,7 +682,7 @@ int main(void)
                     cd_read(D_80048D5C.lba, D_80048D5C.size, (void *)0x80180000, 0);
                     while (cd_step())
                         ;
-                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    unpack_module((void *)0x80180000, (void *)0x800A0000);
                     func_800A02D0();
                     D_800965EC = 7;
                     game_mode = 1;
@@ -692,7 +692,7 @@ int main(void)
                     cd_read(D_80048D3C.lba, D_80048D3C.size, (void *)0x80180000, 0);
                     while (cd_step())
                         ;
-                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    unpack_module((void *)0x80180000, (void *)0x800A0000);
                     func_800A0390();
                     D_800965EC = 8;
                     game_mode = 1;
@@ -702,7 +702,7 @@ int main(void)
                     cd_read(D_80048D44.lba, D_80048D44.size, (void *)0x80180000, 0);
                     while (cd_step())
                         ;
-                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    unpack_module((void *)0x80180000, (void *)0x800A0000);
                     func_800A0448();
                     D_800965EC = 0xE;
                     game_mode = 1;
@@ -712,7 +712,7 @@ int main(void)
                     cd_read(D_80048D34.lba, D_80048D34.size, (void *)0x80180000, 0);
                     while (cd_step())
                         ;
-                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    unpack_module((void *)0x80180000, (void *)0x800A0000);
                     func_800B6B58();
                     D_800965EC = 9;
                     game_mode = 1;
@@ -722,7 +722,7 @@ int main(void)
                     cd_read(D_80048D64.lba, D_80048D64.size, (void *)0x80180000, 0);
                     while (cd_step())
                         ;
-                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    unpack_module((void *)0x80180000, (void *)0x800A0000);
                     result = func_800A0450();
                     D_8009D3EA[0] = result;
                     D_8009D3EA[1] = result >> 8;
@@ -734,7 +734,7 @@ int main(void)
                     cd_read(D_80048D6C.lba, D_80048D6C.size, (void *)0x80180000, 0);
                     while (cd_step())
                         ;
-                    func_80015CA0((void *)0x80180000, (void *)0x800A0000);
+                    unpack_module((void *)0x80180000, (void *)0x800A0000);
                     result = func_800A00BC(D_8009D5E5[0]);
                     D_8009D5E5[1] = result;
                     D_8009D5E5[2] = result >> 8;
