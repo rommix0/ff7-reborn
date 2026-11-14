@@ -19,8 +19,8 @@ extern void *D_80048DD4[]; /* where func_80014750 puts each entry of its file */
 void copy_words(int *dst, int *src, int bytes);
 void func_80015C3C(void *src, void *dest, int n);
 void func_800148A0(void);
-void func_80014C70(void);
-void *func_80014C80(unsigned short size);
+void text_reset(void);
+void *text_alloc(unsigned short size);
 /* A file of numbered entries: start reading it, the next entry's number (0xFFFF at the end) and size, copy it out. */
 void func_80015B44(void *file);
 unsigned short func_80015B50(void);
@@ -117,7 +117,7 @@ void func_80014750(void)
     while ((id = func_80015B50()) != 0xFFFF) {
         size = func_80015B88();
         if (id == 9)
-            func_80015BC0(func_80014C80(size));
+            func_80015BC0(text_alloc(size));
         else if (D_80048DD4[id])
             func_80015BC0(D_80048DD4[id]);
     }
@@ -155,7 +155,7 @@ int load_boot_files(void)
     D_80063014 = (void *)0x1F800000;
     D_800707C0 = D_80063048;
     load_disc_table();
-    func_80014C70();
+    text_reset();
     read_disc_file(1, (void *)0x801B0000, func_80014804);
     wait_disc_read(0);
     read_disc_file(2, (void *)0x801B0000, func_80014750);

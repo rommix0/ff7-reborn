@@ -95,18 +95,18 @@ A movie name found on several discs has the same contents on each, so the PC por
   (kernel, scenes, every field's dialogue) uses only … “ ” ‘ ’ ·; the dummy enemies' names (`ENEMY000`-`009`) and
   13 dummy attacks' are in another font's bytes, so the tools show any other byte as `{XX}`. A field entity's name is
   Shift-JIS (`CLSIN2_1` has one opening with a full-width space, `81 40`). From 0xE0 they're codes:
-  `EA`–`F1` take a big-endian `u16` that `func_80014E74` fills in (`EA` a character's name, `EB` an item, `EC` a
+  `EA`–`F1` take a big-endian `u16` that `text_expand` fills in (`EA` a character's name, `EB` an item, `EC` a
   number, `ED` a party member or enemy, `EE` and `F0` other name lists, `EF` one character, `F1` any list by list and
   index); `F8` (colour) and `FA`–`FE` (more glyph pages) take a byte (the drawing at `0x80026F7C`); `FF` ends a string.
 - **Sections:** 0–8 are tables, 9–26 text. A text section is a `u16` offset per string, then the strings. The help
   texts (9–16) and the battle text (25) are packed: `F9 b` copies `(b >> 6) * 2 + 4` bytes of the packed section from
-  `(b & 0x3F) + 1` bytes before the `F9` (`func_800150E4`). The names (17–24, 26) aren't (`func_80014D58` copies them
+  `(b & 0x3F) + 1` bytes before the `F9` (`text_unpack`). The names (17–24, 26) aren't (`text_copy` copies them
   as they are; packed, "Hi-Potion" came out "Hi-i"). A copy can bring an earlier string's `FF`, which ends the text.
   The battle text's inserts are filled in before its copies are unpacked, at positions counted in the packed string,
   so the original never puts a copy after an insert (0 of 33) and neither may a rebuild. Section 9's first offset is
   `0x3F`, a byte into its own table.
 - **Loading:** `load_boot_files` reads the file to `0x801B0000` by `YAMADA.BIN`'s entry (sector 622, 22,376 bytes).
-  `func_80014C80` gives each text section the next part of `0x80063690`–`0x8006947C` (24,044 bytes; the original
+  `text_alloc` gives each text section the next part of `0x80063690`–`0x8006947C` (24,044 bytes; the original
   uses 23,030) without a check and keeps its offset in the `u16` table at `0x80069490`. The tables load whole:
   commands `0x800707C4` (32 × 8 bytes), spells `0x800708C4` (128 × 28), section 2 `0x80082268`, items `0x800722CC`
   (128 × 28), weapons `0x800738A0` (128 × 44), armor `0x80071E44` (32 × 36), accessories `0x80071C24` (32 × 16),

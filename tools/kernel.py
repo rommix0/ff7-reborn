@@ -25,8 +25,8 @@ NAMES = ["commands", "attacks", "battle_and_growth", "new_game", "items", "weapo
          "key_item_help", "command_names", "attack_names", "item_names", "weapon_names", "armor_names",
          "accessory_names", "materia_names", "key_item_names", "battle_text", "summon_attack_names"]
 TEXT = 9  # the section type of every text section; the tables' types are their numbers
-# The help texts go through func_800150E4 and the battle text through func_80014E74, which unpack F9 references; the
-# names are copied as they are (func_80014D58).
+# The help texts go through text_unpack and the battle text through text_expand, which unpack F9 references; the
+# names are copied as they are (text_copy).
 PACKED = set(range(9, 17)) | {25}
 # Each table loads whole to a fixed address, so its size can't change.
 SIZES = [256, 3584, 3988, 2876, 3584, 5632, 1152, 512, 1920]
@@ -49,7 +49,7 @@ LAYOUTS = {
                  (0x0C, 2, "equip_mask"), (0x0E, 2, "restrictions")]),
     8: (20, 23, [(2 * i, 2, f"ap_level_{i + 2}") for i in range(4)]),
 }
-# func_80014C80 hands each text section the next piece of the exe's 0x80063690-0x8006947C with no check; the u16
+# text_alloc hands each text section the next piece of the exe's 0x80063690-0x8006947C with no check; the u16
 # offset table after it is what an overflow would hit.
 TEXT_SPACE = 0x8006947C - 0x80063690
 ARGS = {**dict.fromkeys(range(0xEA, 0xF2), 2), 0xF8: 1, **dict.fromkeys(range(0xFA, 0xFF), 1)}
@@ -87,7 +87,7 @@ def encode(text: str) -> bytes:
 
 
 def expand(section: bytes, at: int) -> bytes:
-    """The string at an offset, as func_800150E4 unpacks it: F9 b copies (b >> 6) * 2 + 4 bytes of the section from
+    """The string at an offset, as text_unpack unpacks it: F9 b copies (b >> 6) * 2 + 4 bytes of the section from
     (b & 0x3F) + 1 bytes before the F9."""
     out = bytearray()
     while section[at] != 0xFF:
@@ -115,7 +115,7 @@ def read_text(section: bytes) -> list[bytes]:
 def pack_text(strings: list[bytes], compress: bool = True) -> bytes:
     """A text section, repeats as F9 references if compress. A reference starts and ends between codes (the unpacker
     copies a code's arguments without looking at them), copies only bytes that are text themselves, and never follows
-    an insert in its string: the battle text's are filled in first (func_80014E74), which moves what comes after."""
+    an insert in its string: the battle text's are filled in first (text_expand), which moves what comes after."""
     raw = bytearray(2 * len(strings))
     copyable = bytearray(len(raw))
     at = {}

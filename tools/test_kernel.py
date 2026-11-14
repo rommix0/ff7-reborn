@@ -24,12 +24,12 @@ assert read_text(section) == strings
 assert len(section) < 2 * len(strings) + sum(len(s) + 1 for s in strings)
 assert section[:2] == section[2:4] and section[4:6] == section[8:10]  # identical strings share one copy
 
-# The battle text has its inserts filled in (func_80014E74) before the references are unpacked, with positions counted
+# The battle text has its inserts filled in (text_expand) before the references are unpacked, with positions counted
 # in the packed string, so nothing after an insert may be a reference.
 inserted = pack_text([encode("Restores HP"), encode("{EB 00 05}Restores HP")])
 assert 0xF9 not in inserted[inserted.index(0xEB):]
 
-# Names are copied without unpacking (func_80014D58), so their sections are packed without references.
+# Names are copied without unpacking (text_copy), so their sections are packed without references.
 plain = pack_text(strings, compress=False)
 assert read_text(plain) == strings and 0xF9 not in plain
 
