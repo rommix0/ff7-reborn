@@ -34,6 +34,7 @@ typedef struct Character {
 extern Character D_8009C738[];
 extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
 extern int character_record[];     /* each character id's place in D_8009C738 */
+extern unsigned short config; /* the Config menu's settings: bits 2-3 the controller mapping, 10-12 Magic order */
 
 /* A spell or command a member has, as the menus and battle list it. */
 typedef struct MemberSpell {

@@ -624,3 +624,10 @@ movie_fading = 0x8006E10C;
 movie_frame = 0x8006E110;
 movie_last_frame = 0x8006E114;
 movie_frame_done = 0x8006E118;
+
+// The Magic order (src/main/magic_order.c).
+members = 0x8009D84C;
+config = 0x8009D7BE;
+magic_places = 0x800831C4;
+magic_rows = 0x8001029C;
+

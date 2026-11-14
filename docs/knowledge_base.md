@@ -1676,6 +1676,7 @@ same set). They give the original module and file split, and the staff folders b
 | `random.c`, `text.c`, `inflate.c` | `0x80014A84`–`0x800155A4`, `0x80015B44`–`0x80017238` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8` |
 | `battle.c` | `0x800155A4`–`0x80015B44` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8 --expand-div` |
 | `materia_ap.c`, `materia.c`, `materia_own.c`, `member_build.c` | `0x80017238`–`0x8001C0EC` | 2.6.3 | 2.21 | 8 | `--use-comm-section -G8` |
+| `magic_order.c` | `0x8001C0EC`–`0x8001C3CC` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8` |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
@@ -1688,7 +1689,8 @@ same set). They give the original module and file split, and the staff folders b
   - GCC 2.6.3 in the `-G8` game code: `materia_gain_ap` (2.7.2 keeps `&materia_levelled[slot]` in a register
     through both loops), and `materia.c`'s readers of `support_kind`, an `int` whose low byte 2.6.3 loads alone.
   - GCC 2.7.2 over 2.6.3: `bitops.c` (2.6.3 matches one of its three functions); `transition.c` (under `main.c`'s
-    toolchain a loop counter reset isn't duplicated as the game has it).
+    toolchain a loop counter reset isn't duplicated as the game has it); `magic_order.c` (2.6.3 orders the first
+    loop's pointer steps the other way and masks a byte it already has).
   - ASPSX 2.21: `li 1` is `ori` (2.34 and older), and an indexed access goes through `addiu $at` (before 2.30):
     `lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`.
   - ASPSX 2.34: `li` is still `ori`, but an indexed load folds into `%lo`: `lui at; addu at, at, a0; lw v0,
@@ -1750,8 +1752,8 @@ same set). They give the original module and file split, and the staff folders b
   find as a hint and rewrite it by hand in the file's style.
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical
   to retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
-  `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25, `member_build.c` and 231 of the sound driver's
-  232 functions are C; the rest is assembly.
+  `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25, `member_build.c`, `magic_order.c` and 231 of
+  the sound driver's 232 functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2295,6 +2297,13 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   after one load of `cur_member`, where three statements reload it after each byte; the spell list's Quadra Magic
   fields go through a pointer to the slot. A function that falls off its end (`func_8001BA54`) returns whatever
   `$v0` holds.
+- `magic_order.c`: the copy into a menu line counts `n` up in the loop body (in the `for`'s step, GCC orders the two
+  pointer increments the other way). The table of rows by Magic order stays data at `0x8001029C`; the hand-written
+  copy after the file (`0x8001C3CC`, word by word, with a load in a branch's delay slot) stays assembly.
+- On the PC, native C doesn't poll (see **Waits in C**), so a busy loop that becomes C stops advancing PS1 time:
+  `magic_order.c`'s ~600 loop passes per call shifted disc reads by a frame and battle ends by up to ~600 frames in
+  the pillar play-test, with the same events in the same order. A differential test against the recompiled
+  originals (20,000 random RAM states) found no difference in what the code does.
 
 **Switches.**
 - A jump table runs to the highest listed case: `cd_cancel` lists states that do what `default` does, because the
