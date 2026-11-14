@@ -1623,6 +1623,10 @@ same set). They give the original module and file split, and the staff folders b
   disassembler, the names, each section's layout and the packer.
 - `tools/shop.py`: `SHOPMENU.MNU`'s shops, titles, clerk lines and prices to a JSON file and back (§2,
   `MENU/SHOPMENU.MNU`); `tools/test_shop.py` checks the layout and its limits.
+- `tools/save.py`: a memory card's FF7 saves to JSON and back, and quick changes (`set`) (§ Memory cards);
+  `tools/test_save.py` checks the checksum, the named fields, the preview, `set` and its limits, and that the user's
+  57 saves build back byte for byte. Checked in the lab: a save given 987,654 gil and Cloud at level 77 named Zack
+  shows them in the Continue list and the menu (the level alone doesn't change HP or MP).
 - `tools/model.py`: the field's models (`.BCX`, `.BSX`) to JSON files and back (§2, `FIELD/*.BCX` and `.BSX`), with
   posing and the GTE's lighting; `tools/test_model.py` checks the layout, shared data, its limits, posing and light.
 - `tools/model_editor.py`: the field viewer, models and maps (`docs/model_editor.md`); its PS1 view and the maps'
@@ -2127,6 +2131,27 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     (the menu masks at `+0xBC0`, the field at `+0xB96` = `0x8009D27A`, the disc at `+0xEA4` = `0x8009D588`). Its
     opening bytes are what the file list shows: the leader's level at `+4`, the party's portraits at `+5`, the
     leader's name at `+8`, HP and MP at `+0x18`, gil at `+0x20`, seconds played at `+0x24`, the place at `+0x28`.
+  - **The save's data** is 0x10F4 bytes of RAM from `0x8009C6E4`, the block's bytes `0x200`-`0x12F3` (the rest of the
+    0x2000 is zeros). Checked against the save menu's code, all 57 saves on the user's cards and RAM at the new game's
+    first menu (Cloud LV 6, HP 302/302, MP 54/56, 240 gil, 2:31, "Platform"):
+    - `+0`: a checksum word, `func_801D1950` (the save menu's) over the 0x10F0 bytes from `+4`: from `0xFFFF`, each
+      byte XORed into the high byte, then eight shifts left, XORing in `0x1021` when the top bit falls out; the
+      result inverted. Saving (`0x801D2808`) stores it as a 32-bit word (its top half 0); loading (`0x801D496C`)
+      compares the word and flags a mismatch. All 57 saves check out.
+    - `+4`: the file list's preview (above). `+0x54`: the nine characters' records, 0x84 bytes each (Cloud, Barret,
+      Tifa, Aeris, Red XIII, Yuffie, Cait Sith, Vincent, Cid): `+1` level, `+0x10` the name (12 bytes of game
+      text), `+0x2C` HP, `+0x2E` HP before equipment, `+0x30` MP, `+0x32` MP before equipment, `+0x38` max HP,
+      `+0x3A` max MP, `+0x3C` EXP. (At the first menu Cloud's 314 HP before equipment are 302 after his two
+      materia's 2% each.)
+    - `+0x4F8`: the party, three character numbers (`FF` empty). `+0x4FC`: 320 item words, the item's number in the
+      low 9 bits and the count in the top 7 (`FFFF` empty).
+    - `+0xB7C` gil, `+0xB80` seconds played, `+0xB94` the module (1 field, 3 world map), `+0xB96` the field's number,
+      `+0xEA4` the disc, `+0xF0C` the place's name (24 bytes of game text).
+    - The preview at `+4` always matches the data in all 57 saves (the leader's level, name, HP, max HP, MP, max MP,
+      the party, gil, seconds, the place), but the text fields' bytes after their end differ: the game leaves
+      leftovers there.
+    - Not checked yet, from the study map: materia (4 bytes each: a number and 24 bits of AP) at `+0x77C` and in
+      each character's record at `+0x40`, chocobos, mini-game scores, the config options at `+0x10D8`.
   - Cards from emulators (ePSXe's `.mcr`) are the same raw images and load as they are, renamed `memcard1.mcd`. In
     the lab, Continue is: the credits skipped (up 2040, ○ 2100, START 2160), then ○ at 2390 (the title's cursor
     starts on Continue when the card has a save), ○ at 2520 (slot 1), ○ at 2660 (file 01); the game is up by 2692.

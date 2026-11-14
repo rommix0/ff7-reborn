@@ -78,6 +78,17 @@ python tools/model.py dump "assets/Final Fantasy VII (USA) (Disc 1)" models
 python tools/model.py build models assets
 ```
 
+Saves on a memory card (a raw 128 KB image: an emulator's `.mcr`, the PC build's `memcard1.mcd`), for tests that start
+anywhere in the story: each save as JSON (party, the characters' levels, names, HP, MP and EXP, items by name, gil,
+time, where it is, the disc; the rest as hex), built back with the game's checksum and the file list's preview. `set`
+changes a few at once. Work on a copy of the card:
+
+```bash
+python tools/save.py dump memcard1.mcd saves
+python tools/save.py build saves memcard1.mcd
+python tools/save.py set memcard1.mcd S01 gil=999999 level.cloud=50 party=cloud,tifa,barret item.Elixir=50
+```
+
 View them with `tools/model_editor.py` (the start of the editor `docs/model_editor.md` plans; it needs
 imgui-bundle, moderngl and numpy): pick a party member, any map's model or any battle model (the party with each of
 their 16 weapons, every enemy by name), turn it about, play its animations. Beside
