@@ -2,6 +2,8 @@
  * names of things (docs/knowledge_base.md, KERNEL.BIN). Built like random.c before it, -G8 and ASPSX 2.34: the
  * section count and the bytes used are reached through $gp. */
 
+#include "main.h"
+
 int text_sections;                   /* sections loaded so far */
 int text_used;                       /* bytes of text_buffer they take */
 extern unsigned short text_offsets[]; /* each section's place in text_buffer */
@@ -20,14 +22,6 @@ extern unsigned char kind_sections[];     /* each kind's name section, 0xFF for 
 
 extern unsigned char D_800708D4[]; /* +0x10 of the first spell record */
 extern unsigned char D_800722DC[]; /* +0x10 of the first item record */
-
-typedef struct {
-    unsigned char id;
-    unsigned char pad1[15];
-    unsigned char name[12];
-    unsigned char pad1C[0x84 - 0x1C];
-} Character;
-extern Character D_8009C738[]; /* the save's nine characters */
 
 /* The battle's, loaded with it. */
 typedef struct {

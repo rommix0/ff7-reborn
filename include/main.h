@@ -9,6 +9,21 @@ typedef struct DiscFile {
 
 extern DiscFile disc_files[]; /* by number */
 
+/* A character in the save (0x8009C738, nine of them). */
+typedef struct Character {
+    unsigned char id;
+    unsigned char level;
+    unsigned char pad2[14];
+    unsigned char name[12];
+    unsigned char pad1C[5];
+    unsigned char exp_bar; /* the Status screen's bar */
+    unsigned char pad22[26];
+    unsigned int exp;
+    unsigned char pad40[64];
+    unsigned int exp_to_next;
+} Character;
+extern Character D_8009C738[];
+
 /* libgpu's display and drawing environments (layouts from Sony's Libref). */
 typedef struct RECT {
     short x, y, w, h;

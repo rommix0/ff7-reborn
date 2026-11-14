@@ -3,16 +3,20 @@
 
 #if !defined(M2CTX) && !defined(PERMUTER) && !defined(NATIVE)
 
+/* Inside a function maspsx unwraps: with -G8, GCC writes every function after the file's top-level asm, so a bare
+ * __asm__ would land first. */
 #ifndef INCLUDE_ASM
 #define INCLUDE_ASM(FOLDER, NAME) \
-    __asm__( \
-        ".section .text\n" \
-        "    .set noat\n" \
-        "    .set noreorder\n" \
-        "    .include \"" FOLDER "/" #NAME ".s\"\n" \
-        "    .set reorder\n" \
-        "    .set at\n" \
-    )
+    void __maspsx_include_asm_hack_##NAME(void) { \
+        __asm__( \
+            ".text # maspsx-keep\n" \
+            "    .set noat # maspsx-keep\n" \
+            "    .set noreorder # maspsx-keep\n" \
+            "    .include \"" FOLDER "/" #NAME ".s\" # maspsx-keep\n" \
+            "    .set reorder # maspsx-keep\n" \
+            "    .set at # maspsx-keep\n" \
+        ); \
+    }
 #endif
 #ifndef INCLUDE_RODATA
 #define INCLUDE_RODATA(FOLDER, NAME) \

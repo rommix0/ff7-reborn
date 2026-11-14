@@ -39,6 +39,24 @@ text_offsets = 0x80069490;
 D_800F5BB8 = 0x800F5BB8; // the battle's, by actor (0x44 bytes each)
 D_800F83E0 = 0x800F83E0; // the battle's actors (0x68 bytes each)
 
+// The battle's helpers (src/main/battle.c).
+battle_set_error = 0x800155A4; // type:func
+battle_error_halt = 0x800155B0; // type:func
+exp_tally_start = 0x80015654; // type:func
+exp_tally_step = 0x80015668; // type:func
+add_spoils = 0x800159B0; // type:func
+limit_id = 0x80015AFC; // type:func
+battle_error = 0x80062F14;
+tally_frames = 0x80062E24;
+tally_done = 0x80062E28;
+tally_hidden = 0x80062E2C;
+exp_tally = 0x80075D04;
+tally_shown = 0x8009D7E4;
+spoils = 0x8009D808;
+inventory = 0x8009CBE0;
+kernel_characters = 0x80082268;
+D_800F83A4 = 0x800F83A4; // the battle's state
+
 // Sound driver (0x800293D0-0x80033A90). Names are ours, from reading the code; see docs/knowledge_base.md §4.
 snd_run_command = 0x8002DF88; // type:func
 snd_flush_queue = 0x8002E1A8; // type:func

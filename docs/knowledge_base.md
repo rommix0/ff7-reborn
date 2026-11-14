@@ -1743,7 +1743,8 @@ same set). They give the original module and file split, and the staff folders b
   them; the default is `sound.c`'s). Run it with the venv's `bin` on `PATH` (command in the script's header). Treat a
   find as a hint and rewrite it by hand in the file's style.
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical to
-  retail. All 47 boot functions, `bitops.c` and 231 of the sound driver's 232 functions are C; the rest is assembly.
+  retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6 and 231 of the sound driver's 232
+  functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2252,9 +2253,14 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
 - maspsx emits `$gp` accesses only for small variables the same file defines, so the file gives them tentative
   definitions and `--use-comm-section` keeps them common: the linker resolves them to the data section's labels and
   adds no storage.
-- GCC writes every function after the file's top-level `asm`, so a plain `INCLUDE_ASM` lands first. maspsx's
-  workaround is each include inside a `__maspsx_include_asm_hack_` function (neither file needs it now).
-  `-mno-gpopt` doesn't help: GCC forces it on when optimizing with `-G`.
+- GCC writes every function after the file's top-level `asm`, so a plain `INCLUDE_ASM` lands first. `INCLUDE_ASM`
+  therefore puts each include inside a `__maspsx_include_asm_hack_` function, which maspsx unwraps (`battle.c`; the
+  `-G0` files build the same with it). `-mno-gpopt` doesn't help: GCC forces it on when optimizing with `-G`.
+- Forms the main exe's game code needed (`text.c`, `battle.c`): a string read by index (`text[pos++]`), which the
+  loop optimizer turns into a pointer set up after the loop's other addresses; a `do { } while (0)` around two
+  statements (a macro, by the look of it); one exit through a result variable; a held-buttons global that's
+  `volatile` (an `andi` stays after its first load); a battle field as a struct member, not a plain variable (its
+  read-modify-write goes through a register); `--expand-div` for a division's zero check.
 
 **Switches.**
 - A jump table runs to the highest listed case: `cd_cancel` lists states that do what `default` does, because the

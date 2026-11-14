@@ -11,7 +11,6 @@ void *D_80063014; /* the scratchpad */
 extern unsigned int D_80071744;
 extern unsigned int D_80095DD8;
 extern void *D_800722C8;
-extern unsigned char D_8009C738[];
 extern unsigned char *D_800707C0;
 extern unsigned char D_80063048[];
 extern void *D_80048DD4[]; /* where func_80014750 puts each entry of its file */
