@@ -24,24 +24,20 @@ working as it is.
 
 ## The proposal
 
-1. **Bindings by function, in a file** (not built yet). `controls.txt` in the working directory (next to `memcard1.mcd`): for each PS1
-   button, the keys and pad buttons that press it. No file: the defaults. The defaults change to what a PC player
-   expects:
-   - **Controller:** A ○ (OK), B ✕ (cancel), X □, Y △ (menu), LB/RB L1/R1, LT/RT L2/R2, Back Select, Start Start;
-     d-pad and left stick the directions. (Today A is ✕, by position.)
-   - **Keyboard:** the arrows; X ○, Z ✕, A □, S △, Q/W L1/R1, 1/2 L2/R2, Enter Start, Backspace Select, as today.
-     Escape stops quitting (closing the window quits).
-   - The game's Config remap still works on top: it remaps functions, these files remap devices.
-2. **Glyphs for the device in use.** Once a vblank, the port writes the two glyph strips (64×32 texels in VRAM) for
-   the device the player last touched: a PlayStation pad (SDL reports its type) keeps the original glyphs; any other
-   pad gets A/B/X/Y and LB/RB/LT/RT; the keyboard gets key caps with the bound key's name. The glyph for a PS1 button
-   is the control bound to it, so Config's Customize screen and the tutorials agree with what the player holds.
+1. **Bindings by function, in a file.** `controls.txt` in the working directory (next to `memcard1.mcd`): each line a
+   PS1 button, `=`, then the keys (SDL's names) and pad buttons (`pad` and SDL's name, `pad lefttrigger`) that press
+   it. That button loses its defaults, a control named there leaves the button it had, the rest keep theirs. No file:
+   the defaults (Decided, below). The game's Config remap still works on top: it remaps functions, this file devices.
+2. **Glyphs for the device in use.** The port draws its glyphs over the game's in the window texture for the device the
+   player last touched: a PlayStation pad (SDL reports its type) keeps the original; any other pad gets A/B/X/Y,
+   LB/RB/LT/RT, View and Menu; the keyboard gets key caps with the bound keys. The glyph for a PS1 button is the
+   control bound to it, so Config's Customize screen and the tutorials agree with what the player holds.
    - Drawn by code in the port, in the texture's own 16 colours: no image files, nothing on the disc changed.
    - In the game's own style, as its ○ is drawn: a dark disc (colour 15) with its three-texel glint at the top left
      and two-texel strokes. Xbox face buttons carry their letter in the pad's colours (A green, B red, X blue, Y
-     yellow); LB/RB/LT/RT sit on the game's R1 bar shape in white; keys are caps with a gap round them and a deeper
-     bottom edge. Mockup: `button_mock2.png` (the game's, Xbox, keyboard).
-   - Written every vblank, it survives the game reloading `WINDOW.BIN`; it's 2 KB.
+     yellow); LB/RB/LT/RT copy the game's R1; keys are caps with a gap round them and a deeper bottom edge. Mockup:
+     `button_mock2.png` (the game's, Xbox, keyboard).
+   - Drawn when the texture is uploaded (once, whole) and when the device or the bindings change.
 3. **Words stay words.** "[SELECT] button" and the like are left as the game wrote them.
 
 ## Steps
@@ -61,7 +57,10 @@ working as it is.
   cancel; Escape no longer quits. `--buttons xbox` shows them in the lab. Checked on Config's Customize screen; not yet
   on a dialogue line with a glyph (same strip and palette as Customize's faces).
 - **2026-11-09, the keyboard:** the JKLI layout bound in `pc/sdl.c`, and its key caps (`--buttons keys`), checked on
-  Customize. Still to come: `controls.txt` for other bindings.
+  Customize.
+- **2026-11-13, `controls.txt`:** `pc/controls.c` holds the bindings (the defaults, then the file's lines; tested
+  without a window), and the key caps show the bound keys (A-Z, 0-9, Enter, Tab; a blank cap for others). Not yet
+  tried by hand in the window.
 
 ## Non-goals
 

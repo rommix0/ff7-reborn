@@ -218,6 +218,18 @@ make pc-test             # the recompiler, the emulated hardware, and the CD lay
 Run `build/pc/ff7.exe assets` from the project folder. Keys: WASD or the arrows, J (OK, ○), K (cancel, ×), I (menu,
 △), L (□), Q/E (L1, R1), 1/3 (L2, R2), Enter (Start), Tab (Select), F12 saves `screenshot.bmp`; close the window to
 quit. A game controller works too: A is OK, B cancel. The game's button pictures show the keys or the pad last used.
+
+To bind other controls, put a `controls.txt` in the folder you run it from. Each line names a PS1 button (`select`,
+`l3`, `r3`, `start`, `up`, `right`, `down`, `left`, `l2`, `r2`, `l1`, `r1`, `triangle`, `circle`, `cross`, `square`)
+and the keys (SDL's names) and pad buttons that press it; the button loses its defaults, the rest keep theirs:
+
+```
+# OK on Space or the pad's X; cancel on Backspace
+circle = Space, pad x
+cross = Backspace
+l2 = pad lefttrigger, Left Shift
+```
+
 `--frames N --shot FILE.bmp` runs without a window and saves frame N.
 
 **Saves** go to memory card images in the working directory, `memcard1.mcd` (slot 1) and `memcard2.mcd` (slot 2):

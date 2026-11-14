@@ -1999,6 +1999,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
     when the texture arrives and when the player switches device; a PlayStation pad gets the game's own back. The
     lower two strips use colour 1 for their marks, as the game's shoulders do: the menu draws them with another
     palette. Checked on Customize with `--buttons xbox` and `--buttons keys`.
+  - `pc/controls.c` binds keys and pad buttons to the pad's bits: defaults, then `controls.txt` (README).
 - **Battle controls**, each one press (or hold) on Cloud's command menu in the first battle, diffed in the lab:
   - Start (`D_80062D7C & 0x800`, battle state `D_80163C7C` = 4): toggles the pause flag `D_80062D99` and plays
     sound 0x99 (paused) or 0x98.

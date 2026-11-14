@@ -24,6 +24,7 @@ extern void (*gpu_uploaded)(int x, int y, int w, int h);
 enum { BUTTONS_PLAYSTATION, BUTTONS_XBOX, BUTTONS_KEYS };
 void buttons_uploaded(int x, int y, int w, int h);
 void buttons_show(int which);
+void buttons_keys(const char labels[16]); /* each pad bit's key cap: a letter or digit, Enter, Tab, or 0 */
 
 /* display.c: the display area as 0xAARRGGBB pixels (w x h), and a 32-bit BMP of such pixels. */
 void display_to_rgba(const Display *d, unsigned int *out);

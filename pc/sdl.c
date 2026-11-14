@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #define SDL_MAIN_HANDLED /* main.c keeps its own main */
 #include <SDL.h>
+#include "controls.h"
 #include "gpu.h"
 #include "recomp.h"
 
@@ -19,31 +20,6 @@ static SDL_GameController *controller;
 
 void lab_dump(void);
 void lab_audio(const short *lr, int frames);
-
-/* Keys for the pad's bits, in the PS1's order (bit 0 Select ... bit 15 Square): WASD or the arrows move, the right
- * hand's J K L I are the face buttons as a pad's diamond (J OK, K cancel), Q/E and 1/3 the shoulders. */
-static const struct {
-    SDL_Scancode key;
-    int bit;
-} keys[] = {
-    {SDL_SCANCODE_TAB, 0}, {SDL_SCANCODE_RETURN, 3}, {SDL_SCANCODE_W, 4}, {SDL_SCANCODE_UP, 4},
-    {SDL_SCANCODE_D, 5}, {SDL_SCANCODE_RIGHT, 5}, {SDL_SCANCODE_S, 6}, {SDL_SCANCODE_DOWN, 6}, {SDL_SCANCODE_A, 7},
-    {SDL_SCANCODE_LEFT, 7}, {SDL_SCANCODE_1, 8}, {SDL_SCANCODE_3, 9}, {SDL_SCANCODE_Q, 10}, {SDL_SCANCODE_E, 11},
-    {SDL_SCANCODE_I, 12}, {SDL_SCANCODE_J, 13}, {SDL_SCANCODE_K, 14}, {SDL_SCANCODE_L, 15},
-};
-
-/* A controller's buttons by function, as PC games have them: A (SDL's, by label) is OK, ○; B is cancel, ×. */
-static const struct {
-    SDL_GameControllerButton button;
-    int bit;
-} buttons[] = {
-    {SDL_CONTROLLER_BUTTON_BACK, 0}, {SDL_CONTROLLER_BUTTON_LEFTSTICK, 1}, {SDL_CONTROLLER_BUTTON_RIGHTSTICK, 2},
-    {SDL_CONTROLLER_BUTTON_START, 3}, {SDL_CONTROLLER_BUTTON_DPAD_UP, 4}, {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, 5},
-    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, 6}, {SDL_CONTROLLER_BUTTON_DPAD_LEFT, 7},
-    {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, 10}, {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, 11},
-    {SDL_CONTROLLER_BUTTON_Y, 12}, {SDL_CONTROLLER_BUTTON_A, 13}, {SDL_CONTROLLER_BUTTON_B, 14},
-    {SDL_CONTROLLER_BUTTON_X, 15},
-};
 
 /* The glyphs for the controller: a PlayStation pad's are the game's own. */
 static int pad_glyphs(void)
@@ -104,6 +80,16 @@ int sdl_open(void)
         fprintf(stderr, "SDL: %s\n", SDL_GetError());
         return -1;
     }
+    {
+        char *text = SDL_LoadFile("controls.txt", 0), labels[16];
+        int bit;
+
+        controls_read(text ? text : "");
+        SDL_free(text);
+        for (bit = 0; bit < 16; bit++)
+            labels[bit] = controls_label(bit);
+        buttons_keys(labels);
+    }
     window = SDL_CreateWindow("Final Fantasy VII", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480,
                               SDL_WINDOW_RESIZABLE);
     renderer = window ? SDL_CreateRenderer(window, -1, 0) : 0;
@@ -136,12 +122,12 @@ int sdl_open(void)
 int sdl_frame(void)
 {
     static unsigned int rgba[640 * 512];
-    const Uint8 *down;
+    unsigned char pad_down[PAD_CONTROLS] = {0};
     SDL_Rect area;
     SDL_Event e;
     Display d = gpu_display();
-    unsigned short pad_buttons_held = 0xFFFF;
-    unsigned int i;
+    unsigned short pad_buttons_held;
+    int i;
 
     display_to_rgba(&d, rgba);
     area.x = area.y = 0;
@@ -171,21 +157,14 @@ int sdl_frame(void)
             controller = 0;
         }
     }
-    down = SDL_GetKeyboardState(0);
-    for (i = 0; i < sizeof keys / sizeof keys[0]; i++) {
-        if (down[keys[i].key])
-            pad_buttons_held &= ~(1u << keys[i].bit);
+    if (controller) { /* its buttons, and its triggers past half way */
+        for (i = 0; i < SDL_CONTROLLER_BUTTON_MAX; i++)
+            pad_down[i] = SDL_GameControllerGetButton(controller, i);
+        pad_down[PAD_LEFT_TRIGGER] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 0x4000;
+        pad_down[PAD_RIGHT_TRIGGER] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 0x4000;
     }
-    if (controller) {
-        for (i = 0; i < sizeof buttons / sizeof buttons[0]; i++) {
-            if (SDL_GameControllerGetButton(controller, buttons[i].button))
-                pad_buttons_held &= ~(1u << buttons[i].bit);
-        }
-        /* the triggers as L2 and R2, the left stick as the d-pad: past half way */
-        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 0x4000)
-            pad_buttons_held &= ~(1u << 8);
-        if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 0x4000)
-            pad_buttons_held &= ~(1u << 9);
+    pad_buttons_held = controls_word(SDL_GetKeyboardState(0), pad_down);
+    if (controller) { /* the left stick as the d-pad: past half way */
         if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY) < -0x4000)
             pad_buttons_held &= ~(1u << 4);
         if (SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX) > 0x4000)

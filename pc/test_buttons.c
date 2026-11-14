@@ -49,6 +49,16 @@ int main(void)
     assert(TEXEL(0x60 + 7, 0x40 + 2) == 2 && TEXEL(0x70 + 4, 0x40 + 2) == 2);
     assert(TEXEL(0x60 + 4, 0x50 + 2) == 1 && TEXEL(0x60 + 5, 0x50 + 2) == 1 && TEXEL(0x60 + 2, 0x50 + 12) == 15);
     assert(TEXEL(0x60 + 10, 0x60 + 3) == 1);
+
+    /* caps_show_the_bound_keys: o on N; a key with no letter (0) gets a blank cap */
+    {
+        char labels[16] = {0};
+
+        labels[13] = 'N';
+        buttons_keys(labels);
+        assert(TEXEL(0x60 + 4, 0x40 + 2) == 2 && TEXEL(0x60 + 6, 0x40 + 2) == 15);
+        assert(TEXEL(0x70 + 4, 0x40 + 2) == 15 && TEXEL(0x70 + 1, 0x40 + 5) == 1);
+    }
     puts("ok");
     return 0;
 }
