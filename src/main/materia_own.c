@@ -13,8 +13,8 @@ unsigned char preemptive_mastered;
 int support_count;
 unsigned char magic_times;  /* 2 with W-Magic */
 unsigned char summon_times; /* 2 with W-Summon */
-short indep_bonus[3]; /* the independent materia's bonuses by attrs[0]; 3 reaches preemptive */
-short preemptive;     /* the chance of a pre-emptive strike */
+short indep_bonus[4]; /* the independent materia's bonuses by attrs[0], for the party's effects[] */
+short preemptive;     /* indep_bonus[3], the chance of a pre-emptive strike: its own name for a $gp load */
 short enemy_away;
 
 extern short stat_changes[][8]; /* by MateriaData.stats: Str, Vit, Mag, Spr, Dex, Luck, max HP and MP percent */
@@ -22,7 +22,6 @@ extern short member_bonus[]; /* by attrs[0]; [8] and [9] max HP and MP percent, 
 /* The same table from [8] and from [12]: the game reaches these parts as symbols of their own. */
 extern short bonus_hpmp[];
 extern short bonus_stats[];
-extern unsigned char summon_uses[]; /* 16 */
 
 int command_find(unsigned char id);
 int func_8001B834(unsigned char id);

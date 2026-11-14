@@ -123,6 +123,10 @@ build/src/main/materia_own.o: GCC = 2.6.3
 build/src/main/materia_own.o: ASPSX = 2.21
 build/src/main/materia_own.o: CFLAGS = -O2 -G8
 build/src/main/materia_own.o: MASPSXFLAGS = --use-comm-section -G8
+build/src/main/member_build.o: GCC = 2.6.3
+build/src/main/member_build.o: ASPSX = 2.21
+build/src/main/member_build.o: CFLAGS = -O2 -G8
+build/src/main/member_build.o: MASPSXFLAGS = --use-comm-section -G8
 # The driver's first file (0x800293D0-0x80029A4C) reaches small globals through $gp: -G8. Its tentative definitions
 # of them stay common, so the linker resolves them to the data section's labels instead of adding storage.
 build/src/main/sound_init.o: ASPSX = 2.21
@@ -184,7 +188,8 @@ build/pc/game/%.o: src/main/%.c
 	$(PC_CC) $(PC_CFLAGS) $(PC_GAME_CFLAGS) -c $< -o $@
 build/pc/game/main.o: PC_CFLAGS += -Dmain=game_main
 build/pc/game/sound_init.o build/pc/game/loader.o build/pc/game/random.o build/pc/game/text.o build/pc/game/battle.o build/pc/game/inflate.o build/pc/game/materia_ap.o \
-	build/pc/game/materia.o build/pc/game/materia_own.o: PC_CFLAGS += -fcommon
+	build/pc/game/materia.o build/pc/game/materia_own.o \
+	build/pc/game/member_build.o: PC_CFLAGS += -fcommon
 # The game reads a materia's bonus unset when no level has one, and always on Enemy Away's detail page.
 build/pc/game/materia_own.o: PC_CFLAGS += -Wno-maybe-uninitialized
 build/pc/obj/%.o: pc/%.c pc/memory.h pc/recomp.h pc/gpu.h pc/cd_native.h pc/controls.h
@@ -282,7 +287,7 @@ build/pc/test_cd$(PC_EXE): $(PC_TEST_CD) build/pc/test_cd.ld
 	$(PC_CC) $(PC_TEST_CD) build/pc/test_cd.ld $(PC_LDFLAGS) -o $@
 
 # The game: its C, the PC runtime, and the rest of the exe recompiled from the user's copy.
-PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o random.o text.o battle.o inflate.o materia_ap.o materia.o materia_own.o sound_init.o sound.o cd.o movie.o)
+PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o random.o text.o battle.o inflate.o materia_ap.o materia.o materia_own.o member_build.o sound_init.o sound.o cd.o movie.o)
 PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o buttons.o gte.o display.o cd_native.o sdl.o controls.o lab.o card.o)
 build/pc/obj/sdl.o build/pc/obj/controls.o: PC_CFLAGS += $(PC_SDL_CFLAGS)
 build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)

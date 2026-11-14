@@ -39,16 +39,21 @@ extern int character_record[];     /* each character id's place in D_8009C738 */
 typedef struct MemberSpell {
     unsigned char id; /* 0xFF for none */
     unsigned char mp;
-    unsigned char uses;
-    unsigned char pad3[4];
+    unsigned char uses; /* All's uses on a spell, a summon's uses */
+    unsigned char quadra;
+    unsigned char quadra_uses;
+    unsigned char targets; /* from spell_data */
+    unsigned char pad6;
     unsigned char flags; /* support materia's spread bits below; bits 5-7 MP Turbo's level, MP cost up a tenth each */
 } MemberSpell;
 
 typedef struct MemberCommand {
     unsigned char id; /* 0xFF for none */
-    unsigned char pad1[3];
+    unsigned char cursor;  /* from command_data */
+    unsigned char targets; /* from command_data */
+    unsigned char pad3;
     unsigned char uses;
-    unsigned char pad5;
+    unsigned char flags; /* support materia's spread bits */
 } MemberCommand;
 
 /* A support effect a paired materia gives (Counter, Added Effect and so on). */
@@ -60,23 +65,24 @@ typedef struct MemberSupport {
 
 /* A party member as worked out from the character, equipment and materia (0x8009D84C, three of them). */
 typedef struct PartyMember {
-    unsigned char pad0[2];
-    unsigned char stat_bonus[4]; /* added to stats[] */
-    unsigned char pad6[2];
+    unsigned char misc[2];    /* member_bonus[10] and [11] */
+    unsigned char primary[6]; /* Str, Vit, Mag, Spr, Dex, Luck */
     short stats[4];
     short hp;
     short max_hp;
     short mp;
     short max_mp;
-    unsigned char pad18[0xB];
+    unsigned char pad18[9];
+    unsigned char command_rows; /* the battle menu's rows of commands */
+    unsigned char pad22;
     unsigned char flags23; /* 8: HP and MP swapped */
     MemberSupport support[8];
     unsigned short elements[4]; /* bits of D_800491B0: [0] the weapon's, [1]-[3] the armor's by the support's level */
     unsigned int statuses[2];   /* the weapon's, the armor's */
     MemberCommand commands[16];
     unsigned char padAC[0x5C];
-    MemberSpell spells[72];
-    unsigned char pad348[0xC6];
+    MemberSpell spells[96]; /* 56 magic, 16 summons, 24 enemy skills */
+    unsigned char pad408[6];
     unsigned char weapon_growth; /* the weapon's materia AP: 0 none, 1 normal, 2 double, 3 triple */
     unsigned char pad40F[0x15];
     unsigned char weapon_pairs[8]; /* the weapon's slots, two by two: linked or not */
@@ -108,6 +114,19 @@ typedef struct {
     unsigned char flags;
 } CommandSlot;
 extern CommandSlot command_slots[]; /* 16 */
+
+/* The member's spells as they're being made. */
+typedef struct {
+    unsigned char id;
+    unsigned char all;
+    unsigned char quadra;
+    unsigned char quadra_uses;
+    unsigned char flags; /* as MemberSpell.flags */
+} SpellSlot;
+extern SpellSlot spell_slots[]; /* 56 */
+extern unsigned char summon_uses[];        /* 16, 0xFF unlimited */
+extern unsigned char summon_quadra[];      /* 16 */
+extern unsigned char summon_quadra_uses[]; /* 16 */
 
 /* What the materia menu's detail page shows of one materia (materia_info). */
 typedef struct MateriaInfo {

@@ -139,6 +139,8 @@ materia_info_kind = 0x80062FFC;
 magic_times = 0x80062E8C;
 summon_times = 0x80062E90;
 indep_bonus = 0x80062E6C;
+encounter_bonus = 0x80062E6E;
+indep_bonus2 = 0x80062E70;
 preemptive = 0x80062E72;
 preemptive_mastered = 0x80062E5C;
 enemy_away = 0x80062E74;
@@ -147,6 +149,15 @@ member_bonus = 0x800694E4;
 bonus_hpmp = 0x800694F4;
 bonus_stats = 0x800694FC;
 summon_uses = 0x800694B4;
+
+// A member's stats and battle lists (src/main/member_build.c).
+ap_to_next = 0x80062F10;
+command_count = 0x80062E64;
+spell_count = 0x80062E68;
+commands_shown = 0x80062E7C;
+member_base = 0x80069538;
+command_data = 0x800707C4;
+spell_data = 0x800708C4;
 
 // Sound driver (0x800293D0-0x80033A90). Names are ours, from reading the code; see docs/knowledge_base.md §4.
 snd_run_command = 0x8002DF88; // type:func

@@ -23,17 +23,6 @@ void func_80019690(unsigned int materia);
 void func_8001C0EC(int slot);
 extern short D_80069548[];
 
-/* The member's spells as they're being made. */
-typedef struct {
-    unsigned char id;
-    unsigned char all;
-    unsigned char quadra;
-    unsigned char quadra_uses;
-    unsigned char flags; /* as MemberSpell.flags */
-} SpellSlot;
-extern unsigned char summon_quadra[];      /* 16 */
-extern unsigned char summon_quadra_uses[]; /* 16 */
-extern SpellSlot spell_slots[];     /* 56 */
 
 int support_count; /* member's support[] in use */
 int support_kind;
@@ -139,10 +128,10 @@ void member_update(unsigned char slot)
     func_8001B944();
     func_8001B570();
     func_8001AEE4();
-    D_80069548[0] = cur_member->stat_bonus[0] + D_80069548[0];
-    D_80069548[1] = cur_member->stat_bonus[1] + D_80069548[1];
-    D_80069548[2] = cur_member->stat_bonus[2] + D_80069548[2];
-    D_80069548[3] = cur_member->stat_bonus[3] + D_80069548[3];
+    D_80069548[0] = cur_member->primary[0] + D_80069548[0];
+    D_80069548[1] = cur_member->primary[1] + D_80069548[1];
+    D_80069548[2] = cur_member->primary[2] + D_80069548[2];
+    D_80069548[3] = cur_member->primary[3] + D_80069548[3];
     if (D_80069548[0] > 255)
         D_80069548[0] = 255;
     if (D_80069548[1] > 255)
