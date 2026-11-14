@@ -350,9 +350,10 @@ A movie name found on several discs has the same contents on each, so the PC por
   `btlon` (`71`) with a value other than 0 stops random battles (`D_8009AC2F`; `MD1STIN` runs `btlon 01`).
   - `func_800ABA70`, each step: the danger (`D_8007173C`) goes up by the player's actor `+0x70` over the rate (the
     table's `+0` high byte; bit 0 is the table's on switch), and a battle comes when a random byte falls under the
-    danger times `D_80062F19`, over 4096. The main exe sets `D_80062F18`–`1B` from the party (`0x800176B0`).
+    danger times `party_effects[1]` (`0x80062F19`), over 4096. The main exe sets `party_effects` from the party
+    (`party_effects_sum`).
   - **The special battles** (`+0xE`, `+0x10`, `+0x12`, `+0x14`) are tried first, against a roll out of 64.
-    `D_80062F1B`'s bit 7 halves their chances.
+    `party_effects[3]`'s bit 7 halves their chances.
   - **Otherwise one of the six battles** (`+2` to `+0xC`), each a `u16` of the chance (6 bits) and the battle
     (10 bits). The sixth takes whatever the others leave. A battle the same as the last is rolled once more.
   - Another roll under `D_80062F1B`'s low 7 bits sets `D_800716D0` to 4 for the battle (the first two special
@@ -1672,6 +1673,9 @@ same set). They give the original module and file split, and the staff folders b
 | `transition.c` | `0x80013C9C`–`0x800144D8` | 2.7.2 | 2.34 | 0 | |
 | `loader.c` | `0x800144D8`–`0x80014A00` | 2.7.2 (2.6.3 also matches) | 2.34 | 8 | `--use-comm-section -G8` |
 | `bitops.c` | `0x80014A00`–`0x80014A84` | 2.7.2 | any 2.21–2.79 (2.79 set) | 0 | |
+| `random.c`, `text.c`, `inflate.c` | `0x80014A84`–`0x800155A4`, `0x80015B44`–`0x80017238` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8` |
+| `battle.c` | `0x800155A4`–`0x80015B44` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8 --expand-div` |
+| `materia_ap.c` | `0x80017238`–`0x8001786C` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
@@ -1743,8 +1747,8 @@ same set). They give the original module and file split, and the staff folders b
   them; the default is `sound.c`'s). Run it with the venv's `bin` on `PATH` (command in the script's header). Treat a
   find as a hint and rewrite it by hand in the file's style.
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical to
-  retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16 and
-  231 of the sound driver's 232 functions are C; the rest is assembly.
+  retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16, 2 of
+  `materia_ap.c`'s 3 and 231 of the sound driver's 232 functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2265,6 +2269,10 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   register); `return f()` turned into a jump where the original recursed (assign, then one return).
 - C that's undefined in order (two `x++` in one expression, `t = (--t)->v`) has to be split for the PC compiler,
   in a form that still matches: read the bytes into locals first, `t[-1]`.
+- `materia_ap.c`: a 4-byte global declared with its size, so GCC takes its address for a cheap `$gp` one and
+  reaches each byte through its own `lui` (the assembler still uses `lui`, the global being extern), and a save
+  byte declared unsized, so its address stays in a register; `case 1:` listed beside `default:` (it changes the
+  switch's compare tree). The file is `-G8` but assembled by ASPSX 2.21.
 
 **Switches.**
 - A jump table runs to the highest listed case: `cd_cancel` lists states that do what `default` does, because the

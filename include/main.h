@@ -15,14 +15,31 @@ typedef struct Character {
     unsigned char level;
     unsigned char pad2[14];
     unsigned char name[12];
-    unsigned char pad1C[5];
+    unsigned char weapon;
+    unsigned char armor;
+    unsigned char pad1E[3];
     unsigned char exp_bar; /* the Status screen's bar */
     unsigned char pad22[26];
     unsigned int exp;
-    unsigned char pad40[64];
+    unsigned int weapon_materia[8]; /* the materia's id in the low byte, its AP above (0xFFFFFF once mastered) */
+    unsigned int armor_materia[8];
     unsigned int exp_to_next;
 } Character;
 extern Character D_8009C738[];
+extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
+extern int character_record[];     /* each character id's place in D_8009C738 */
+
+/* A party member as worked out from the character, equipment and materia (0x8009D84C, three of them). */
+typedef struct PartyMember {
+    unsigned char pad0[0x23];
+    unsigned char flags23;
+    unsigned char pad24[0x3EA];
+    unsigned char weapon_growth; /* the weapon's materia AP: 0 none, 1 normal, 2 double, 3 triple */
+    unsigned char pad40F[0x28];
+    unsigned char encounter_less; /* taken from effects[1]'s sum */
+    unsigned char pad438[4];
+    unsigned char effects[4]; /* support materia the field reads, summed over the party; [1] the encounter rate */
+} PartyMember;
 
 /* libgpu's display and drawing environments (layouts from Sony's Libref). */
 typedef struct RECT {

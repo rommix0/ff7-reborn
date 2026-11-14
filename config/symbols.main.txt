@@ -93,6 +93,21 @@ dist_base = 0x80048EC4;
 dist_extra = 0x80048F00;
 bit_masks = 0x80048F3C;
 
+// Materia AP (src/main/materia_ap.c).
+materia_split = 0x80017238; // type:func
+materia_gain_ap = 0x8001726C; // type:func
+party_effects_sum = 0x80017678; // type:func
+materia_level = 0x8001AC9C; // type:func
+materia_add = 0x80025514; // type:func
+armor_data = 0x80025758; // type:func
+party_member = 0x80025788; // type:func
+cur_member = 0x80062E60;
+materia_detail = 0x80063020;
+materia_levels = 0x80062FBC;
+materia_levelled = 0x80062F34;
+party_effects = 0x80062F18;
+character_record = 0x800491D0;
+
 // Sound driver (0x800293D0-0x80033A90). Names are ours, from reading the code; see docs/knowledge_base.md §4.
 snd_run_command = 0x8002DF88; // type:func
 snd_flush_queue = 0x8002E1A8; // type:func
