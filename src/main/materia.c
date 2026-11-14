@@ -11,7 +11,7 @@ extern unsigned int member_materia[16]; /* the weapon's eight, then the armor's 
 
 unsigned char *armor_slots(int slot);
 void func_8001BDB0(int slot, PartyMember *m);
-void func_800197B8(unsigned int materia);
+void materia_own(unsigned int materia);
 void materia_pair(unsigned char a, unsigned char b, unsigned int m1, unsigned int m2, unsigned char x, unsigned char y,
                   unsigned char armor);
 void func_8001BC18(void);
@@ -23,23 +23,7 @@ void func_80019690(unsigned int materia);
 void func_8001C0EC(int slot);
 extern short D_80069548[];
 
-/* A materia's record in KERNEL.BIN (0x800730D0, 20 bytes). */
-typedef struct MateriaData {
-    unsigned short ap[4]; /* AP for each level up, in hundreds; 0xFFFF past the last */
-    unsigned char stats;  /* the stat changes it makes */
-    unsigned char status[3];
-    unsigned char element;
-    unsigned char type;     /* low 4 bits: what kind of materia; 5 support */
-    unsigned char attrs[6]; /* what it does, by kind */
-} MateriaData;
-extern MateriaData materia_data[];
-
-/* The member's battle commands and spells, as they're being made. */
-typedef struct {
-    unsigned char id;
-    unsigned char level;
-    unsigned char flags;
-} CommandSlot;
+/* The member's spells as they're being made. */
 typedef struct {
     unsigned char id;
     unsigned char all;
@@ -49,7 +33,6 @@ typedef struct {
 } SpellSlot;
 extern unsigned char summon_quadra[];      /* 16 */
 extern unsigned char summon_quadra_uses[]; /* 16 */
-extern CommandSlot command_slots[]; /* 16 */
 extern SpellSlot spell_slots[];     /* 56 */
 
 int support_count; /* member's support[] in use */
@@ -137,7 +120,7 @@ void member_update(unsigned char slot)
     for (i = 8; i < 16; i++)
         member_materia[i] = *m++;
     for (i = 0; i < 16; i++)
-        func_800197B8(member_materia[i]);
+        materia_own(member_materia[i]);
     m = member_materia;
     for (i = 0; i < 4; i++) {
         m1 = *m++;

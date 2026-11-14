@@ -8,7 +8,7 @@
 PartyMember *cur_member;
 unsigned char materia_detail;
 int materia_levels;           /* how many levels the materia materia_level last read has */
-unsigned char D_80062E5C;
+unsigned char preemptive_mastered;
 extern short materia_levelled[]; /* each member's materia that levelled up: weapon slots bits 0-7, armor 8-15 */
 /* Sized, so GCC takes its address for a cheap gp one and writes each byte through its own lui, as the game does;
  * the save byte is unsized, so its address stays in a register. */
@@ -142,6 +142,6 @@ void party_effects_sum(void)
         party_effects[2] = 32;
     if (party_effects[3] > 0x55)
         party_effects[3] = 0x55;
-    if (D_80062E5C)
+    if (preemptive_mastered)
         party_effects[3] |= 0x80;
 }

@@ -131,6 +131,23 @@ support_params = 0x80062E54;
 summon_quadra = 0x800694C4;
 summon_quadra_uses = 0x800694D4;
 
+// Each materia's own effect (src/main/materia_own.c).
+materia_own = 0x800197B8; // type:func
+materia_stat_changes = 0x80019978; // type:func
+materia_info = 0x80062F7C;
+materia_info_kind = 0x80062FFC;
+magic_times = 0x80062E8C;
+summon_times = 0x80062E90;
+indep_bonus = 0x80062E6C;
+preemptive = 0x80062E72;
+preemptive_mastered = 0x80062E5C;
+enemy_away = 0x80062E74;
+stat_changes = 0x80049060;
+member_bonus = 0x800694E4;
+bonus_hpmp = 0x800694F4;
+bonus_stats = 0x800694FC;
+summon_uses = 0x800694B4;
+
 // Sound driver (0x800293D0-0x80033A90). Names are ours, from reading the code; see docs/knowledge_base.md §4.
 snd_run_command = 0x8002DF88; // type:func
 snd_flush_queue = 0x8002E1A8; // type:func

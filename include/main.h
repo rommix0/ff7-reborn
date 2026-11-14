@@ -90,6 +90,41 @@ extern unsigned char materia_detail; /* nonzero: materia_level also writes the l
 PartyMember *party_member(int slot);
 int materia_level(unsigned char id, int ap);
 
+/* A materia's record in KERNEL.BIN (0x800730D0, 20 bytes). */
+typedef struct MateriaData {
+    unsigned short ap[4]; /* AP for each level up, in hundreds; 0xFFFF past the last */
+    unsigned char stats;  /* the stat changes it makes */
+    unsigned char status[3];
+    unsigned char element;
+    unsigned char type;     /* low 4 bits: what kind of materia (5 support), high 4 bits: a sub-kind */
+    unsigned char attrs[6]; /* what it does, by kind */
+} MateriaData;
+extern MateriaData materia_data[];
+
+/* The member's battle commands as they're being made. */
+typedef struct {
+    unsigned char id;
+    unsigned char level;
+    unsigned char flags;
+} CommandSlot;
+extern CommandSlot command_slots[]; /* 16 */
+
+/* What the materia menu's detail page shows of one materia (materia_info). */
+typedef struct MateriaInfo {
+    unsigned char level;
+    unsigned char levels;
+    unsigned char pad2[2];
+    int ap_to_next;
+    unsigned char pad8[2];
+    short stats[8]; /* as the stat changes table */
+    struct {
+        unsigned char id;
+        unsigned char value;
+    } lines[5];
+} MateriaInfo;
+extern MateriaInfo *materia_info;
+extern unsigned char materia_info_kind; /* which layout the page uses */
+
 /* libgpu's display and drawing environments (layouts from Sony's Libref). */
 typedef struct RECT {
     short x, y, w, h;

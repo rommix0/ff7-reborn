@@ -52,6 +52,8 @@ segments:
       - [0x938, .rodata, main/text] # text_expand's switch table
       - [0x958, .rodata, main/materia] # its switch tables
       - [0xA1C, rodata, A1C] # from the pad after materia.c's last table
+      - [0xA20, .rodata, main/materia_own] # its switch tables
+      - [0xA9C, rodata, A9C]
       - [0xB94, .rodata, main/sound] # seq_look_ahead's switch table
       - [0xC38, .rodata, main/cd] # a switch table and the disc info file's name
       - [0xC9C, .rodata, main/movie] # the movie table's file name
@@ -68,7 +70,8 @@ segments:
       - [0x6344, c, main/inflate] # -G8 and ASPSX 2.34
       - [0x7A38, c, main/materia_ap] # GCC 2.6.3, ASPSX 2.21, -G8
       - [0x806C, c, main/materia] # GCC 2.6.3, ASPSX 2.21, -G8
-      - [0x9FB8, asm, 9FB8]
+      - [0x9FB8, c, main/materia_own] # GCC 2.6.3, ASPSX 2.21, -G8
+      - [0xB49C, asm, B49C]
       # The AKAO sound driver, 0x800293D0-0x80033A90 (docs/knowledge_base.md §4).
       - [0x19BD0, c, main/sound_init] # compiled with -G8: small globals through $gp
       - [0x1A250, c, main/sound]

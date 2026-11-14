@@ -1675,7 +1675,7 @@ same set). They give the original module and file split, and the staff folders b
 | `bitops.c` | `0x80014A00`–`0x80014A84` | 2.7.2 | any 2.21–2.79 (2.79 set) | 0 | |
 | `random.c`, `text.c`, `inflate.c` | `0x80014A84`–`0x800155A4`, `0x80015B44`–`0x80017238` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8` |
 | `battle.c` | `0x800155A4`–`0x80015B44` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8 --expand-div` |
-| `materia_ap.c`, `materia.c` | `0x80017238`–`0x800197B8` | 2.6.3 | 2.21 | 8 | `--use-comm-section -G8` |
+| `materia_ap.c`, `materia.c`, `materia_own.c` | `0x80017238`–`0x8001AC9C` | 2.6.3 | 2.21 | 8 | `--use-comm-section -G8` |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
@@ -1748,9 +1748,10 @@ same set). They give the original module and file split, and the staff folders b
   assembled as `target.o`, and a `compile.sh` with the file's flags (`DIR`, `GCC`, `ASPSX` and `MASPSXFLAGS` select
   them; the default is `sound.c`'s). Run it with the venv's `bin` on `PATH` (command in the script's header). Treat a
   find as a hint and rewrite it by hand in the file's style.
-- **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical to
-  retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
-  `materia_ap.c`, 34 of `materia.c`'s 36 and 231 of the sound driver's 232 functions are C; the rest is assembly.
+- **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical
+  to retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
+  `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25 and 231 of the sound driver's 232 functions are
+  C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2275,10 +2276,19 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   reaches each byte through its own `lui` (the assembler still uses `lui`, the global being extern), and a save
   byte declared unsized, so its address stays in a register; `case 1:` listed beside `default:` (it changes the
   switch's compare tree). The file is `-G8` but built by GCC 2.6.3 and ASPSX 2.21.
-- `materia.c`: the game pads each switch table to 8 bytes, the last one too, so the next `rodata` piece starts at
-  that pad (`0xA1C`). MP Turbo's level is updated with masks, not a bitfield (one load serves the read and the
-  write), in a macro; another macro adds a support effect. Locals for a function's AP (`paired >> 8`) and type
-  are read before the first store, as the game schedules them.
+- `materia.c`: each switch table starts on an 8-byte boundary, so a file's `rodata` can begin with a pad word
+  (`0xA1C`, before `materia_own.c`'s first table); nothing pads the end of the last one. MP Turbo's level is updated
+  with masks, not a bitfield (one load serves the read and the write), in a macro; another macro adds a support
+  effect. Locals for a function's AP (`paired >> 8`) and type are read before the first store, as the game schedules
+  them.
+- `materia_own.c`: the detail page's pointer `materia_info` is copied to a local first (through the global, every
+  byte stored would make GCC load it again). Parts of one table that the game reaches by name are symbols of their
+  own: the stat bonuses from `member_bonus[8]` and `[12]` (as one array, `[8]` gets a `lui` of its own where the
+  game keeps the address in a register), and Pre-Emptive's chance (`indep_bonus[3]` comes out through `lui`, the
+  game's through `$gp`). Case bodies that store the same value stay separate cases (cross-jumping then shares only
+  the store), and two stores to one slot follow the game's order even when one of them reads `materia_data` first.
+  Master Summon's loop over 16 bytes counts up: GCC turns it around and walks a pointer down, which a loop written
+  counting down doesn't get.
 
 **Switches.**
 - A jump table runs to the highest listed case: `cd_cancel` lists states that do what `default` does, because the
