@@ -30,7 +30,7 @@
 #define CHOICE_WRITE ((volatile int *)0x800F39DC)
 #define QUEUE ((volatile unsigned char *)0x800F6934) /* the 64 actions waiting: priority (FF free), turn, actor, ... */
 #define MP(actor) ((volatile unsigned short *)(0x800F8408 + 0x68 * (actor))) /* +0x28 of a member's record */
-#define MAX_INPUTS 4096
+#define MAX_INPUTS 65536 /* a play-test mashing ○ through a scene runs to thousands of lines */
 #define MAX_CODES 64
 
 const unsigned short *spu_memory(void);
@@ -98,11 +98,16 @@ int lab_open(const char *trace_path, const char *input_path, int field, int dump
         perror(input_path);
         return -1;
     }
-    while (fgets(line, sizeof line, f) && input_count < MAX_INPUTS) {
+    while (fgets(line, sizeof line, f)) {
         if (strchr(line, '#'))
             *strchr(line, '#') = 0;
         if (!(word = strtok(line, " \t\r\n")))
             continue;
+        if (input_count == MAX_INPUTS) { /* cut short, the last line's buttons would stay held to the end */
+            fprintf(stderr, "%s: more than %d lines\n", input_path, MAX_INPUTS);
+            fclose(f);
+            return -1;
+        }
         inputs[input_count].frame = atoi(word);
         inputs[input_count].buttons = 0xFFFF;
         while ((word = strtok(0, " \t\r\n"))) {
