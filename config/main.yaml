@@ -59,7 +59,8 @@ segments:
       - [0x449C, c, main/transition] # a screen transition: GCC 2.7.2 and ASPSX 2.34 like the loader, but -G0
       - [0x4CD8, c, main/loader] # disc reads and module starts: ASPSX 2.34, unlike main.c
       - [0x5200, c, main/bitops]
-      - [0x5284, asm, 5284]
+      - [0x5284, c, main/random] # -G8 and ASPSX 2.34, like the loader before it
+      - [0x5470, asm, 5470]
       # The AKAO sound driver, 0x800293D0-0x80033A90 (docs/knowledge_base.md §4).
       - [0x19BD0, c, main/sound_init] # compiled with -G8: small globals through $gp
       - [0x1A250, c, main/sound]

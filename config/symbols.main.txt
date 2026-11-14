@@ -2,6 +2,15 @@ copy_words = 0x80014A00; // type:func
 highest_bit = 0x80014A38; // type:func
 count_bits = 0x80014A58; // type:func
 
+// Random numbers (src/main/random.c).
+rand_bit = 0x80014A84; // type:func
+step_clamped = 0x80014B08; // type:func
+rand_next_cursor = 0x80014B54; // type:func
+rand_byte = 0x80014B70; // type:func
+rand_below = 0x80014BA8; // type:func
+rand_u16 = 0x80014BE4; // type:func
+rand_seed = 0x80014C44; // type:func
+
 // Sound driver (0x800293D0-0x80033A90). Names are ours, from reading the code; see docs/knowledge_base.md §4.
 snd_run_command = 0x8002DF88; // type:func
 snd_flush_queue = 0x8002E1A8; // type:func
