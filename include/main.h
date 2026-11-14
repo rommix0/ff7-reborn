@@ -19,7 +19,13 @@ typedef struct Character {
     unsigned char armor;
     unsigned char pad1E[3];
     unsigned char exp_bar; /* the Status screen's bar */
-    unsigned char pad22[26];
+    unsigned char pad22[10];
+    unsigned short hp;
+    unsigned char pad2E[2];
+    unsigned short mp;
+    unsigned char pad32[6];
+    unsigned short max_hp;
+    unsigned short max_mp;
     unsigned int exp;
     unsigned int weapon_materia[8]; /* the materia's id in the low byte, its AP above (0xFFFFFF once mastered) */
     unsigned int armor_materia[8];
@@ -29,17 +35,60 @@ extern Character D_8009C738[];
 extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
 extern int character_record[];     /* each character id's place in D_8009C738 */
 
+/* A spell or command a member has, as the menus and battle list it. */
+typedef struct MemberSpell {
+    unsigned char id; /* 0xFF for none */
+    unsigned char mp;
+    unsigned char uses;
+    unsigned char pad3[4];
+    unsigned char flags; /* support materia's spread bits below; bits 5-7 MP Turbo's level, MP cost up a tenth each */
+} MemberSpell;
+
+typedef struct MemberCommand {
+    unsigned char id; /* 0xFF for none */
+    unsigned char pad1[3];
+    unsigned char uses;
+    unsigned char pad5;
+} MemberCommand;
+
+/* A support effect a paired materia gives (Counter, Added Effect and so on). */
+typedef struct MemberSupport {
+    unsigned char kind;
+    unsigned char value;
+    unsigned char param;
+} MemberSupport;
+
 /* A party member as worked out from the character, equipment and materia (0x8009D84C, three of them). */
 typedef struct PartyMember {
-    unsigned char pad0[0x23];
-    unsigned char flags23;
-    unsigned char pad24[0x3EA];
+    unsigned char pad0[2];
+    unsigned char stat_bonus[4]; /* added to stats[] */
+    unsigned char pad6[2];
+    short stats[4];
+    short hp;
+    short max_hp;
+    short mp;
+    short max_mp;
+    unsigned char pad18[0xB];
+    unsigned char flags23; /* 8: HP and MP swapped */
+    MemberSupport support[8];
+    unsigned short elements[4]; /* bits of D_800491B0: [0] the weapon's, [1]-[3] the armor's by the support's level */
+    unsigned int statuses[2];   /* the weapon's, the armor's */
+    MemberCommand commands[16];
+    unsigned char padAC[0x5C];
+    MemberSpell spells[72];
+    unsigned char pad348[0xC6];
     unsigned char weapon_growth; /* the weapon's materia AP: 0 none, 1 normal, 2 double, 3 triple */
-    unsigned char pad40F[0x28];
+    unsigned char pad40F[0x15];
+    unsigned char weapon_pairs[8]; /* the weapon's slots, two by two: linked or not */
+    unsigned char pad42C[0xB];
     unsigned char encounter_less; /* taken from effects[1]'s sum */
     unsigned char pad438[4];
     unsigned char effects[4]; /* support materia the field reads, summed over the party; [1] the encounter rate */
 } PartyMember;
+extern PartyMember *cur_member;      /* the member being worked on */
+extern unsigned char materia_detail; /* nonzero: materia_level also writes the level, levels and AP to next */
+PartyMember *party_member(int slot);
+int materia_level(unsigned char id, int ap);
 
 /* libgpu's display and drawing environments (layouts from Sony's Libref). */
 typedef struct RECT {

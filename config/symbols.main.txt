@@ -108,6 +108,29 @@ materia_levelled = 0x80062F34;
 party_effects = 0x80062F18;
 character_record = 0x800491D0;
 
+// Materia effects (src/main/materia.c).
+member_update = 0x8001786C; // type:func
+materia_pair = 0x80017E68; // type:func
+armor_slots = 0x80025668; // type:func
+member_materia = 0x8006966C;
+pair_support = 0x80017F38; // type:func
+support_apply = 0x80018028; // type:func
+support_elemental = 0x80018220; // type:func
+support_added_effect = 0x800182FC; // type:func
+support_add = 0x800185A8; // type:func
+command_find = 0x80019608; // type:func
+spell_find = 0x8001964C; // type:func
+materia_data = 0x800730D0;
+command_slots = 0x80069508;
+spell_slots = 0x80069554;
+support_count = 0x80062E80;
+support_kind = 0x80062E84;
+support_sub = 0x80062E88;
+support_spread = 0x80062E78;
+support_params = 0x80062E54;
+summon_quadra = 0x800694C4;
+summon_quadra_uses = 0x800694D4;
+
 // Sound driver (0x800293D0-0x80033A90). Names are ours, from reading the code; see docs/knowledge_base.md §4.
 snd_run_command = 0x8002DF88; // type:func
 snd_flush_queue = 0x8002E1A8; // type:func

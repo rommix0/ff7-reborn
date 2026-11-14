@@ -1675,7 +1675,7 @@ same set). They give the original module and file split, and the staff folders b
 | `bitops.c` | `0x80014A00`–`0x80014A84` | 2.7.2 | any 2.21–2.79 (2.79 set) | 0 | |
 | `random.c`, `text.c`, `inflate.c` | `0x80014A84`–`0x800155A4`, `0x80015B44`–`0x80017238` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8` |
 | `battle.c` | `0x800155A4`–`0x80015B44` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8 --expand-div` |
-| `materia_ap.c` | `0x80017238`–`0x8001786C` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
+| `materia_ap.c`, `materia.c` | `0x80017238`–`0x800197B8` | 2.6.3 | 2.21 | 8 | `--use-comm-section -G8` |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
@@ -1685,6 +1685,8 @@ same set). They give the original module and file split, and the staff folders b
   - GCC 2.6.3 over 2.7.2: `func_800135C0` (2.7.2 keeps the quotient in another register); `seq_cmd_loop_point`
     reloads the loop level after storing it and `seq_cmd_jump` adds into a different register (2.7.2 gets both
     wrong). Every sound function matched also matches with 2.6.3.
+  - GCC 2.6.3 in the `-G8` game code: `materia_gain_ap` (2.7.2 keeps `&materia_levelled[slot]` in a register
+    through both loops), and `materia.c`'s readers of `support_kind`, an `int` whose low byte 2.6.3 loads alone.
   - GCC 2.7.2 over 2.6.3: `bitops.c` (2.6.3 matches one of its three functions); `transition.c` (under `main.c`'s
     toolchain a loop counter reset isn't duplicated as the game has it).
   - ASPSX 2.21: `li 1` is `ori` (2.34 and older), and an indexed access goes through `addiu $at` (before 2.30):
@@ -1747,8 +1749,8 @@ same set). They give the original module and file split, and the staff folders b
   them; the default is `sound.c`'s). Run it with the venv's `bin` on `PATH` (command in the script's header). Treat a
   find as a hint and rewrite it by hand in the file's style.
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical to
-  retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16, 2 of
-  `materia_ap.c`'s 3 and 231 of the sound driver's 232 functions are C; the rest is assembly.
+  retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
+  `materia_ap.c`, 34 of `materia.c`'s 36 and 231 of the sound driver's 232 functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2272,7 +2274,11 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
 - `materia_ap.c`: a 4-byte global declared with its size, so GCC takes its address for a cheap `$gp` one and
   reaches each byte through its own `lui` (the assembler still uses `lui`, the global being extern), and a save
   byte declared unsized, so its address stays in a register; `case 1:` listed beside `default:` (it changes the
-  switch's compare tree). The file is `-G8` but assembled by ASPSX 2.21.
+  switch's compare tree). The file is `-G8` but built by GCC 2.6.3 and ASPSX 2.21.
+- `materia.c`: the game pads each switch table to 8 bytes, the last one too, so the next `rodata` piece starts at
+  that pad (`0xA1C`). MP Turbo's level is updated with masks, not a bitfield (one load serves the read and the
+  write), in a macro; another macro adds a support effect. Locals for a function's AP (`paired >> 8`) and type
+  are read before the first store, as the game schedules them.
 
 **Switches.**
 - A jump table runs to the highest listed case: `cd_cancel` lists states that do what `default` does, because the

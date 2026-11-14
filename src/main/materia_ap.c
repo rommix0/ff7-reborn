@@ -1,12 +1,12 @@
 /* The materia's AP, 0x80017238-0x8001786C: AP from a battle into each member's weapon and armor materia, and the
- * party's support materia sums the field reads. -G8 like text.c, but assembled by ASPSX 2.21 (indexed loads go
- * through `addiu $at`). */
+ * party's support materia sums the field reads. -G8, but GCC 2.6.3 and ASPSX 2.21 like the sound driver (2.7.2 keeps an
+ * address in a register through materia_gain_ap's loops; 2.21 sends indexed loads through `addiu $at`). */
 
 #include "common.h"
 #include "main.h"
 
-PartyMember *cur_member;      /* the member being worked on */
-unsigned char materia_detail; /* nonzero: materia_level also writes the level, levels and AP to next */
+PartyMember *cur_member;
+unsigned char materia_detail;
 int materia_levels;           /* how many levels the materia materia_level last read has */
 unsigned char D_80062E5C;
 extern short materia_levelled[]; /* each member's materia that levelled up: weapon slots bits 0-7, armor 8-15 */
@@ -21,10 +21,8 @@ typedef struct {
     unsigned char growth; /* as PartyMember.weapon_growth */
 } Armor;
 
-int materia_level(unsigned char id, int ap);
 void materia_add(unsigned int materia);
 Armor *armor_data(int id);
-PartyMember *party_member(int slot);
 
 int materia_split(unsigned int materia, int *ap, unsigned char *id)
 {
@@ -35,10 +33,6 @@ int materia_split(unsigned int materia, int *ap, unsigned char *id)
 
 /* The slot's growth multiplies the AP; empty slots, materia 0x2C and mastered materia get none. A materia reaching its
  * last level is mastered and puts a new copy in the inventory. */
-#ifdef NON_MATCHING
-/* Same code, but GCC keeps &materia_levelled[slot] in a register through both loops where the game works it out each
- * time, and so spills the slot instead of the AP. An unused stack local anywhere in the function gives the game's
- * registers, with the frame 8 bytes too big. */
 void materia_gain_ap(short slot, unsigned short ap)
 {
     unsigned int *m;
@@ -112,9 +106,6 @@ void materia_gain_ap(short slot, unsigned short ap)
         }
     }
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/main/materia_ap", materia_gain_ap);
-#endif
 
 /* Each of the four starts at 16 (the third at 0) and takes the members' sums, the second less encounter_less (2 if that
  * goes below 0), capped at 32 (the last at 0x55). */
