@@ -1683,6 +1683,7 @@ same set). They give the original module and file split, and the staff folders b
 | `magic_order.c` | `0x8001C0EC`–`0x8001C3CC` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8` |
 | `pad.c`, `menu_prims.c` | `0x8001C434`–`0x8001D6A8` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
 | `text_draw.c` | `0x8001D6A8`–`0x8001FA28` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8 --expand-div` |
+| `party.c` | `0x8001FA28`–`0x800211B8` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
@@ -1697,7 +1698,8 @@ same set). They give the original module and file split, and the staff folders b
   - GCC 2.7.2 over 2.6.3: `bitops.c` (2.6.3 matches one of its three functions); `transition.c` (under `main.c`'s
     toolchain a loop counter reset isn't duplicated as the game has it); `magic_order.c` (2.6.3 orders the first
     loop's pointer steps the other way and masks a byte it already has); `pad.c` (2.6.3 misses five of its eleven
-    functions). `pad.c`, `menu_prims.c` and `text_draw.c` are the files found so far with GCC 2.7.2 and ASPSX 2.21 together:
+    functions). `pad.c`, `menu_prims.c`, `text_draw.c` and `party.c` are the files found so far with GCC 2.7.2 and ASPSX 2.21
+    together:
     `pad.c`'s indexed loads, the jump table's among them, go through `addiu $at`.
   - ASPSX 2.21: `li 1` is `ori` (2.34 and older), and an indexed access goes through `addiu $at` (before 2.30):
     `lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`.
@@ -1761,7 +1763,7 @@ same set). They give the original module and file split, and the staff folders b
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical
   to retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
   `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25, `member_build.c`, `magic_order.c`, `pad.c`,
-  `menu_prims.c`, 14 of `text_draw.c`'s 16 and 231 of the sound driver's 232 functions are C; the rest is assembly.
+  `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c` and 231 of the sound driver's 232 functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2328,6 +2330,14 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   order its loads show (`text_semi`, `text_left`, then the constants); the countdown read through the whole
   16-byte `volatile` clock at `0x8009D264` (as a plain `int`, or a struct of 8 bytes or less, GCC folds its address
   into the load); and the timer digits' `time / D_80049214[i]` with `--expand-div`'s checks.
+- `party.c`: `func_80020058` works a party member's stats out again from the save record and the equipment
+  records (Curse Ring, accessory 0x19: +15 to five stats and +10 Luck in code, its record having room for two);
+  the member's copy of its weapon record at `+0x408` is `PartyMember.weapon`. It matched once the save record was
+  indexed afresh in each statement, not through a pointer, and the six stat zeroings came after `max_mp`'s store
+  in the source. `func_8001FBAC` looks `character_record` up twice, as the game does. The two HP/MP blocks (from
+  the save, `func_800206E4`, and from `members`, `func_80020B68`) need the `RECT` declared before the bar (it sits
+  below it on the stack) and the dead test before the colours; the second writes its colours as `?:`, the first
+  as an assignment and an `if`.
 - On the PC, native C doesn't poll (see **Waits in C**), so a busy loop that becomes C stops advancing PS1 time:
   `magic_order.c`'s ~600 loop passes per call shifted disc reads by a frame and battle ends by up to ~600 frames in
   the pillar play-test, with the same events in the same order. A differential test against the recompiled

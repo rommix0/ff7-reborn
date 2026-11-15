@@ -15,14 +15,7 @@ extern short materia_levelled[]; /* each member's materia that levelled up: weap
 extern unsigned char party_effects[4];
 extern unsigned char D_8009D302[];
 
-/* The armor's record (0x24 bytes). */
-typedef struct {
-    unsigned char pad0[0x11];
-    unsigned char growth; /* as PartyMember.weapon_growth */
-} Armor;
-
 void materia_add(unsigned int materia);
-Armor *armor_data(int id);
 
 int materia_split(unsigned int materia, int *ap, unsigned char *id)
 {
@@ -39,7 +32,7 @@ void materia_gain_ap(short slot, unsigned short ap)
     int i, level, new_level;
     int m_ap;
     unsigned char id;
-    Armor *armor;
+    ArmorData *armor;
 
     materia_detail = 0;
     materia_levelled[slot] = 0;
@@ -51,7 +44,7 @@ void materia_gain_ap(short slot, unsigned short ap)
         level = materia_split(*m, &m_ap, &id);
         if (id == 0xFF || id == 0x2C || m_ap == 0xFFFFFF)
             continue;
-        switch (cur_member->weapon_growth) {
+        switch (cur_member->weapon.growth) {
         case 0:
             break;
         case 1:

@@ -13,17 +13,22 @@ extern DiscFile disc_files[]; /* by number */
 typedef struct Character {
     unsigned char id;
     unsigned char level;
-    unsigned char pad2[14];
+    unsigned char stats[6];      /* Str, Vit, Mag, Spr, Dex, Luck */
+    unsigned char stat_bonus[6]; /* what sources have added to them */
+    unsigned char pad0E[2];
     unsigned char name[12];
     unsigned char weapon;
     unsigned char armor;
-    unsigned char pad1E[3];
+    unsigned char accessory; /* 0xFF for none */
+    unsigned char flags;     /* 0x10 Fury, 0x20 Sadness */
+    unsigned char pad20;
     unsigned char exp_bar; /* the Status screen's bar */
     unsigned char pad22[10];
     unsigned short hp;
-    unsigned char pad2E[2];
+    unsigned short base_hp; /* before materia */
     unsigned short mp;
-    unsigned char pad32[6];
+    unsigned short base_mp;
+    unsigned char pad34[4];
     unsigned short max_hp;
     unsigned short max_mp;
     unsigned int exp;
@@ -64,6 +69,63 @@ typedef struct MemberSupport {
     unsigned char param;
 } MemberSupport;
 
+/* KERNEL.BIN's equipment records. A stat id in stat[] is an index into PartyMember.primary, 0xFF for none; usable is
+ * where the item can be used, sold or thrown, as func_8001FAF8 reads it for any item number. */
+typedef struct WeaponData {
+    unsigned char pad0[4];
+    unsigned char power;
+    unsigned char status; /* the status it inflicts, a bit number */
+    unsigned char growth; /* its materia's AP: 0 none, 1 normal, 2 double, 3 triple */
+    unsigned char pad7[9];
+    unsigned short elements;
+    unsigned char pad12[2];
+    unsigned char stat[4];
+    unsigned char stat_add[4];
+    unsigned char slots[8]; /* two by two: linked or not */
+    unsigned char pad24[6];
+    unsigned short usable;
+} WeaponData;
+extern WeaponData weapon_table[];
+
+typedef struct ArmorData {
+    unsigned char pad0;
+    unsigned char element_mode; /* which of PartyMember.elements[1]-[3] its elements go in */
+    unsigned char defense;
+    unsigned char pad3[3];
+    unsigned char status; /* the status it guards against, a bit number */
+    unsigned char pad7[2];
+    unsigned char slots[8];
+    unsigned char growth; /* as WeaponData.growth */
+    unsigned char pad12[2];
+    unsigned short elements;
+    unsigned char pad16[2];
+    unsigned char stat[4];
+    unsigned char stat_add[4];
+    unsigned short usable;
+    unsigned char pad22[2];
+} ArmorData;
+extern ArmorData armor_table[];
+ArmorData *armor_data(int id);
+
+typedef struct AccessoryData {
+    unsigned char stat[2];
+    unsigned char stat_add[2];
+    unsigned char element_mode;
+    unsigned char special;
+    unsigned short elements;
+    unsigned int statuses;
+    unsigned char pad0C[2];
+    unsigned short usable;
+} AccessoryData;
+extern AccessoryData accessory_table[];
+
+typedef struct ItemData {
+    unsigned char pad0[10];
+    unsigned short usable;
+    unsigned char pad0C[16];
+} ItemData;
+extern ItemData item_table[];
+
 /* A party member as worked out from the character, equipment and materia (0x8009D84C, three of them). */
 typedef struct PartyMember {
     unsigned char misc[2];    /* member_bonus[10] and [11] */
@@ -83,11 +145,8 @@ typedef struct PartyMember {
     MemberCommand commands[16];
     unsigned char padAC[0x5C];
     MemberSpell spells[96]; /* 56 magic, 16 summons, 24 enemy skills */
-    unsigned char pad408[6];
-    unsigned char weapon_growth; /* the weapon's materia AP: 0 none, 1 normal, 2 double, 3 triple */
-    unsigned char pad40F[0x15];
-    unsigned char weapon_pairs[8]; /* the weapon's slots, two by two: linked or not */
-    unsigned char pad42C[0xB];
+    WeaponData weapon;
+    unsigned char pad434[3];
     unsigned char encounter_less; /* taken from effects[1]'s sum */
     unsigned char pad438[4];
     unsigned char effects[4]; /* support materia the field reads, summed over the party; [1] the encounter rate */

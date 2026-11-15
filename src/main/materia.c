@@ -114,7 +114,7 @@ void member_update(unsigned char slot)
     for (i = 0; i < 4; i++) {
         m1 = *m++;
         m2 = *m++;
-        materia_pair(cur_member->weapon_pairs[i * 2], cur_member->weapon_pairs[i * 2 + 1], m1, m2, 0, 0, 0);
+        materia_pair(cur_member->weapon.slots[i * 2], cur_member->weapon.slots[i * 2 + 1], m1, m2, 0, 0, 0);
     }
     m = &member_materia[8];
     for (i = 0; i < 4; i++) {

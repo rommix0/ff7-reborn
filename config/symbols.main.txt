@@ -677,3 +677,7 @@ caption_placed = 0x80062DE4;
 caption_step = 0x80062DE5;
 caption_x = 0x80062DE6;
 caption_y = 0x80062DE8;
+accessory_table = 0x80071C24;
+armor_table = 0x80071E44;
+item_table = 0x800722CC;
+weapon_table = 0x800738A0;
