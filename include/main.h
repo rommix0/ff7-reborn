@@ -8,6 +8,9 @@ typedef struct DiscFile {
 } DiscFile;
 
 extern DiscFile disc_files[]; /* by number */
+/* A file's place and size as call arguments. The game takes each field's address on its own (two registers where
+ * one would do), as `*&` makes GCC do. */
+#define DISC_FILE(f) *&(f).lba, *&(f).size
 
 /* A character in the save (0x8009C738, nine of them). */
 typedef struct Character {

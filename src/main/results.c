@@ -107,17 +107,11 @@ void func_800211B8(void *dest)
     module_dest = dest;
 }
 
-#ifdef NON_MATCHING
 void func_800211C4(int module)
 {
-    DiscFile *files = menu_files;
-
-    cd_read(files[module].lba, files[module].size, module_dest, 0);
+    cd_read(DISC_FILE(menu_files[module]), module_dest, 0);
     cd_step();
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/main/results", func_800211C4);
-#endif
 
 /* Loads a menu module unless it's 0 or the one wanted is already in (3 and 4 share theirs). */
 void func_8002120C(int module)

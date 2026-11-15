@@ -1765,7 +1765,7 @@ same set). They give the original module and file split, and the staff folders b
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical
   to retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
   `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25, `member_build.c`, `magic_order.c`, `pad.c`,
-  `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c`, 10 of `results.c`'s 14, 26 of `menu.c`'s 27 and 231 of the sound
+  `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c`, 11 of `results.c`'s 14, 26 of `menu.c`'s 27 and 231 of the sound
   driver's 232 functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
@@ -2349,14 +2349,15 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   as an assignment and an `if`.
 - `results.c` (the battle's results screens): the game's loops that scan for the next materia or limit to announce
   test at the top and jump back from the bottom; only a `goto` loop gives that shape (as `for`/`while` GCC moves the
-  test). Several functions carry an unused 8-byte local (a `RECT`) the frame size shows. The fade tile and the menu
-  file table are reached through a local pointer to the array (`TILE *tiles = fade_tile`), which keeps the base in a
-  saved register and re-reads the index after each byte store. Gil and the battle's winnings are fields of structs
+  test). Several functions carry an unused 8-byte local (a `RECT`) the frame size shows. The fade tile is reached
+  through a local pointer to the array (`TILE *tiles = fade_tile`), which keeps the base in a saved register and
+  re-reads the index after each byte store. Gil and the battle's winnings are fields of structs
   over 8 bytes (the address goes in a register when read and written). The EXP header's two windows each have their
   own `y = 32`. Parked: the items screen (`func_800212A8`, the cursor's skip over empty rows: the game reads the row
   with `lbu` and sign-extends it), the EXP screen (`func_80021F58`, register allocation and one address's operand
-  order), the module read (`func_800211C4`, two copies of the table address the game adds separately) and the
-  screens' start (`func_80022DE4`, one constant's place in the schedule). The zero word at `0x80010340`, between
+  order) and the screens' start (`func_80022DE4`, one constant's place in the schedule). The module read
+  (`func_800211C4`) adds the table address to the index twice, once per field: `DISC_FILE` (`include/main.h`)
+  takes each field's address, which GCC works out separately. The zero word at `0x80010340`, between
   its rodata and `menu.c`'s, is unreferenced and kept as data.
 - `menu.c` (the field menu's top level: the command list, the party/time/gil screen with Order, the main loop, the
   overlay launchers): the game reaches the party through the register holding the address of the command bytes
