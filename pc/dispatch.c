@@ -5,7 +5,8 @@
 #include <string.h>
 #include "recomp.h"
 
-typedef int (*NativeCall)(int, int, int, int, int, int, int, int, int, int); /* as tools/recomp.py's thunks */
+/* As tools/recomp.py's thunks: fourteen ints. */
+typedef int (*NativeCall)(int, int, int, int, int, int, int, int, int, int, int, int, int, int);
 
 static struct {
     const CodePatch *table;
@@ -132,10 +133,18 @@ void *module_function(unsigned int addr)
 /* C's calls into modules, through the stubs tools/pc_syms.py writes. */
 int module_call(unsigned int addr, int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7)
 {
-    return ((NativeCall)code_at(addr))(a0, a1, a2, a3, a4, a5, a6, a7, 0, 0);
+    return ((NativeCall)code_at(addr))(a0, a1, a2, a3, a4, a5, a6, a7, 0, 0, 0, 0, 0, 0);
 }
 
-/* The callee gets a0-a3 and the six words above the caller's $sp, as a MIPS function would find them. */
+/* C's calls through a code address in the game's data (DATA_CALL in include/common.h). */
+int data_call(unsigned int addr, int a0)
+{
+    void *f = addr >= RAM_START && addr < RAM_START + RAM_SIZE ? code_at(addr) : (void *)addr;
+
+    return ((NativeCall)f)(a0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+}
+
+/* The callee gets a0-a3 and the ten words above the caller's $sp, as a MIPS function would find them. */
 void call_indirect(unsigned int addr)
 {
     unsigned int sp = ctx.r[29];
@@ -148,7 +157,8 @@ void call_indirect(unsigned int addr)
     addr = (unsigned int)mem_ptr(addr); /* KUSEG and KSEG1 are RAM too (Throw with an item that has no effect, 4) */
     f = addr >= RAM_START && addr < RAM_START + RAM_SIZE ? code_at(addr) : (void *)addr;
     ctx.r[2] = ((NativeCall)f)(ctx.r[4], ctx.r[5], ctx.r[6], ctx.r[7], mem_r32(sp + 0x10), mem_r32(sp + 0x14),
-                               mem_r32(sp + 0x18), mem_r32(sp + 0x1C), mem_r32(sp + 0x20), mem_r32(sp + 0x24));
+                               mem_r32(sp + 0x18), mem_r32(sp + 0x1C), mem_r32(sp + 0x20), mem_r32(sp + 0x24),
+                               mem_r32(sp + 0x28), mem_r32(sp + 0x2C), mem_r32(sp + 0x30), mem_r32(sp + 0x34));
 }
 
 /* A jr through a register: a tail call when a function is there; otherwise a jump back into a caller's code (BATTLE.X's
