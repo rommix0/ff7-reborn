@@ -5,7 +5,8 @@ usage: python tools/module_yaml.py FILE NAME VRAM
 FILE is the module as the game loads it (raw, at VRAM). Modules lay out as read-only data, code, then data: the code
 runs from the first function (its stack-frame setup, and any instructions GCC put before it) to the last `jr $ra`'s
 delay slot, with data between where objects were linked (WORLD.BIN). Its asm goes to asm/NAME, and calls
-into the exe take their names from the exe's symbol files.
+into the exe take their names from the exe's symbol files. A module being decompiled has its own names in
+config/symbols.NAME.txt, which the PC build links its C by.
 """
 import argparse
 import hashlib
@@ -69,6 +70,8 @@ def main():
     image = args.file.read_bytes()
     ranges = code_ranges(image)
     rodata = "      - [0, rodata]\n" if ranges[0][0] else ""
+    own = Path(f"config/symbols.{args.name}.txt")
+    own_symbols = f"    - {own.as_posix()}\n" if own.exists() else ""
     code = "".join(f"      - [{start:#x}, asm]\n" + (f"      - [{end:#x}, data]\n" if end < len(image) else "")
                    for start, end in ranges)
     print(f"""name: {args.file.name}
@@ -89,7 +92,7 @@ options:
   symbol_addrs_path:
     - config/symbols.main.txt
     - config/symbols.main.psyq.txt
-
+{own_symbols}
   find_file_boundaries: False
   gp_value: 0x80062D44
   o_as_suffix: True

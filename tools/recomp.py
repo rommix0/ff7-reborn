@@ -68,8 +68,8 @@ def recompile(image: bytes, base: int, funcs: dict[int, str], native: set[str], 
     own = [a for a in starts if base <= a < base + len(image)]  # the rest (a module's calls into the exe) are linked
     chosen = [a for a in own if a not in native_at and (emit is None or a in emit)]
     names = {a: funcs[a] if a in native_at else prefix + thunk(funcs[a]) for a in starts}
-    # Modules share addresses, so their functions stay inside their own file.
-    local = set(own) if base >= MODULES else set()
+    # Modules share addresses, so their functions stay inside their own file; a decompiled one is the C build's.
+    local = set(own) - native_at if base >= MODULES else set()
     scope = {a: "static " if a in local else "" for a in starts}
     # A longjmp lands just after its setjmp's jal, on the frame setjmp saw: that point is entered as itself, the
     # function's body again from that label (libetc's interrupt entry is one).

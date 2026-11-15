@@ -12,9 +12,15 @@ CROSS    := mipsel-linux-gnu-
 
 # The object list comes from splat's linker script, so it only exists after `make split`.
 OBJS := $(shell grep -o 'build/[^ ()]*\.o' build/main.ld 2>/dev/null | sort -u)
+# The menu modules being decompiled (docs/superpowers/specs/2026-11-15-menu-decompile-design.md), each with its
+# splat config in config/menu and checked against the disc's file. Each links at 0x801D0000 against the exe.
+MENUS := chngmenu
+MENU_FILES := $(foreach m,$(MENUS),build/MENU/$(shell echo $(m) | tr a-z A-Z).MNU)
 
-check: build/SCUS_941.63
+check: build/SCUS_941.63 $(MENU_FILES)
 	@echo "a95e8b16b97071203b953bb81a33980509262f30  build/SCUS_941.63" | sha1sum -c
+	@for m in $(MENUS); do echo "$$(sed -n 's/^sha1: //p' config/menu/$$m.yaml)  build/MENU/$$(echo $$m | tr a-z A-Z).MNU"; \
+		done | sha1sum -c
 
 disks/SCUS_941.63:
 	mkdir -p disks
@@ -49,6 +55,8 @@ split: disks/SCUS_941.63 $(foreach m,$(PC_MODULE_NAMES),disks/$(call module,$(m)
 	for m in $(PC_MODULES); do set -- $$(echo $$m | tr : ' '); rm -rf asm/$$1; \
 		$(PYTHON) tools/module_yaml.py disks/$$2 $$1 $$3 > build/modules/$$1.yaml && \
 		$(PYTHON) -m splat split build/modules/$$1.yaml || exit 1; done
+	mkdir -p build/menu
+	for m in $(MENUS); do rm -rf asm/menu/$$m; $(PYTHON) -m splat split config/menu/$$m.yaml || exit 1; done
 
 build/SCUS_941.63: build/main.elf
 	$(CROSS)objcopy -O binary $< $@
@@ -56,6 +64,20 @@ build/SCUS_941.63: build/main.elf
 build/main.elf: $(OBJS) build/main.ld build/absolute_syms.ld config/module_entries.ld
 	$(CROSS)ld -EL -T build/main.ld -T build/undefined_syms_auto.txt -T build/undefined_funcs_auto.txt \
 		-T build/absolute_syms.ld -T config/module_entries.ld --no-check-sections -Map build/main.map -o $@
+
+# A menu module calls the exe by its addresses: every name in the exe's ELF, splat's D_ and func_ ones included.
+build/menu/exe_syms.ld: build/main.elf
+	$(CROSS)nm $< | awk '$$3 !~ /^\./ && $$2 != "a" {print $$3 " = 0x" $$1 ";"}' > $@
+define menu_rules
+build/menu/$(1).elf: $$(shell grep -o 'build/[^ ()]*\.o' build/menu/$(1).ld 2>/dev/null | sort -u) build/menu/$(1).ld \
+		build/menu/exe_syms.ld
+	$$(CROSS)ld -EL -T build/menu/$(1).ld -T build/menu/exe_syms.ld -T build/menu/$(1)_undefined_syms_auto.txt \
+		-T build/menu/$(1)_undefined_funcs_auto.txt --no-check-sections -Map build/menu/$(1).map -o $$@
+build/MENU/$(shell echo $(1) | tr a-z A-Z).MNU: build/menu/$(1).elf
+	@mkdir -p build/MENU
+	$$(CROSS)objcopy -O binary $$< $$@
+endef
+$(foreach m,$(MENUS),$(eval $(call menu_rules,$(m))))
 
 # splat leaves `absolute:True` symbols (BSS past the end of the file) for us to define.
 build/absolute_syms.ld: config/symbols.main.txt
@@ -155,6 +177,9 @@ build/src/main/menu_util.o: MASPSXFLAGS = --use-comm-section -G8
 build/src/main/menu_text.o: ASPSX = 2.21
 build/src/main/menu_text.o: CFLAGS = -O2 -G8
 build/src/main/menu_text.o: MASPSXFLAGS = --use-comm-section -G8 --expand-div
+# The menu modules: GCC 2.7.2, -G0 (the exe's small globals through `lui`, not $gp). CHNGMENU's code is the same
+# under ASPSX 2.21 and 2.34; 2.21 as for the exe's menu files.
+build/src/menu/chngmenu.o: ASPSX = 2.21
 # The driver's first file (0x800293D0-0x80029A4C) reaches small globals through $gp: -G8. Its tentative definitions
 # of them stay common, so the linker resolves them to the data section's labels instead of adding storage.
 build/src/main/sound_init.o: ASPSX = 2.21
@@ -215,6 +240,9 @@ build/pc/game/%.o: src/main/%.c
 	@mkdir -p $(dir $@)
 	$(PC_CC) $(PC_CFLAGS) $(PC_GAME_CFLAGS) -c $< -o $@
 build/pc/game/main.o: PC_CFLAGS += -Dmain=game_main
+build/pc/game/menu/%.o: src/menu/%.c
+	@mkdir -p $(dir $@)
+	$(PC_CC) $(PC_CFLAGS) $(PC_GAME_CFLAGS) -c $< -o $@
 build/pc/game/sound_init.o build/pc/game/loader.o build/pc/game/random.o build/pc/game/text.o build/pc/game/battle.o build/pc/game/inflate.o build/pc/game/materia_ap.o \
 	build/pc/game/materia.o build/pc/game/materia_own.o \
 	build/pc/game/member_build.o build/pc/game/magic_order.o build/pc/game/pad.o build/pc/game/text_draw.o build/pc/game/results.o \
@@ -317,6 +345,7 @@ build/pc/test_cd$(PC_EXE): $(PC_TEST_CD) build/pc/test_cd.ld
 
 # The game: its C, the PC runtime, and the rest of the exe recompiled from the user's copy.
 PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o random.o text.o battle.o inflate.o materia_ap.o materia.o materia_own.o member_build.o magic_order.o pad.o menu_prims.o text_draw.o party.o results.o menu.o menu_util.o menu_text.o sound_init.o sound.o cd.o movie.o)
+PC_GAME += $(foreach m,$(MENUS),build/pc/game/menu/$(m).o)
 PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o buttons.o gte.o display.o cd_native.o sdl.o controls.o lab.o card.o)
 build/pc/obj/sdl.o build/pc/obj/controls.o: PC_CFLAGS += $(PC_SDL_CFLAGS)
 build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)

@@ -1,0 +1,8 @@
+// CHNGMENU.MNU at 0x801D0000. The menu modules share their addresses, so each has its own symbol file.
+chng_init = 0x801D0000; // type:func
+chng_frame = 0x801D00C4; // type:func
+chng_801D01BC = 0x801D01BC; // type:func
+chng_active = 0x801D01C4; // size:0x4 (the cursor in use, -1 until chng_init)
+chng_windows = 0x801D01C8; // size:0x10
+chng_title = 0x801D01D8; // size:0x8
+chng_cursors = 0x801D01E0; // size:0x24

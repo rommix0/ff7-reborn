@@ -925,9 +925,10 @@ recovered C. Details in §7.
 | CD layer (`cd.c`) | `0x80033A90`–`0x80034CF0` | all 38 functions in C |
 | Movie player (`movie.c`) | `0x80034F3C`–`0x8003623C` | all 14 functions in C |
 | PsyQ library block | `0x80036E84`–`0x80048D18` | 267 of 454 functions named (§8) |
+| `MENU/CHNGMENU.MNU` (`src/menu/chngmenu.c`) | `0x801D0000`–`0x801D01C4` | all 3 functions in C |
 
-Not recovered yet: 13 of the exe's game functions, parked as asm (§7), and every overlay: battle, field, world, menus,
-mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+Not recovered yet: 12 of the exe's game functions, parked as asm (§7), and every other overlay: battle, field, world,
+the other 12 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1572,6 +1573,10 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
 - **Menu module IDs** for the field `MENU` opcode (first argument always `0`): Party `0x09`; Form `0x07` (argument
   0 = make a party of 3, 1 = split into 3 groups, 2 = split into 2); Save `0x0E`; Name `0x06` (argument
   0–9 = Cloud … Chocobo); Shop `0x08` (argument = shop number). Other menus are reached only internally.
+- **`CHNGMENU.MNU` is the Order command's module** (module 6, `command_module[5]`), but the command list handles
+  Order itself on the party screen and never loads it. It draws a title in bytes that aren't US text (probably the
+  Japanese one), two windows and a list cursor, and ✕ leaves it. The lab's `--code "30049454 0006"` points Status
+  at it.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1769,6 +1774,12 @@ same set). They give the original module and file split, and the staff folders b
   `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25, `member_build.c`, `magic_order.c`, `pad.c`,
   `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c`, 11 of `results.c`'s 14, 26 of `menu.c`'s 27, `menu_util.c`,
   15 of `menu_text.c`'s 16 and 231 of the sound driver's 232 functions are C; the rest is assembly.
+- **Menu modules:** each `MENU/*.MNU` being decompiled has its own splat config (`config/menu/<name>.yaml`, asm in
+  `asm/menu/<name>`) and links at `0x801D0000` against every name in the exe's ELF; `wsl make` checks
+  `build/MENU/<NAME>.MNU` against the SHA1 in its config. The modules share addresses, so each has its own symbol
+  file (`config/symbols.<name>.txt`) with names unique across modules (`chng_init`). The PC port's split of the module
+  takes the same names, and its C replaces the recompiled functions by them. The menus are GCC 2.7.2 at `-G0`: they
+  reach the exe's small globals through `lui`, not `$gp`.
 
 **Main exe layout** (splat's guess, corrected by hand):
 

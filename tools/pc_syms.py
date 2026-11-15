@@ -3,7 +3,7 @@
 usage: python tools/pc_syms.py OUT.ld "CC [LDFLAGS]" OBJ... [--nm NM] [--stubs OUT.c]
 
 In the 32-bit PC build the PS1's RAM sits at its own address, so a game variable needs no translation: the linker just
-needs to know where it is. Names come from config/symbols.main.txt and config/symbols.main.psyq.txt, or from splat's
+needs to know where it is. Names come from config/symbols.*.txt (the exe's and the decompiled modules'), or from splat's
 D_XXXXXXXX / func_XXXXXXXX form. 32-bit MinGW objects prefix C names with an underscore that the linker leaves out
 of its messages, so each symbol is written both ways; only the one in use matters.
 
@@ -29,11 +29,14 @@ def main():
     ap.add_argument("--nm")
     ap.add_argument("--stubs", type=Path)
     args = ap.parse_args()
-    addrs = {}
-    for path in ("config/symbols.main.psyq.txt", "config/symbols.main.txt"):
-        for line in Path(path).read_text().splitlines():
+    # The modules being decompiled have symbol files of their own (config/symbols.chngmenu.txt...).
+    addrs, funcs = {}, set()
+    for path in sorted(Path("config").glob("symbols.*.txt")):
+        for line in path.read_text().splitlines():
             if m := re.match(r"(\w+) = (0x[0-9A-Fa-f]+);", line):
                 addrs[m[1]] = int(m[2], 16)
+                if "type:func" in line:
+                    funcs.add(m[1])
 
     def address(name):
         if m := re.fullmatch(r"(?:D|func)_([0-9A-F]{8})", name):
@@ -56,7 +59,7 @@ def main():
         addr = address(name)
         if addr is None:
             continue
-        if addr >= MODULES and name.startswith("func_"):
+        if addr >= MODULES and (name.startswith("func_") or name in funcs):
             modules.append((name, addr))
         else:
             lines.append(f"{name} = {addr:#010x};\n_{name} = {addr:#010x};\n")

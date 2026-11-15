@@ -1,0 +1,44 @@
+# splat config for MENU/CHNGMENU.MNU, a menu module loaded at 0x801D0000. Started from tools/module_yaml.py's.
+name: CHNGMENU.MNU
+sha1: 2a331d9ac0358f1c7c870eb97b59944b80b8d8ef
+options:
+  basename: chngmenu
+  target_path: disks/MENU/CHNGMENU.MNU
+  base_path: ../..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm/menu/chngmenu
+  src_path: src/menu
+  build_path: build
+  ld_script_path: build/menu/chngmenu.ld
+  undefined_funcs_auto_path: build/menu/chngmenu_undefined_funcs_auto.txt
+  undefined_syms_auto_path: build/menu/chngmenu_undefined_syms_auto.txt
+  symbol_addrs_path:
+    - config/symbols.main.txt
+    - config/symbols.main.psyq.txt
+    - config/symbols.chngmenu.txt
+
+  find_file_boundaries: False
+  gp_value: 0x80062D44
+  o_as_suffix: True
+  use_legacy_include_asm: False
+  generate_asm_macros_files: False
+  section_order: [".rodata", ".text", ".data", ".bss"]
+  subalign: 2
+  ld_align_section_vram_end: False
+  ld_align_segment_vram_end: False
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+segments:
+  - name: chngmenu
+    type: code
+    start: 0
+    vram: 0x801D0000
+    subsegments:
+      - [0x0, c, chngmenu]
+      - [0x1C4, data]
+  - [0x218]
