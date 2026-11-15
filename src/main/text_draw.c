@@ -83,8 +83,11 @@ int func_8001C498(void); /* pad 1's buttons; pad.c returns them as unsigned shor
  * font for the next glyph, 0xFE begins a code, 0xE7 is a new line and 0xF6-0xF9 are the pad's ○ △ □ ✕. */
 #ifdef NON_MATCHING
 /* Same code, but GCC gives the saved registers to the locals in another order. The loop is a goto loop: as a for
- * loop, GCC hoists right's sign extension out of it, where the game extends it at each use. */
-short func_8001D6A8(short x, short y, short right, unsigned char *text)
+ * loop, GCC hoists right's sign extension out of it, where the game extends it at each use. An old-style definition:
+ * func_8001F1BC passes its coordinates without extending them to short, which a prototype would make it do. */
+short func_8001D6A8(x, y, right, text)
+short x, y, right;
+unsigned char *text;
 {
     RECT tw;
     short i, k;
@@ -581,7 +584,8 @@ void func_8001EF84(int x, int y, int n, int digits, int pal)
  * opens, then its frame. */
 #ifdef NON_MATCHING
 /* Same code but for one register: the game keeps &frame in a saved register from before the loop (loop
- * optimization), which GCC does here only with r set outside the if, and then it picks other registers. */
+ * optimization), which GCC does here only with r set outside the if, and then it picks other registers. Declared
+ * int (with no return), GCC also leaves the loop's last delay slot empty as the game does. */
 void func_8001F1BC(Window *windows, short count, void *ot, short buf)
 {
     DRAWENV env;
