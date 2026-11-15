@@ -28,8 +28,11 @@ HOST = set("""printf sprintf vsprintf puts putchar getchar gets memcpy memset me
 strcat strncat strcmp strncmp strchr strrchr strstr strtok strtol strtoul atoi atol atof abs labs rand srand malloc free
 calloc realloc exit abort qsort bsearch toupper tolower isalpha isdigit isspace isupper islower isxdigit isalnum ispunct
 isprint iscntrl isgraph setjmp longjmp bcopy bzero bcmp index rindex open close read write lseek ioctl main""".split())
+# Ten arguments each way between recompiled code and C: the menus' sprite helpers (func_8001CF3C, func_8001D180) take
+# ten. Passing a C function more than it takes is harmless under cdecl.
 ARGS = ("(int)ctx.r[4], (int)ctx.r[5], (int)ctx.r[6], (int)ctx.r[7], (int)mem_r32(ctx.r[29] + 0x10u), "
-        "(int)mem_r32(ctx.r[29] + 0x14u), (int)mem_r32(ctx.r[29] + 0x18u), (int)mem_r32(ctx.r[29] + 0x1Cu)")
+        "(int)mem_r32(ctx.r[29] + 0x14u), (int)mem_r32(ctx.r[29] + 0x18u), (int)mem_r32(ctx.r[29] + 0x1Cu), "
+        "(int)mem_r32(ctx.r[29] + 0x20u), (int)mem_r32(ctx.r[29] + 0x24u)")
 
 
 MODULES = 0x800A0000  # code from here up is loaded at run time (field, battle, ending...)
@@ -87,21 +90,23 @@ def recompile(image: bytes, base: int, funcs: dict[int, str], native: set[str], 
     out = ['#include "recomp.h"\n\n']
     out += [f"{scope[a]}void r_{a:08X}(void);\n" for a in starts if a not in native_at]
     out += [f"{scope[a]}void r_{e:08X}(void);\n" for a in chosen for e in resumes[a]]
-    out += [f"{scope[a]}int {names[a]}(int, int, int, int, int, int, int, int);\n" for a in starts]
+    out += [f"{scope[a]}int {names[a]}(int, int, int, int, int, int, int, int, int, int);\n" for a in starts]
     for a in chosen:
         for e in [None] + resumes[a]:
             out.append("\n" + scope[a] + function(image, base, a, end_of[a], funcs, native_at, names,
                                                   jtbls.get(a, []), e, entries))
         out.append(f"""
-{scope[a]}int {names[a]}(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7)
+{scope[a]}int {names[a]}(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9)
 {{
     unsigned int sp = ctx.r[29];
 
-    ctx.r[29] = sp - 0x20;
-    mem_w32(sp - 0x10, a4);
-    mem_w32(sp - 0xC, a5);
-    mem_w32(sp - 0x8, a6);
-    mem_w32(sp - 0x4, a7);
+    ctx.r[29] = sp - 0x28;
+    mem_w32(sp - 0x18, a4);
+    mem_w32(sp - 0x14, a5);
+    mem_w32(sp - 0x10, a6);
+    mem_w32(sp - 0xC, a7);
+    mem_w32(sp - 0x8, a8);
+    mem_w32(sp - 0x4, a9);
     ctx.r[4] = a0;
     ctx.r[5] = a1;
     ctx.r[6] = a2;
