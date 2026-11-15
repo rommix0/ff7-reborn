@@ -159,7 +159,6 @@ void func_8002305C(int state, int command)
 }
 
 /* The command list's window: all ten while choosing, else one name sliding to or from its place. */
-#ifdef NON_MATCHING
 void func_800230C4(int buf)
 {
     RECT clip;
@@ -167,6 +166,7 @@ void func_800230C4(int buf)
     int busy;
     int i;
     int y;
+    int slide; /* the name's offset from its place in the list */
 
     busy = cd_step();
     clip.x = 0;
@@ -183,7 +183,8 @@ void func_800230C4(int buf)
             DATA_CALL(module_inits[menu_module], 0);
             menu_state = 3;
         }
-        func_80026F44(0x126, menu_command * 12 * menu_timer / 16 + 11, command_names[menu_command], 7);
+        slide = menu_command * 12 * menu_timer / 16;
+        func_80026F44(0x126, slide + 11, command_names[menu_command], 7);
         command_window_h = menu_timer * 108 / 16 + 24;
         break;
     case 4:
@@ -232,8 +233,8 @@ void func_800230C4(int buf)
             menu_timer++;
         else
             menu_state = 1;
-        func_80026F44(0x126, menu_command_prev * 12 * menu_return_step / 16 + 11,
-                      command_names[menu_command_prev], 7);
+        slide = menu_command_prev * 12 * menu_return_step / 16;
+        func_80026F44(0x126, slide + 11, command_names[menu_command_prev], 7);
         command_window_h = menu_return_step * 108 / 16 + 24;
         menu_return_step++;
         break;
@@ -273,9 +274,6 @@ void func_800230C4(int buf)
     clip.h = 0xDB;
     func_80026A94(&results_draw[results_buf], &clip);
 }
-#else
-INCLUDE_ASM("asm/nonmatchings/main/menu", func_800230C4);
-#endif
 
 void func_8002368C(void)
 {
