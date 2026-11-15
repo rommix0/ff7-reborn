@@ -134,6 +134,9 @@ build/src/main/magic_order.o: MASPSXFLAGS = --use-comm-section -G8
 build/src/main/pad.o: ASPSX = 2.21
 build/src/main/pad.o: CFLAGS = -O2 -G8
 build/src/main/pad.o: MASPSXFLAGS = --use-comm-section -G8
+build/src/main/menu_prims.o: ASPSX = 2.21
+build/src/main/menu_prims.o: CFLAGS = -O2 -G8
+build/src/main/menu_prims.o: MASPSXFLAGS = --use-comm-section -G8
 # The driver's first file (0x800293D0-0x80029A4C) reaches small globals through $gp: -G8. Its tentative definitions
 # of them stay common, so the linker resolves them to the data section's labels instead of adding storage.
 build/src/main/sound_init.o: ASPSX = 2.21
@@ -294,7 +297,7 @@ build/pc/test_cd$(PC_EXE): $(PC_TEST_CD) build/pc/test_cd.ld
 	$(PC_CC) $(PC_TEST_CD) build/pc/test_cd.ld $(PC_LDFLAGS) -o $@
 
 # The game: its C, the PC runtime, and the rest of the exe recompiled from the user's copy.
-PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o random.o text.o battle.o inflate.o materia_ap.o materia.o materia_own.o member_build.o magic_order.o pad.o sound_init.o sound.o cd.o movie.o)
+PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o random.o text.o battle.o inflate.o materia_ap.o materia.o materia_own.o member_build.o magic_order.o pad.o menu_prims.o sound_init.o sound.o cd.o movie.o)
 PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o buttons.o gte.o display.o cd_native.o sdl.o controls.o lab.o card.o)
 build/pc/obj/sdl.o build/pc/obj/controls.o: PC_CFLAGS += $(PC_SDL_CFLAGS)
 build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)

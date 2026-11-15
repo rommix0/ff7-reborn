@@ -653,3 +653,7 @@ field_pad1 = 0x80062D78;
 field_pad2 = 0x80062D80;
 menu_pad1 = 0x80062D88;
 menu_pad2 = 0x80062D90;
+
+// The menus' drawing helpers (src/main/menu_prims.c).
+prim_next = 0x80062F24;
+prim_ot = 0x80062FC4;

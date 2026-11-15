@@ -77,7 +77,8 @@ segments:
       - [0xC8EC, c, main/magic_order] # GCC 2.7.2, ASPSX 2.34, -G8
       - [0xCBCC, asm, CBCC] # hand-written: a word-at-a-time copy
       - [0xCC34, c, main/pad] # GCC 2.7.2, ASPSX 2.21, -G8
-      - [0xD5A4, asm, D5A4]
+      - [0xD5A4, c, main/menu_prims] # GCC 2.7.2, ASPSX 2.21, -G8
+      - [0xDEA8, asm, DEA8]
       # The AKAO sound driver, 0x800293D0-0x80033A90 (docs/knowledge_base.md §4).
       - [0x19BD0, c, main/sound_init] # compiled with -G8: small globals through $gp
       - [0x1A250, c, main/sound]
