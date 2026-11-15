@@ -5,6 +5,7 @@
 #include "common.h"
 #include "main.h"
 
+extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
 PartyMember *cur_member;
 unsigned char materia_detail;
 int materia_levels;           /* how many levels the materia materia_level last read has */

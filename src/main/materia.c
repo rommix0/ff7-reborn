@@ -5,6 +5,7 @@
 #include "common.h"
 #include "main.h"
 
+extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
 PartyMember *cur_member;
 unsigned char materia_detail;
 extern unsigned int member_materia[16]; /* the weapon's eight, then the armor's */

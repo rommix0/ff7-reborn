@@ -1685,6 +1685,7 @@ same set). They give the original module and file split, and the staff folders b
 | `text_draw.c` | `0x8001D6A8`–`0x8001FA28` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8 --expand-div` |
 | `party.c` | `0x8001FA28`–`0x800211B8` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
 | `results.c` | `0x800211B8`–`0x80023050` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
+| `menu.c` | `0x80023050`–`0x80025288` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8 --expand-div` |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
@@ -1699,8 +1700,9 @@ same set). They give the original module and file split, and the staff folders b
   - GCC 2.7.2 over 2.6.3: `bitops.c` (2.6.3 matches one of its three functions); `transition.c` (under `main.c`'s
     toolchain a loop counter reset isn't duplicated as the game has it); `magic_order.c` (2.6.3 orders the first
     loop's pointer steps the other way and masks a byte it already has); `pad.c` (2.6.3 misses five of its eleven
-    functions). `pad.c`, `menu_prims.c`, `text_draw.c`, `party.c` and `results.c` are the files found so far with
-    GCC 2.7.2 and ASPSX 2.21 together: `pad.c`'s indexed loads, the jump table's among them, go through `addiu $at`.
+    functions). `pad.c`, `menu_prims.c`, `text_draw.c`, `party.c`, `results.c` and `menu.c` are the files found so
+    far with GCC 2.7.2 and ASPSX 2.21 together: `pad.c`'s indexed loads, the jump table's among them, go through
+    `addiu $at`.
   - ASPSX 2.21: `li 1` is `ori` (2.34 and older), and an indexed access goes through `addiu $at` (before 2.30):
     `lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`.
   - ASPSX 2.34: `li` is still `ori`, but an indexed load folds into `%lo`: `lui at; addu at, at, a0; lw v0,
@@ -1763,8 +1765,8 @@ same set). They give the original module and file split, and the staff folders b
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical
   to retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
   `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25, `member_build.c`, `magic_order.c`, `pad.c`,
-  `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c`, 10 of `results.c`'s 14 and 231 of the sound driver's 232
-  functions are C; the rest is assembly.
+  `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c`, 10 of `results.c`'s 14, 26 of `menu.c`'s 27 and 231 of the sound
+  driver's 232 functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -1851,9 +1853,13 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   Game pointers need no translation, and C and recompiled code share the game's data. The link is
   `--large-address-aware --disable-dynamicbase`, and `tools/pc_syms.py` places each game symbol at its address.
 - **Recompiler rules:** one C function per game function over a register context (`pc/recomp.h`); delay slots
-  folded; a backward branch polls the hardware. Each function has a C-callable thunk taking ten ints (the last six
-  are the PS1's stack words), and calls into C pass ten: with eight, `func_8001CF3C`'s palette and semi-transparency
-  (its ninth and tenth) came from the C stack once `menu_prims.c` was C. Code pointers are native: a `lui`/`addiu`
+  folded; a backward branch polls the hardware. Each function has a C-callable thunk taking fourteen ints (the last
+  ten are the PS1's stack words), and calls into C pass fourteen: with eight, `func_8001CF3C`'s palette and
+  semi-transparency (its ninth and tenth) came from the C stack once `menu_prims.c` was C, and the menus' cursor setup
+  (`func_80026448`) takes fourteen. C calls through a code address in the game's data with `DATA_CALL`
+  (`include/common.h`): an overlay's address there stays a game address, so on the PC `data_call` looks it up as a
+  recompiled `jalr` does (the menu's module tables at `0x800493A8` and `0x800493FC`). Code pointers are native: a
+  `lui`/`addiu`
   pair that builds a function's address gives the native function only when the address escapes as a code pointer
   (stored, passed, returned or called; libgte's `_patch_gte` uses one as a loop's end), and the code addresses in
   the game's data are patched at start: every aligned word in a data file's range that holds a function's address,
@@ -2350,8 +2356,19 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   own `y = 32`. Parked: the items screen (`func_800212A8`, the cursor's skip over empty rows: the game reads the row
   with `lbu` and sign-extends it), the EXP screen (`func_80021F58`, register allocation and one address's operand
   order), the module read (`func_800211C4`, two copies of the table address the game adds separately) and the
-  screens' start (`func_80022DE4`, one constant's place in the schedule). The zero word at `0x80010340` is unreferenced
-  and starts the next file's rodata.
+  screens' start (`func_80022DE4`, one constant's place in the schedule). The zero word at `0x80010340`, between
+  its rodata and `menu.c`'s, is unreferenced and kept as data.
+- `menu.c` (the field menu's top level: the command list, the party/time/gil screen with Order, the main loop, the
+  overlay launchers): the game reaches the party through the register holding the address of the command bytes
+  (`0x8009D2A4`), which GCC only does when both are one object, so this file declares the save from the party
+  (`0x8009CBDC`) to those bytes as a struct. GCC drops an empty `case`, and the game's compare order needs one:
+  `case 1: return;` in `func_8002305C`, a self-assignment in the command kind's `case 0`. The clock's digit pairs
+  match as separate `t %=` statements; the screen's per-member y positions are four separate loop counters (one
+  spilled), so they are written as separate constants, and `top` is set right after the record lookup. This file
+  passes `func_8001EB2C` and `func_8001CF3C` unextended ints, and reads the play time and gil as plain words (a
+  struct over 8 bytes put its address in a register). Parked: the command list (`func_800230C4`), where GCC fills
+  two branch delay slots with the x argument and the game has `nop`s. The scratch diff masks branch targets: a call
+  that belongs after an `if` sat inside it, matching all but those slots, until the differential test caught it.
 - On the PC, native C doesn't poll (see **Waits in C**), so a busy loop that becomes C stops advancing PS1 time:
   `magic_order.c`'s ~600 loop passes per call shifted disc reads by a frame and battle ends by up to ~600 frames in
   the pillar play-test, with the same events in the same order. A differential test against the recompiled

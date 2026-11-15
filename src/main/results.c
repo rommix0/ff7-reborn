@@ -6,22 +6,8 @@
 #include "main.h"
 #include "prims.h"
 
+extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
 extern PartyMember members[3];
-
-/* A menu's cursor as func_800264A8 moves it. */
-typedef struct MenuCursor {
-    short pad0;
-    short top;   /* the first row shown */
-    short pad4;
-    short total; /* rows in all */
-    short scrolling;
-    unsigned char col;
-    signed char row;
-    unsigned char cols, rows; /* shown */
-    unsigned char padE;
-    unsigned char scroll_dir;
-    unsigned char wrap_x, wrap_y;
-} MenuCursor;
 
 /* A member's level ups on the EXP screen, each message shown for its timer's frames. */
 typedef struct LevelUp {

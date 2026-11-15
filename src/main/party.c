@@ -5,6 +5,8 @@
 #include "main.h"
 #include "sound.h"
 
+extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
+
 /* A bar as the menus draw it: value against max, w pixels at most. */
 typedef struct Bar {
     short x, y, w, h;

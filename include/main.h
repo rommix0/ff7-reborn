@@ -15,13 +15,14 @@ typedef struct Character {
     unsigned char level;
     unsigned char stats[6];      /* Str, Vit, Mag, Spr, Dex, Luck */
     unsigned char stat_bonus[6]; /* what sources have added to them */
-    unsigned char pad0E[2];
+    unsigned char limit_level;
+    unsigned char limit_bar; /* 0xFF when full */
     unsigned char name[12];
     unsigned char weapon;
     unsigned char armor;
     unsigned char accessory; /* 0xFF for none */
     unsigned char flags;     /* 0x10 Fury, 0x20 Sadness */
-    unsigned char pad20;
+    unsigned char row; /* bit 0 clear: the back row */
     unsigned char exp_bar; /* the Status screen's bar */
     unsigned char pad22[10];
     unsigned short hp;
@@ -37,9 +38,24 @@ typedef struct Character {
     unsigned int exp_to_next;
 } Character;
 extern Character D_8009C738[];
-extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
+/* The party (D_8009CBDC) is declared in the files that read it: menu.c needs it as part of a larger struct. */
 extern int character_record[];     /* each character id's place in D_8009C738 */
 extern unsigned short config; /* the Config menu's settings: bits 2-3 the controller mapping, 10-12 Magic order */
+
+/* A menu's cursor as func_800264A8 moves it. */
+typedef struct MenuCursor {
+    short pad0;
+    short top;   /* the first row shown */
+    short pad4;
+    short total; /* rows in all */
+    short scrolling;
+    unsigned char col;
+    signed char row;
+    unsigned char cols, rows; /* shown */
+    unsigned char padE;
+    unsigned char scroll_dir;
+    unsigned char wrap_x, wrap_y;
+} MenuCursor;
 
 /* A spell or command a member has, as the menus and battle list it. */
 typedef struct MemberSpell {
