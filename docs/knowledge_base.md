@@ -926,9 +926,10 @@ recovered C. Details in §7.
 | Movie player (`movie.c`) | `0x80034F3C`–`0x8003623C` | all 14 functions in C |
 | PsyQ library block | `0x80036E84`–`0x80048D18` | 267 of 454 functions named (§8) |
 | `MENU/CHNGMENU.MNU` (`src/menu/chngmenu.c`) | `0x801D0000`–`0x801D01C4` | all 3 functions in C |
+| `MENU/PATYMENU.MNU` (`src/menu/patymenu.c`) | `0x801D0198`–`0x801D065C` | all 3 functions in C |
 
 Not recovered yet: 12 of the exe's game functions, parked as asm (§7), and every other overlay: battle, field, world,
-the other 12 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+the other 11 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1577,6 +1578,14 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   Order itself on the party screen and never loads it. It draws a title in bytes that aren't US text (probably the
   Japanese one), two windows and a list cursor, and ✕ leaves it. The lab's `--code "30049454 0006"` points Status
   at it.
+- **`PATYMENU.MNU` is a debug party editor** (module 11), which nothing in the exe opens: the three party places with
+  each character's name and portrait; ↑/↓ pick a place, ←/→ step its character id (to 10, then none), ○ switches the
+  character's row and ✕ leaves. Its read-only data is the developers' paths of the portrait TIMs
+  (`x:\master\menu\data\choco.tim` …), which nothing reads; the rest is room to keep the VRAM the portraits
+  cover. `--code "30049454 000B"` points Status at it.
+- **The command list's names run on past Save:** `command_names` has 14 entries, the last four `Uso`, `Beginner`,
+  `Uso`, `Uso` ("uso" is Japanese for "fake"). The command window shows entry module − 1, so module 11 (the party
+  editor) is labelled `Uso` and module 12 `Beginner`, probably `BGINMENU`, the Beginner's Hall.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1779,7 +1788,10 @@ same set). They give the original module and file split, and the staff folders b
   `build/MENU/<NAME>.MNU` against the SHA1 in its config. The modules share addresses, so each has its own symbol
   file (`config/symbols.<name>.txt`) with names unique across modules (`chng_init`). The PC port's split of the module
   takes the same names, and its C replaces the recompiled functions by them. The menus are GCC 2.7.2 at `-G0`: they
-  reach the exe's small globals through `lui`, not `$gp`.
+  reach the exe's small globals through `lui`, not `$gp`. They read `field_pad1.repeat` as a variable of its own
+  (`D_80062D7E` in `include/menu.h`): as a struct field, GCC keeps its address in a register across two tests.
+  Plain `char` is unsigned in this GCC; the party bytes are `unsigned char`, cast to `signed char` where the game
+  compares them with -1 or -2.
 
 **Main exe layout** (splat's guess, corrected by hand):
 

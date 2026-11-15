@@ -61,7 +61,6 @@ extern unsigned int menu_ots[2][20];
 extern DRAWENV results_draw[2];
 extern DISPENV results_disp[2];
 extern unsigned char D_80077F64[2][0x3400];
-extern unsigned char D_800756F8[];
 extern int save_gil;
 extern unsigned int D_8009D264, D_8009D26C; /* the play time: seconds, and a second's fraction (main.c) */
 
@@ -69,7 +68,6 @@ void func_8001C484(unsigned char *script);
 unsigned int func_8001C808(void);
 void func_8001CB48(void);
 void func_8001CF3C(int x, int y, int w, int h, int u, int v, int tw, int th, int pal, int semi); /* takes shorts */
-void func_8001DE0C(RECT *r, int x, int y, int w, int h);
 void func_8001F6E4(short placed, short x, short y);
 void func_8001F710(void);
 void func_8001FA28(unsigned short effect);
@@ -77,18 +75,15 @@ void func_80020058(int slot);
 void func_80020B68(int x, int y, int slot);
 void func_80021044(DRAWENV *draw, DISPENV *disp);
 void func_800211C4(int module);
-void func_80025C94(void *p);
 void func_80025CD4(void *p);
 void func_80026090(void);
 void func_800269C0(void *buf);
 void func_80026A00(unsigned int *ot);
-void func_80026A34(int dfe, int dtd, int tpage, RECT *tw);
 void func_80026A94(DRAWENV *env, RECT *clip);
 int func_80026B70(unsigned char *text);
 void func_8002708C(int x, int y, int glyph, int color);
 void func_800285AC(int x, int y, int value, int h, int r, int g, int b);
 void func_80028CA0(short x, short y, int u, int v, int w, int h, int pal, int semi);
-void func_80028E00(int x, int y, int n, int digits, int color);
 void func_80029114(int x, int y, int n, int digits, int color);
 void func_80044000(RECT *r, void *p);
 void func_80044064(RECT *r, void *p);

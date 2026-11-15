@@ -32,7 +32,7 @@ void chng_frame(void)
     for (i = 0; i < 2; i++)
         func_8001E040(&chng_windows[i]);
     func_800264A8(&chng_cursors[chng_active]);
-    if (field_pad1.repeat & 0x40) {
+    if (D_80062D7E & 0x40) {
         func_8002305C(5, 0);
         func_8002120C(0);
     }

@@ -1,0 +1,8 @@
+// PATYMENU.MNU at 0x801D0000 (module 11).
+paty_init = 0x801D0198; // type:func
+paty_exit = 0x801D01F0; // type:func
+paty_frame = 0x801D0250; // type:func
+paty_face_paths = 0x801D065C; // size:0x38 (the developers' paths of the portrait TIMs)
+paty_place = 0x801D0694; // size:0x4 (the party place being changed)
+paty_saved_cluts = 0x801D19CC; // size:0x2800
+paty_saved_faces = 0x801D41CC; // size:0x3300
