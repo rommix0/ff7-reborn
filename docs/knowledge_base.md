@@ -1862,7 +1862,9 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   (`include/common.h`): an overlay's address there stays a game address, so on the PC `data_call` looks it up as a
   recompiled `jalr` does (the menu's module tables at `0x800493A8` and `0x800493FC`). A local buffer C hands to
   DMA (a VRAM upload or save) is a `DMA_BUFFER` (`include/common.h`): DMA sees only PS1 RAM, so on the PC it comes
-  off the PS1 stack below `$sp`; on the host's stack the menus lost their faces. Code pointers are native: a
+  off the PS1 stack below `$sp`; on the host's stack the menus lost their faces, and the menu loop's saved VRAM
+  strip (`func_80024A3C`) landed in a field model's vertices, which showed as a long thin polygon after the menu
+  closed. The host stack sits below 2 MB, so `mem_ptr` maps it into PS1 RAM. Code pointers are native: a
   `lui`/`addiu`
   pair that builds a function's address gives the native function only when the address escapes as a code pointer
   (stored, passed, returned or called; libgte's `_patch_gte` uses one as a loop's end), and the code addresses in

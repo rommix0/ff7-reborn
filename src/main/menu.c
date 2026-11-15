@@ -569,7 +569,7 @@ void func_80024A04(void)
 int func_80024A3C(unsigned char *demo)
 {
     RECT unused; /* this and b, c: unused, but the game's frame has them */
-    unsigned int vram[448];
+    DMA_BUFFER(vram, 448 * 4);
     RECT win;
     RECT b, c;
     unsigned short i;
@@ -637,6 +637,7 @@ int func_80024A3C(unsigned char *demo)
     func_80024A04();
     demo_input = 0;
     VSync(4);
+    DMA_BUFFER_END(448 * 4);
     return 0;
 }
 
