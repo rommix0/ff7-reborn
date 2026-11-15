@@ -11,7 +11,7 @@ int tally_frames;  /* frames the EXP count has run */
 int tally_done;    /* a bit for each member whose count has finished */
 int tally_hidden;  /* a bit for each member whose level isn't shown */
 
-extern volatile unsigned short D_80062D88; /* the buttons held, as the battle reads them */
+extern volatile unsigned short menu_pad1;  /* pad.c's; its first field is the buttons held */
 extern unsigned char D_8009CBDC[];         /* the party: three characters, 0xFF for an empty place */
 
 /* The battle's, at 0x800F83A4. */
@@ -76,7 +76,7 @@ void battle_error_halt(void)
         return;
     battle_error |= 0x100;
     D_80062F60 = 0;
-    while (D_80062D88 != 0x10C) {
+    while (menu_pad1 != 0x10C) {
         func_800A3278();
         func_800B6D6C();
     }
