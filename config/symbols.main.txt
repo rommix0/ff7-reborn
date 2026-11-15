@@ -657,3 +657,23 @@ menu_pad2 = 0x80062D90;
 // The menus' drawing helpers (src/main/menu_prims.c).
 prim_next = 0x80062F24;
 prim_ot = 0x80062FC4;
+
+// Drawing dialogue text (src/main/text_draw.c).
+text_color = 0x80062DB4;
+text_blink = 0x80062DB6;
+text_shimmer = 0x80062DB8;
+text_frame = 0x80062DBA;
+text_left = 0x80062DBC;
+text_semi = 0x80062DC0;
+text_fixed = 0x80062DC4;
+text_lines = 0x80062F9C;
+text_count = 0x80062FF0;
+window_semi = 0x80062DC8;
+caption_state = 0x80062DDB;
+caption_color = 0x80062DDC;
+caption_timer = 0x80062DE0;
+caption_text = 0x80062EB8;
+caption_placed = 0x80062DE4;
+caption_step = 0x80062DE5;
+caption_x = 0x80062DE6;
+caption_y = 0x80062DE8;

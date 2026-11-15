@@ -2,57 +2,7 @@
  * prim_ot and steps prim_next past it. GCC 2.7.2, ASPSX 2.21 and -G8, like pad.c before it. */
 
 #include "common.h"
-
-/* libgpu's primitives. */
-typedef struct POLY_FT4 {
-    unsigned int tag;
-    unsigned char r0, g0, b0, code;
-    short x0, y0;
-    unsigned char u0, v0;
-    unsigned short clut;
-    short x1, y1;
-    unsigned char u1, v1;
-    unsigned short tpage;
-    short x2, y2;
-    unsigned char u2, v2;
-    unsigned short pad1;
-    short x3, y3;
-    unsigned char u3, v3;
-    unsigned short pad2;
-} POLY_FT4;
-
-typedef struct TILE_1 {
-    unsigned int tag;
-    unsigned char r0, g0, b0, code;
-    short x0, y0;
-} TILE_1;
-
-typedef struct LINE_F2 {
-    unsigned int tag;
-    unsigned char r0, g0, b0, code;
-    short x0, y0;
-    short x1, y1;
-} LINE_F2;
-
-/* Where the next primitive goes, as whichever kind is being built. A union, not a plain pointer: the game reloads it
- * after every store to a primitive, which GCC does only for an aggregate. */
-typedef union {
-    POLY_FT4 *ft4;
-    TILE_1 *tile;
-    LINE_F2 *line;
-} PrimPtr;
-
-extern PrimPtr prim_next;
-extern void *prim_ot; /* the ordering table the menus draw into */
-
-void SetPolyFT4(void *p);
-void SetTile1(void *p);
-void SetLineF2(void *p);
-void func_80046848(void *p, int on); /* SetSemiTrans */
-void func_80046870(void *p, int on); /* SetShadeTex */
-unsigned short GetClut(int x, int y);
-unsigned short GetTPage(int tp, int abr, int x, int y);
-void AddPrim(void *ot, void *p);
+#include "prims.h"
 
 /* A 64x64 quad of the 128x128 texture at VRAM (832, 0); nothing in the game calls it. */
 void func_8001CDA4(void)
@@ -144,14 +94,14 @@ void func_8001D180(short x, short y, short w, short h, unsigned short u, unsigne
 /* A yellow dot; unused. */
 void func_8001D3C0(short x, short y)
 {
-    SetTile1(prim_next.tile);
-    prim_next.tile->x0 = x;
-    prim_next.tile->y0 = y;
-    prim_next.tile->r0 = 255;
-    prim_next.tile->g0 = 255;
-    prim_next.tile->b0 = 0;
-    AddPrim(prim_ot, prim_next.tile);
-    prim_next.tile++;
+    SetTile1(prim_next.tile1);
+    prim_next.tile1->x0 = x;
+    prim_next.tile1->y0 = y;
+    prim_next.tile1->r0 = 255;
+    prim_next.tile1->g0 = 255;
+    prim_next.tile1->b0 = 0;
+    AddPrim(prim_ot, prim_next.tile1);
+    prim_next.tile1++;
 }
 
 /* A level line from x0 to x1 at y in colour 0xRRGGBB. */

@@ -98,6 +98,10 @@ A movie name found on several discs has the same contents on each, so the PC por
   `EA`–`F1` take a big-endian `u16` that `text_expand` fills in (`EA` a character's name, `EB` an item, `EC` a
   number, `ED` a party member or enemy, `EE` and `F0` other name lists, `EF` one character, `F1` any list by list and
   index); `F8` (colour) and `FA`–`FE` (more glyph pages) take a byte (the drawing at `0x80026F7C`); `FF` ends a string.
+  The field's dialogue windows draw with `func_8001D6A8` instead: `E7` is a new line, `E8` and `E9` stop the text,
+  `FA`–`FD` take the next glyph from another page, `FE D2`–`D9` sets the colour, and `FE DA`, `FE DB` and `FE E9`
+  toggle blinking, colours cycling along the line and a fixed 13-pixel advance (`FE` with a byte below `D2` is a
+  fifth page).
 - **Sections:** 0–8 are tables, 9–26 text. A text section is a `u16` offset per string, then the strings. The help
   texts (9–16) and the battle text (25) are packed: `F9 b` copies `(b >> 6) * 2 + 4` bytes of the packed section from
   `(b & 0x3F) + 1` bytes before the `F9` (`text_unpack`). The names (17–24, 26) aren't (`text_copy` copies them
@@ -1678,6 +1682,7 @@ same set). They give the original module and file split, and the staff folders b
 | `materia_ap.c`, `materia.c`, `materia_own.c`, `member_build.c` | `0x80017238`–`0x8001C0EC` | 2.6.3 | 2.21 | 8 | `--use-comm-section -G8` |
 | `magic_order.c` | `0x8001C0EC`–`0x8001C3CC` | 2.7.2 | 2.34 | 8 | `--use-comm-section -G8` |
 | `pad.c`, `menu_prims.c` | `0x8001C434`–`0x8001D6A8` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
+| `text_draw.c` | `0x8001D6A8`–`0x8001FA28` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8 --expand-div` |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
@@ -1692,7 +1697,7 @@ same set). They give the original module and file split, and the staff folders b
   - GCC 2.7.2 over 2.6.3: `bitops.c` (2.6.3 matches one of its three functions); `transition.c` (under `main.c`'s
     toolchain a loop counter reset isn't duplicated as the game has it); `magic_order.c` (2.6.3 orders the first
     loop's pointer steps the other way and masks a byte it already has); `pad.c` (2.6.3 misses five of its eleven
-    functions). `pad.c` and `menu_prims.c` are the files found so far with GCC 2.7.2 and ASPSX 2.21 together:
+    functions). `pad.c`, `menu_prims.c` and `text_draw.c` are the files found so far with GCC 2.7.2 and ASPSX 2.21 together:
     `pad.c`'s indexed loads, the jump table's among them, go through `addiu $at`.
   - ASPSX 2.21: `li 1` is `ori` (2.34 and older), and an indexed access goes through `addiu $at` (before 2.30):
     `lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`.
@@ -1756,7 +1761,7 @@ same set). They give the original module and file split, and the staff folders b
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical
   to retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
   `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25, `member_build.c`, `magic_order.c`, `pad.c`,
-  `menu_prims.c` and 231 of the sound driver's 232 functions are C; the rest is assembly.
+  `menu_prims.c`, 14 of `text_draw.c`'s 16 and 231 of the sound driver's 232 functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2313,7 +2318,16 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   game reloads it after every store into a primitive, but loads the ordering table pointer once and early: GCC
   assumes a store through a struct pointer can't touch a plain global, only an aggregate. As a plain or
   `volatile` pointer it fails, and so does a struct over 8 bytes (GCC keeps its address in a register). Being
-  `extern`, it still loads with `lui`, never through `$gp`.
+  `extern`, it still loads with `lui`, never through `$gp`. `include/prims.h` holds it and the primitive types for
+  both files.
+- `text_draw.c`: the text renderer (`func_8001D6A8`, parked) loops with `goto`: as a `for` loop GCC hoists the
+  sign extension of its `short right` out of the loop, where the game extends it at each use; what's left is which
+  saved register each local gets. The dialogue windows (`func_8001F1BC`, parked) match but for one: the game keeps
+  `&frame` in a saved register from before the loop. Things that did match: a coordinate the game computes inside
+  a call's arguments (`x - w / 2` twice, not a variable: the caption window); the statements before a call in the
+  order its loads show (`text_semi`, `text_left`, then the constants); the countdown read through the whole
+  16-byte `volatile` clock at `0x8009D264` (as a plain `int`, or a struct of 8 bytes or less, GCC folds its address
+  into the load); and the timer digits' `time / D_80049214[i]` with `--expand-div`'s checks.
 - On the PC, native C doesn't poll (see **Waits in C**), so a busy loop that becomes C stops advancing PS1 time:
   `magic_order.c`'s ~600 loop passes per call shifted disc reads by a frame and battle ends by up to ~600 frames in
   the pillar play-test, with the same events in the same order. A differential test against the recompiled
