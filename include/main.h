@@ -51,13 +51,13 @@ typedef struct MenuCursor {
     short top;   /* the first row shown */
     short pad4;
     short total; /* rows in all */
-    short scrolling;
-    unsigned char col;
+    short scrolling; /* 1 up a row, 2 down, over four frames */
+    signed char col;
     signed char row;
-    unsigned char cols, rows; /* shown */
+    signed char cols, rows; /* shown */
     unsigned char padE;
-    unsigned char scroll_dir;
-    unsigned char wrap_x, wrap_y;
+    signed char scroll_step; /* how far through the scroll */
+    signed char wrap_x, wrap_y; /* 0 stop at the edge (wrap_y 0 scrolls the list), 1 wrap, 2 on to the next row */
 } MenuCursor;
 
 /* A spell or command a member has, as the menus and battle list it. */

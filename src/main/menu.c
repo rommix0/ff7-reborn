@@ -86,7 +86,7 @@ void func_80025C94(void *p);
 void func_80025CD4(void *p);
 void func_80026090(void);
 void func_80026448(MenuCursor *c, int col, int row, int cols, int rows, int pad0, int top, int pad4, int total,
-                   int padE, int scroll_dir, int wrap_x, int wrap_y, int scrolling);
+                   int padE, int scroll_step, int wrap_x, int wrap_y, unsigned short scrolling);
 void func_800264A8(MenuCursor *cursor);
 void func_800269C0(void *buf);
 void func_80026A00(unsigned int *ot);

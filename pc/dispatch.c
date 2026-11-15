@@ -144,6 +144,19 @@ int data_call(unsigned int addr, int a0)
     return ((NativeCall)f)(a0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
+/* DMA_BUFFER (include/common.h): native C's DMA buffers, below the PS1 $sp. Recompiled code it calls makes its
+ * frames below them. */
+void *ps1_stack_take(unsigned int size)
+{
+    ctx.r[29] -= (size + 7) & ~7u;
+    return (void *)ctx.r[29];
+}
+
+void ps1_stack_give(unsigned int size)
+{
+    ctx.r[29] += (size + 7) & ~7u;
+}
+
 /* The callee gets a0-a3 and the ten words above the caller's $sp, as a MIPS function would find them. */
 void call_indirect(unsigned int addr)
 {

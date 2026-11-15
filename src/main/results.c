@@ -600,7 +600,7 @@ void func_80022DE4(void)
     spoils_cursor.wrap_x = 0;
     spoils_cursor.wrap_y = 1;
     spoils_cursor.padE = 0;
-    spoils_cursor.scroll_dir = 0;
+    spoils_cursor.scroll_step = 0;
     spoils_cursor.scrolling = 0;
     spoils_cursor.row = results_items ? 0 : 5;
     SetDispMask(1);

@@ -23,4 +23,17 @@ int data_call(unsigned int addr, int a0);
 #define DATA_CALL0(f) (f)()
 #endif
 
+/* A local buffer the game hands to DMA (a VRAM upload or save). DMA reaches only PS1 RAM, and on the PC a native
+ * function's locals are on the host's stack, so there it comes off the PS1 stack, as the game's own frame holds it;
+ * DMA_BUFFER_END gives back the buffers' total size before the function returns. */
+#ifdef NATIVE
+void *ps1_stack_take(unsigned int size);
+void ps1_stack_give(unsigned int size);
+#define DMA_BUFFER(name, size) unsigned char *name = ps1_stack_take(size)
+#define DMA_BUFFER_END(size) ps1_stack_give(size)
+#else
+#define DMA_BUFFER(name, size) unsigned char name[size]
+#define DMA_BUFFER_END(size)
+#endif
+
 #endif

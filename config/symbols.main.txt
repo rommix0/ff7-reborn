@@ -736,3 +736,11 @@ clock_units = 0x80049474;
 limit_colors = 0x8004948C;
 menu_ots = 0x80069844;
 menu_cursors = 0x8009A0C8;
+// menu_util.c
+prim_saved = 0x80063008;
+ot_saved = 0x8006300C;
+materia_keep = 0x800494A4;
+icon_palettes = 0x80049520;
+icon_kinds = 0x80049528;
+face_files = 0x80048FE8;
+settings = 0x8009D7BC;

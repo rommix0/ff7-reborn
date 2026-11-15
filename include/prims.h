@@ -62,6 +62,11 @@ typedef struct POLY_G4 {
     short x3, y3;
 } POLY_G4;
 
+typedef struct DR_MODE {
+    unsigned int tag;
+    unsigned int code[2];
+} DR_MODE;
+
 typedef struct DR_ENV {
     unsigned int tag;
     unsigned int code[15];
@@ -76,6 +81,7 @@ typedef union {
     TILE *tile;
     SPRT *sprt;
     POLY_G4 *g4;
+    DR_MODE *dr_mode;
     DR_ENV *dr_env;
 } PrimPtr;
 
