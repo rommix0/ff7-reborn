@@ -744,3 +744,6 @@ icon_palettes = 0x80049520;
 icon_kinds = 0x80049528;
 face_files = 0x80048FE8;
 settings = 0x8009D7BC;
+text_max = 0x80062DFC;
+text_page_per_line = 0x80062DFD;
+font_widths = 0x800707C0;

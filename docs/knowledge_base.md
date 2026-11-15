@@ -926,7 +926,7 @@ recovered C. Details in §7.
 | Movie player (`movie.c`) | `0x80034F3C`–`0x8003623C` | all 14 functions in C |
 | PsyQ library block | `0x80036E84`–`0x80048D18` | 267 of 454 functions named (§8) |
 
-Not recovered yet: the rest of the exe's game code (still asm) and every overlay: battle, field, world, menus,
+Not recovered yet: 13 of the exe's game functions, parked as asm (§7), and every overlay: battle, field, world, menus,
 mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
@@ -1687,6 +1687,7 @@ same set). They give the original module and file split, and the staff folders b
 | `results.c` | `0x800211B8`–`0x80023050` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
 | `menu.c` | `0x80023050`–`0x80025288` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8 --expand-div` |
 | `menu_util.c` | `0x80025288`–`0x80026B64` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
+| `menu_text.c` | `0x80026B64`–`0x800293D0` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8 --expand-div` |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
@@ -1701,9 +1702,9 @@ same set). They give the original module and file split, and the staff folders b
   - GCC 2.7.2 over 2.6.3: `bitops.c` (2.6.3 matches one of its three functions); `transition.c` (under `main.c`'s
     toolchain a loop counter reset isn't duplicated as the game has it); `magic_order.c` (2.6.3 orders the first
     loop's pointer steps the other way and masks a byte it already has); `pad.c` (2.6.3 misses five of its eleven
-    functions). `pad.c`, `menu_prims.c`, `text_draw.c`, `party.c`, `results.c`, `menu.c` and `menu_util.c` are the
-    files found so far with GCC 2.7.2 and ASPSX 2.21 together: `pad.c`'s indexed loads, the jump table's among them,
-    go through `addiu $at`.
+    functions). `pad.c`, `menu_prims.c`, `text_draw.c`, `party.c`, `results.c`, `menu.c`, `menu_util.c` and
+    `menu_text.c` are the files found so far with GCC 2.7.2 and ASPSX 2.21 together: `pad.c`'s indexed loads, the
+    jump table's among them, go through `addiu $at`.
   - ASPSX 2.21: `li 1` is `ori` (2.34 and older), and an indexed access goes through `addiu $at` (before 2.30):
     `lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`.
   - ASPSX 2.34: `li` is still `ori`, but an indexed load folds into `%lo`: `lui at; addu at, at, a0; lw v0,
@@ -1766,8 +1767,8 @@ same set). They give the original module and file split, and the staff folders b
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical
   to retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
   `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25, `member_build.c`, `magic_order.c`, `pad.c`,
-  `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c`, 11 of `results.c`'s 14, 26 of `menu.c`'s 27, `menu_util.c`
-  and 231 of the sound driver's 232 functions are C; the rest is assembly.
+  `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c`, 11 of `results.c`'s 14, 26 of `menu.c`'s 27, `menu_util.c`,
+  15 of `menu_text.c`'s 16 and 231 of the sound driver's 232 functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2383,6 +2384,21 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   item lookup keeps 0xFFFF in a variable it returns (`none`), and the item taker's register order comes from
   assigning the count test to `taken` first (found by the permuter). The slot lookups give back 0xFF for an empty
   place, as the compare leaves it in `$v0`.
+- `menu_text.c` (the menus' text and widgets: a line's width and drawing, the small 8x8 font, gauges, box outlines,
+  sunken panels, raised buttons, scroll bars, shaded bands, small digits): its own `$gp` bytes are `text_max`
+  (`0x80062DFC`, the most characters a line draws, 0x40) and `text_page_per_line` (`0x80062DFD`: the dialogue
+  windows, results screens, battle and shop set it, the menu loop clears it; while set, a line resets the font's
+  texture page once at its end instead of after each glyph). They and `prim_ot` are tentative definitions here, so
+  the code reaches them through `$gp` and the linker gives them the data section's labels. `font_widths`
+  (`0x800707C0`) points at the widths `loader.c` loads. A `short` parameter is extended on entry only when the
+  function computes with it: the sprite, digit and band drawers match with `short` coordinates, while the glyph
+  drawer takes `int`s and its caller narrows them (the caller's `x` is a `short`). Several matched once a
+  coordinate was written as an expression in each store rather than kept in a variable (the band's middle, the
+  shine's lower third); the shine divides by 3 through `third = h; third /= 3;` (`h / 3` on a `short` is done in
+  16 bits and extended again). The gauge's second length is a `short` (found by the permuter); the 8x8 font's
+  row is worked out in its column variable (`k >>= 4; k *= 8;`); the line drawer passes a two-byte code through
+  an `int`. Parked: the zero-padded digits (`func_80029114`), where only the saved registers of `n`, `div` and the
+  counter differ.
 - On the PC, native C doesn't poll (see **Waits in C**), so a busy loop that becomes C stops advancing PS1 time:
   `magic_order.c`'s ~600 loop passes per call shifted disc reads by a frame and battle ends by up to ~600 frames in
   the pillar play-test, with the same events in the same order. A differential test against the recompiled

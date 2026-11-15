@@ -52,13 +52,13 @@ unsigned char caption_step;   /* how far open, 1-3 */
 short caption_x;
 short caption_y;
 
-extern unsigned char *D_800707C0; /* the font's widths: by glyph, the left gap in bits 5-7 and the width below */
+extern unsigned char *font_widths; /* the font's widths: by glyph, the left gap in bits 5-7 and the width below */
 extern unsigned char D_80049208[12]; /* the window's four corner colours */
 extern unsigned char D_800696F0[12]; /* and a saved copy */
 extern int D_80049214[4];            /* 600, 60, 10, 1: a time's digits in seconds */
 extern int D_80049224[8];            /* 10000000 down to 1: a number's digits */
 
-extern unsigned char D_80062DFD; /* set each time the dialogue windows draw */
+extern unsigned char text_page_per_line; /* menu_text.c's; the dialogue windows set it */
 extern unsigned char D_80049384[12]; /* the caption window's corner colours */
 extern unsigned char D_80077F64[2][0x3400]; /* the primitive buffers, one per frame */
 /* The game clock: the play time and the countdown the field can start, in seconds, and the fractions main.c adds to
@@ -232,13 +232,13 @@ loop:
         u = col * 12;
         v += row * 12;
         index = ch + page;
-        if (x + ((D_800707C0[index] >> 5) + (D_800707C0[index] & 0x1F)) > right) {
+        if (x + ((font_widths[index] >> 5) + (font_widths[index] & 0x1F)) > right) {
             x = 8;
             y += 16;
             text_lines++;
         }
         if (!text_fixed)
-            x += D_800707C0[index] >> 5;
+            x += font_widths[index] >> 5;
         setlen(prim_next.sprt, 4);
         setcode(prim_next.sprt, 0x64);
         func_80046870(prim_next.sprt, 1);
@@ -253,7 +253,7 @@ loop:
         prim_next.sprt->clut = GetClut(pal_x | 0x100, clut_y);
         AddPrim(prim_ot, prim_next.sprt++);
         if (!text_fixed)
-            x += D_800707C0[index] & 0x1F;
+            x += font_widths[index] & 0x1F;
         else
             x += 13;
         text++;
@@ -589,7 +589,7 @@ void func_8001F1BC(Window *windows, short count, void *ot, short buf)
     RECT *r;
     short i;
 
-    D_80062DFD = 1;
+    text_page_per_line = 1;
     text_frame++;
     func_80026A00(ot);
     func_800269C0(D_80077F64[buf]);

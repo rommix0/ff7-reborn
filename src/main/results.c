@@ -52,7 +52,7 @@ extern DISPENV results_disp[2];
 extern unsigned char D_80077F64[2][0x3400];
 extern unsigned char D_800756F8[];
 extern short D_80095DD4;
-extern unsigned char D_80062DFD;
+extern unsigned char text_page_per_line;
 extern unsigned char D_80049338[]; /* "LEVEL UP" */
 extern struct {
     int gil;
@@ -566,7 +566,7 @@ void func_80022DE4(void)
     int i;
 
     results_drawn = 0;
-    D_80062DFD = 1;
+    text_page_per_line = 1;
     exp_tally_step(0);
     mastered_next = 0;
     mastered_timer = 0;

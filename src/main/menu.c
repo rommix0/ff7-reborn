@@ -53,7 +53,7 @@ extern struct {
 extern unsigned char D_8009D4F7;
 extern unsigned char D_8009D5F0[]; /* the location's name */
 extern unsigned short inventory[320];
-extern unsigned char D_80062DFD;
+extern unsigned char text_page_per_line;
 extern int demo_input;
 extern TILE fade_tile[2];
 extern unsigned int menu_ots[2][20];
@@ -582,7 +582,7 @@ int func_80024A3C(unsigned char *demo)
     menu_command = 0;
     menu_module_prev = 0;
     menu_module = 0;
-    D_80062DFD = 0;
+    text_page_per_line = 0;
     if (!demo) {
         func_8001F6E4(0, 0, 0);
         demo_input = 0;

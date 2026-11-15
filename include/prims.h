@@ -34,6 +34,16 @@ typedef struct LINE_F2 {
     short x1, y1;
 } LINE_F2;
 
+typedef struct LINE_F4 {
+    unsigned int tag;
+    unsigned char r0, g0, b0, code;
+    short x0, y0;
+    short x1, y1;
+    short x2, y2;
+    short x3, y3;
+    unsigned int pad;
+} LINE_F4;
+
 typedef struct TILE {
     unsigned int tag;
     unsigned char r0, g0, b0, code;
@@ -49,6 +59,14 @@ typedef struct SPRT {
     unsigned short clut;
     short w, h;
 } SPRT;
+
+typedef struct SPRT_8 {
+    unsigned int tag;
+    unsigned char r0, g0, b0, code;
+    short x0, y0;
+    unsigned char u0, v0;
+    unsigned short clut;
+} SPRT_8;
 
 typedef struct POLY_G4 {
     unsigned int tag;
@@ -78,8 +96,10 @@ typedef union {
     POLY_FT4 *ft4;
     TILE_1 *tile1;
     LINE_F2 *line;
+    LINE_F4 *line4;
     TILE *tile;
     SPRT *sprt;
+    SPRT_8 *sprt8;
     POLY_G4 *g4;
     DR_MODE *dr_mode;
     DR_ENV *dr_env;
@@ -91,6 +111,7 @@ extern void *prim_ot; /* the ordering table being drawn into */
 void SetPolyFT4(void *p);
 void SetTile1(void *p);
 void SetLineF2(void *p);
+void SetPolyG4(void *p);
 void func_80046848(void *p, int on); /* SetSemiTrans */
 void func_80046870(void *p, int on); /* SetShadeTex */
 unsigned short GetClut(int x, int y);
