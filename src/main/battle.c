@@ -189,10 +189,11 @@ void add_spoils(void)
 
 /* The limit in a character's slot, less 0x80 (0x7F for none, or for no such character). */
 #ifdef NON_MATCHING
-/* Same code but for one add's operand order (slot + row in the original), and a 48-byte frame it doesn't use. */
+/* Same code but for one add's operand order (slot + row in the original). */
 int limit_id(unsigned int character, int slot)
 {
     int id = 0x7F;
+    int unused[12]; /* the game's frame has it */
 
     if (character < 9)
         id = kernel_characters[character].limits[slot] - 0x80;
