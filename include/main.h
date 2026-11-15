@@ -156,6 +156,24 @@ extern unsigned char materia_detail; /* nonzero: materia_level also writes the l
 PartyMember *party_member(int slot);
 int materia_level(unsigned char id, int ap);
 
+/* What the battle's results screen shows of each member. */
+typedef struct {
+    unsigned int to_next;
+    unsigned int exp;
+    unsigned char bar; /* 0-61 */
+    unsigned char level;
+    unsigned short new_limits; /* limits learned, a bit each by limit_id's slot */
+} TallyShown;
+extern TallyShown tally_shown[];
+
+/* The items won, four at most. */
+typedef struct {
+    short id; /* the inventory's numbering, -1 for none */
+    short count;
+    unsigned short won; /* taken across on the items screen */
+} Spoil;
+extern Spoil spoils[];
+
 /* A materia's record in KERNEL.BIN (0x800730D0, 20 bytes). */
 typedef struct MateriaData {
     unsigned short ap[4]; /* AP for each level up, in hundreds; 0xFFFF past the last */

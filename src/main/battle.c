@@ -34,23 +34,6 @@ typedef struct {
 } ExpTally;
 extern ExpTally exp_tally;
 
-/* What the results screen shows of each member. */
-typedef struct {
-    unsigned int to_next;
-    unsigned int exp;
-    unsigned char bar; /* 0-61 */
-    unsigned char level;
-    unsigned char pad[2];
-} TallyShown;
-extern TallyShown tally_shown[];
-
-typedef struct {
-    short id; /* the inventory's numbering, -1 for none */
-    short count;
-    unsigned short won;
-} Spoil;
-extern Spoil spoils[];
-
 extern struct {
     unsigned short items[320]; /* id in the low 9 bits, count above, 0xFFFF for none */
     int materia[256];          /* -1 for none */

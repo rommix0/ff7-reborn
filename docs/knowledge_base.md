@@ -1684,6 +1684,7 @@ same set). They give the original module and file split, and the staff folders b
 | `pad.c`, `menu_prims.c` | `0x8001C434`–`0x8001D6A8` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
 | `text_draw.c` | `0x8001D6A8`–`0x8001FA28` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8 --expand-div` |
 | `party.c` | `0x8001FA28`–`0x800211B8` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
+| `results.c` | `0x800211B8`–`0x80023050` | 2.7.2 | 2.21 | 8 | `--use-comm-section -G8` |
 | `sound_init.c` | `0x800293D0`–`0x80029A4C` | 2.6.3 | 2.21 | 8 | `--expand-div --use-comm-section -G8` |
 | `sound.c` | `0x80029A50`–`0x80033A90` | 2.6.3 | 2.21 (or older) | 0 | `--expand-div` |
 | `cd.c` | `0x80033A90`–`0x80034CF0` | 2.6.3 | 2.21 | 0 | `--expand-div` |
@@ -1698,9 +1699,8 @@ same set). They give the original module and file split, and the staff folders b
   - GCC 2.7.2 over 2.6.3: `bitops.c` (2.6.3 matches one of its three functions); `transition.c` (under `main.c`'s
     toolchain a loop counter reset isn't duplicated as the game has it); `magic_order.c` (2.6.3 orders the first
     loop's pointer steps the other way and masks a byte it already has); `pad.c` (2.6.3 misses five of its eleven
-    functions). `pad.c`, `menu_prims.c`, `text_draw.c` and `party.c` are the files found so far with GCC 2.7.2 and ASPSX 2.21
-    together:
-    `pad.c`'s indexed loads, the jump table's among them, go through `addiu $at`.
+    functions). `pad.c`, `menu_prims.c`, `text_draw.c`, `party.c` and `results.c` are the files found so far with
+    GCC 2.7.2 and ASPSX 2.21 together: `pad.c`'s indexed loads, the jump table's among them, go through `addiu $at`.
   - ASPSX 2.21: `li 1` is `ori` (2.34 and older), and an indexed access goes through `addiu $at` (before 2.30):
     `lui at; addiu at, at, %lo(sym); addu at, at, v1; lw v0, 0(at)`.
   - ASPSX 2.34: `li` is still `ori`, but an indexed load folds into `%lo`: `lui at; addu at, at, a0; lw v0,
@@ -1763,7 +1763,8 @@ same set). They give the original module and file split, and the staff folders b
 - **Full rebuild:** splat 0.50.1 splits `SCUS_941.63` per `config/main.yaml` and `make` relinks it, SHA1-identical
   to retail. All 47 boot functions, `bitops.c`, `random.c`, `text.c`, 4 of `battle.c`'s 6, 15 of `inflate.c`'s 16,
   `materia_ap.c`, 34 of `materia.c`'s 36, 24 of `materia_own.c`'s 25, `member_build.c`, `magic_order.c`, `pad.c`,
-  `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c` and 231 of the sound driver's 232 functions are C; the rest is assembly.
+  `menu_prims.c`, 14 of `text_draw.c`'s 16, `party.c`, 10 of `results.c`'s 14 and 231 of the sound driver's 232
+  functions are C; the rest is assembly.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -1850,11 +1851,13 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   Game pointers need no translation, and C and recompiled code share the game's data. The link is
   `--large-address-aware --disable-dynamicbase`, and `tools/pc_syms.py` places each game symbol at its address.
 - **Recompiler rules:** one C function per game function over a register context (`pc/recomp.h`); delay slots
-  folded; a backward branch polls the hardware. Each function has a C-callable thunk taking eight ints (the last four
-  are the PS1's stack words). Code pointers are native: a `lui`/`addiu` pair that builds a function's address gives
-  the native function only when the address escapes as a code pointer (stored, passed, returned or called; libgte's
-  `_patch_gte` uses one as a loop's end), and the code addresses in the game's data are patched at start: every
-  aligned word in a data file's range that holds a function's address, whatever type splat gave it. (A `.word func`
+  folded; a backward branch polls the hardware. Each function has a C-callable thunk taking ten ints (the last six
+  are the PS1's stack words), and calls into C pass ten: with eight, `func_8001CF3C`'s palette and semi-transparency
+  (its ninth and tenth) came from the C stack once `menu_prims.c` was C. Code pointers are native: a `lui`/`addiu`
+  pair that builds a function's address gives the native function only when the address escapes as a code pointer
+  (stored, passed, returned or called; libgte's `_patch_gte` uses one as a loop's end), and the code addresses in
+  the game's data are patched at start: every aligned word in a data file's range that holds a function's address,
+  whatever type splat gave it. (A `.word func`
   parse missed most of `snd_command_handlers`: `seq_cmd_scan_sizes` and `seq_cmd_sizes` are named at their C base,
   0xA0 entries before their tables, which puts a label inside the handler table, and splat emits the rest of it as
   bytes. Sound command 0xF0 then called a game address natively.) A jump table splat ends the same way is read on
@@ -2338,6 +2341,17 @@ after the store and discards it, as the game does. Applies to `game_mode`, `fram
   the save, `func_800206E4`, and from `members`, `func_80020B68`) need the `RECT` declared before the bar (it sits
   below it on the stack) and the dead test before the colours; the second writes its colours as `?:`, the first
   as an assignment and an `if`.
+- `results.c` (the battle's results screens): the game's loops that scan for the next materia or limit to announce
+  test at the top and jump back from the bottom; only a `goto` loop gives that shape (as `for`/`while` GCC moves the
+  test). Several functions carry an unused 8-byte local (a `RECT`) the frame size shows. The fade tile and the menu
+  file table are reached through a local pointer to the array (`TILE *tiles = fade_tile`), which keeps the base in a
+  saved register and re-reads the index after each byte store. Gil and the battle's winnings are fields of structs
+  over 8 bytes (the address goes in a register when read and written). The EXP header's two windows each have their
+  own `y = 32`. Parked: the items screen (`func_800212A8`, the cursor's skip over empty rows: the game reads the row
+  with `lbu` and sign-extends it), the EXP screen (`func_80021F58`, register allocation and one address's operand
+  order), the module read (`func_800211C4`, two copies of the table address the game adds separately) and the
+  screens' start (`func_80022DE4`, one constant's place in the schedule). The zero word at `0x80010340` is unreferenced
+  and starts the next file's rodata.
 - On the PC, native C doesn't poll (see **Waits in C**), so a busy loop that becomes C stops advancing PS1 time:
   `magic_order.c`'s ~600 loop passes per call shifted disc reads by a frame and battle ends by up to ~600 frames in
   the pillar play-test, with the same events in the same order. A differential test against the recompiled

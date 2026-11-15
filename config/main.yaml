@@ -57,7 +57,8 @@ segments:
       - [0xAB4, .rodata, main/pad] # the demo script's switch table
       - [0xB00, .rodata, main/text_draw] # the text renderer's switch table
       - [0xB14, .rodata, main/party] # func_8001FCDC's switch table
-      - [0xB2C, rodata, B2C]
+      - [0xB2C, .rodata, main/results] # func_80022B5C's switch table
+      - [0xB40, rodata, B40]
       - [0xB94, .rodata, main/sound] # seq_look_ahead's switch table
       - [0xC38, .rodata, main/cd] # a switch table and the disc info file's name
       - [0xC9C, .rodata, main/movie] # the movie table's file name
@@ -82,7 +83,8 @@ segments:
       - [0xD5A4, c, main/menu_prims] # GCC 2.7.2, ASPSX 2.21, -G8
       - [0xDEA8, c, main/text_draw] # GCC 2.7.2, ASPSX 2.21, -G8, --expand-div
       - [0x10228, c, main/party] # GCC 2.7.2, ASPSX 2.21, -G8
-      - [0x119B8, asm, 119B8]
+      - [0x119B8, c, main/results] # GCC 2.7.2, ASPSX 2.21, -G8
+      - [0x13850, asm, 13850]
       # The AKAO sound driver, 0x800293D0-0x80033A90 (docs/knowledge_base.md §4).
       - [0x19BD0, c, main/sound_init] # compiled with -G8: small globals through $gp
       - [0x1A250, c, main/sound]
