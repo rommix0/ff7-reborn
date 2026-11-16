@@ -1,0 +1,45 @@
+# splat config for MENU/LIMTMENU.MNU, a menu module loaded at 0x801D0000. Started from tools/module_yaml.py's.
+name: LIMTMENU.MNU
+sha1: d0f4da9e8e948bebd17a9f2f0199ebddc41b2c60
+options:
+  basename: limtmenu
+  target_path: disks/MENU/LIMTMENU.MNU
+  base_path: ../..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm/menu/limtmenu
+  src_path: src/menu
+  build_path: build
+  ld_script_path: build/menu/limtmenu.ld
+  undefined_funcs_auto_path: build/menu/limtmenu_undefined_funcs_auto.txt
+  undefined_syms_auto_path: build/menu/limtmenu_undefined_syms_auto.txt
+  symbol_addrs_path:
+    - config/symbols.main.txt
+    - config/symbols.main.psyq.txt
+    - config/symbols.limtmenu.txt
+
+  find_file_boundaries: False
+  gp_value: 0x80062D44
+  o_as_suffix: True
+  use_legacy_include_asm: False
+  generate_asm_macros_files: False
+  section_order: [".rodata", ".text", ".data", ".bss"]
+  subalign: 2
+  ld_align_section_vram_end: False
+  ld_align_segment_vram_end: False
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+segments:
+  - name: limtmenu
+    type: code
+    start: 0
+    vram: 0x801D0000
+    subsegments:
+      - [0x0, .rodata, limtmenu]
+      - [0x2C, c, limtmenu]
+      - [0x1320, data]
+  - [0x2414]

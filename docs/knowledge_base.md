@@ -928,6 +928,7 @@ recovered C. Details in §7.
 | `MENU/CHNGMENU.MNU` (`src/menu/chngmenu.c`) | `0x801D0000`–`0x801D01C4` | all 3 functions in C |
 | `MENU/PATYMENU.MNU` (`src/menu/patymenu.c`) | `0x801D0198`–`0x801D065C` | all 3 functions in C |
 | `MENU/BGINMENU.MNU` (`src/menu/bginmenu.c`) | `0x801D0000`–`0x801D07F0` | all 12 functions in C |
+| `MENU/LIMTMENU.MNU` (`src/menu/limtmenu.c`) | `0x801D002C`–`0x801D1320` | all 6 functions in C |
 
 Not recovered yet: 12 of the exe's game functions, parked as asm (§7), and every other overlay: battle, field, world,
 the other 11 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
@@ -1594,8 +1595,17 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   away, and trade sets for the master materia: all 21 magic (`0x31`–`0x48`) for `0x49`, all 16 summons
   (`0x4A`–`0x59`) for `0x5A`, the seven commands in `0x24`–`0x2B` (`0x26` has no name) for `0x30`, and `0x51` with
   `0x55` (kept) for `0x58`: Master Magic, Master Summon, Master Command, and Bahamut and Neo Bahamut for Bahamut ZERO,
-  by `KERNEL.BIN`'s materia names. The check answers in the field variable at `0x8009D6F7`. Another scales the first five characters' HP by 16-bit field variables
-  (`0x8009D3FC`) over `0xFFFF`. `ITEMMENU` and `SHOPMENU` have versions of some of these.
+  by `KERNEL.BIN`'s materia names. The check answers in the field variable at `0x8009D6F7`. Another scales the first
+  five characters' HP by 16-bit field variables (`0x8009D3FC`) over `0xFFFF`. `ITEMMENU` and `SHOPMENU` have versions
+  of some of these.
+- **`LIMTMENU.MNU` is the Limit command's module** (module 7; `--code "30049454 0007"` points Status at it). Set picks
+  one of four limit levels (2 by 2, greyed when none of its limits is learned) and confirms, which empties the limit
+  bar, sets the character's level and copies the level's three limits into the member's battle data; Check lists each
+  level's learned limits and shows one's help (kernel text kind 3). L1 and R1 step through the party. The learned
+  limits are a bit each at the character record's `+0x22`, by `limit_id`'s slot (level × 3 + place). `limt_load`
+  (`0x801D11A8`), which the exe calls every time the menu opens, redoes that copy for the whole party: the limit ids
+  less `0x80` at `PartyMember` `+0xAC`, their 28-byte attack records (128 of them live in the module, `0x801D1324`) at
+  `+0xB4`. The panel at the top is the exe's party panel again, with its own copy of the limit bar's colours.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1801,7 +1811,12 @@ same set). They give the original module and file split, and the staff folders b
   reach the exe's small globals through `lui`, not `$gp`. They read `field_pad1.repeat` as a variable of its own
   (`D_80062D7E` in `include/menu.h`): as a struct field, GCC keeps its address in a register across two tests.
   Plain `char` is unsigned in this GCC; the party bytes are `unsigned char`, cast to `signed char` where the game
-  compares them with -1 or -2.
+  compares them with -1 or -2. A module whose jump tables open the file maps them as the C file's (`[0x0, .rodata,
+  limtmenu]`), or splat splits them out as data with dangling labels. In `LIMTMENU` the constants' grouping shows in
+  the code (`y + 6 + row * 64 + 32` keeps `row * 64 + 6` as a value; `y + row * 64 + 6 + 32` folds to `+ 38`), its frame
+  returns `int` (nothing reads it, but the return register is live at the end, which changes the delay slots), and
+  Set copies a limit's record through a pointer to the table set at the top of the function: indexing the table
+  directly let GCC fold its address into each of the seven loads (found with the permuter).
 
 **Main exe layout** (splat's guess, corrected by hand):
 

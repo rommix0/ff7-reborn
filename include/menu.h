@@ -1,24 +1,31 @@
 #ifndef MENU_H
 #define MENU_H
 
-/* The exe's menu code as the menu modules (MENU/*.MNU) and the exe's own menu files use it. */
+/* The exe's menu code as the menu modules (the .MNU files in MENU) and the exe's own menu files use it. */
 
 typedef struct PadState {
     unsigned short held, prev, pressed, repeat;
 } PadState;
 extern PadState field_pad1;
-/* field_pad1.repeat, which the modules read as a variable of its own: a struct field there costs GCC a register. */
+/* field_pad1.pressed and .repeat, which the modules read as variables of their own: a struct field there costs GCC a
+ * register. */
+extern unsigned short D_80062D7C;
 extern unsigned short D_80062D7E;
 
 extern int results_buf; /* the draw buffer, 0 or 1 */
 extern int D_80062F90;
 extern unsigned char D_800756F8[];
 
+void func_8001CF3C(int x, int y, int w, int h, int u, int v, int tw, int th, int pal, int semi); /* takes shorts */
 void func_8001D180(int x, int y, int w, int h, int u, int v, int tw, int th, int pal, int semi); /* takes shorts */
 void func_8001DE0C(RECT *r, int x, int y, int w, int h);
 void func_8001E040(RECT *r);
 void func_8001EB2C(int x, int y); /* takes shorts, but its callers pass ints unextended */
+unsigned char func_8001F6B4(void); /* the caption's state */
+void func_8001F6C0(unsigned char *text, int color); /* opens the caption */
+void func_80020B68(int x, int y, int slot);
 void func_8002120C(int module);
+int func_80023050(void);
 void func_8002305C(int state, int command);
 void func_800230C4(int buf);
 int func_8002542C(int materia); /* adds a materia to the stock */
@@ -34,6 +41,12 @@ void func_80026448(MenuCursor *c, int col, int row, int cols, int rows, int pad0
 void func_800264A8(MenuCursor *cursor);
 void func_80026A34(int dfe, int dtd, int tpage, RECT *tw);
 void func_80026F44(int x, int y, unsigned char *text, int color);
+void func_800285AC(int x, int y, int value, int h, int r, int g, int b);
+void func_80028CA0(short x, short y, int u, int v, int w, int h, int pal, int semi);
 void func_80028E00(int x, int y, int n, int digits, int color);
+
+/* battle.c's and the text's, which the menus use too */
+int limit_id(unsigned int character, int slot);
+unsigned char *kind_text(int kind, int index, int names);
 
 #endif

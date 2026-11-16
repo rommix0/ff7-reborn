@@ -27,7 +27,8 @@ typedef struct Character {
     unsigned char flags;     /* 0x10 Fury, 0x20 Sadness */
     unsigned char row; /* bit 0 clear: the back row */
     unsigned char exp_bar; /* the Status screen's bar */
-    unsigned char pad22[10];
+    unsigned short limits; /* learned, a bit each by limit_id's slot */
+    unsigned char pad24[8];
     unsigned short hp;
     unsigned short base_hp; /* before materia */
     unsigned short mp;
@@ -80,6 +81,15 @@ typedef struct MemberCommand {
     unsigned char uses;
     unsigned char flags; /* support materia's spread bits */
 } MemberCommand;
+
+/* An attack's record, as KERNEL.BIN's attacks and LIMTMENU's limits have it (28 bytes). */
+typedef struct AttackData {
+    unsigned char pad0[4];
+    unsigned short mp_cost;
+    unsigned char pad6[2];
+    unsigned short camera[2]; /* one target, all */
+    unsigned int pad0C[4];
+} AttackData;
 
 /* A support effect a paired materia gives (Counter, Added Effect and so on). */
 typedef struct MemberSupport {
@@ -162,7 +172,8 @@ typedef struct PartyMember {
     unsigned short elements[4]; /* bits of D_800491B0: [0] the weapon's, [1]-[3] the armor's by the support's level */
     unsigned int statuses[2];   /* the weapon's, the armor's */
     MemberCommand commands[16];
-    unsigned char padAC[0x5C];
+    unsigned char limits[8]; /* the limit level's three, ids less 0x80 (0xFF for none) */
+    AttackData limit_records[3];
     MemberSpell spells[96]; /* 56 magic, 16 summons, 24 enemy skills */
     WeaponData weapon;
     unsigned char pad434[3];

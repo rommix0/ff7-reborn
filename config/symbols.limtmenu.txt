@@ -1,0 +1,19 @@
+// LIMTMENU.MNU at 0x801D0000. The menu modules share their addresses, so each has its own symbol file.
+limt_sound = 0x801D002C; // type:func
+limt_init = 0x801D006C; // type:func
+limt_header = 0x801D013C; // type:func
+limt_frame = 0x801D042C; // type:func
+limt_801D11A0 = 0x801D11A0; // type:func
+limt_load = 0x801D11A8; // type:func
+limt_records = 0x801D1324; // size:0xE04 (the limits' attack records, by id less 0x80)
+limt_level_names = 0x801D2128; // size:0x90
+limt_help_set = 0x801D21B8; // size:0x24
+limt_labels = 0x801D21DC; // size:0x48
+limt_confirm = 0x801D2224; // size:0xB4
+limt_set_text = 0x801D22D8; // size:0x24
+limt_help_check = 0x801D22FC; // size:0x24
+limt_state = 0x801D2320; // size:0x4
+limt_windows = 0x801D2324; // size:0x20
+limt_colors = 0x801D2344; // size:0x18
+limt_cursors = 0x801D235C; // size:0xB4
+limt_member = 0x801D2410; // size:0x4
