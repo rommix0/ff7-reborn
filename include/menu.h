@@ -17,6 +17,14 @@ extern int D_80062F90;
 extern unsigned char D_800756F8[];
 extern unsigned char D_80049208[12]; /* the window's four corner colours */
 
+/* A list's scroll bar as func_80028484 draws it. */
+typedef struct ScrollBar {
+    short shown; /* rows on screen */
+    short total; /* rows in the list */
+    short top;   /* the first row shown */
+    short x, y, w, h;
+} ScrollBar;
+
 unsigned int func_8001C808(void); /* the pad's buttons as read */
 void func_8001CB48(void);
 void func_8001CF3C(int x, int y, int w, int h, int u, int v, int tw, int th, int pal, int semi); /* takes shorts */
@@ -41,6 +49,8 @@ int func_80023050(void);
 void func_8002305C(int state, int command);
 void func_800230C4(int buf);
 int func_8002542C(int materia); /* adds a materia to the stock */
+void func_800258BC(int slot, int n); /* a member's HP up by n */
+void func_80025988(int slot, int n); /* and MP down */
 short func_8002603C(int materia); /* its icon's palette */
 void func_80025B8C(void *p);
 void func_80025BD0(void *p);
@@ -59,12 +69,14 @@ void func_800269D0(void);      /* saves prim_next */
 void func_800269E8(void);      /* puts it back */
 void func_80026A00(unsigned int *ot);
 void func_80026A34(int dfe, int dtd, int tpage, RECT *tw);
+void func_80026A94(DRAWENV *env, RECT *clip);
 int func_80026B70(unsigned char *text); /* text's width in pixels */
 int func_80026C5C(int x, int y, int color, unsigned short ch); /* draws a character */
 void func_80026F44(int x, int y, unsigned char *text, int color);
 void func_8002708C(int x, int y, int glyph, int color);
 void func_80027B84(RECT *r); /* a sunken panel */
 void func_80028030(RECT *r); /* a raised button */
+void func_80028484(ScrollBar *s);
 void func_800285AC(int x, int y, int value, int h, int r, int g, int b);
 void func_80028CA0(short x, short y, int u, int v, int w, int h, int pal, int semi);
 void func_80028E00(int x, int y, int n, int digits, int color);

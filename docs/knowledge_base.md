@@ -933,9 +933,10 @@ recovered C. Details in §7.
 | `MENU/CNFGMENU.MNU` (`src/menu/cnfgmenu.c`) | `0x801D0040`–`0x801D1AA8` | 7 of 8 functions in C; the frame parked |
 | `MENU/FORMMENU.MNU` (`src/menu/formmenu.c`) | `0x801D0198`–`0x801D1CF8` | 10 of 13 functions in C; 3 parked |
 | `MENU/NAMEMENU.MNU` (`src/menu/namemenu.c`, `namelevel.c`) | `0x801D0014`–`0x801D1E78` | all 26 functions in C |
+| `MENU/MGICMENU.MNU` (`src/menu/mgicmenu.c`) | `0x801D0124`–`0x801D2930` | 6 of 7 functions in C; the frame parked |
 
-Not recovered yet: 12 of the exe's game functions and 4 menu functions, parked as asm (§7), and every other overlay:
-battle, field, world, the other 5 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+Not recovered yet: 12 of the exe's game functions and 5 menu functions, parked as asm (§7), and every other overlay:
+battle, field, world, the other 4 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1657,6 +1658,18 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   loop return; held on, the screen reopens each time it closes). From save 9 (the others at levels 13, 12, 12 and 10)
   Red XIII's naming takes him from level 1 to 13 (their average, 11, plus his record's 2), stats grown and HP and
   MP full.
+- **`MGICMENU.MNU` is the Magic command's module**, which the main menu runs through `mgic_init` and `mgic_frame`. A
+  small menu of Magic, Summon and Enemy-Skill (bits 0 and 1 of `0x8009D2D3` show the last two) opens the member's
+  spells as `PartyMember.spells` lists them (56 magic in three columns, 16 summons and 24 enemy skills in two), with
+  the support materia linked to the one under the cursor (the module's names: "All" and "4x-M" with their uses,
+  "Absorb MP", "Absorb HP", an unnamed bit, "Steal as well", "Extra cut", "Turbo MP" with its level) and its MP. On
+  opening, All's uses are cleared on spells whose targets can't take the whole party. Cure, Cure2, Cure3, Full Cure
+  (`0x33`), Life and Life2 can be cast: the heal is (the caster's `stats[2]` plus level) × 6 plus 110, 660 or 1760,
+  Full Cure and Life2 10,000, Life a quarter of the target's max HP; with All's uses (left, right, L1 or R1 switch to
+  the party) the Cures heal two thirds of that each, Life an eighth of the max HP of the member the target cursor is
+  on (for every member it revives), Life2 5,000. Character 10 (Sephiroth in the flashback) casts without paying MP. In
+  the lab, save 28's party has Restore; a code holding a member's menu HP (`0x8009D85C` + 0x440 a slot) lets Cure
+  land.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1895,6 +1908,14 @@ same set). They give the original module and file split, and the staff folders b
   return stays empty), the materia ids are `i - i / 91 * 91`, the screen's loops share counters (the grid's
   column and the later loops one, its row and the button list another), and the level-up's average is summed in
   the level's own variable.
+  `MGICMENU`'s frame (2,342 instructions) is parked 35 short, all register choice and operand order: the game keeps
+  the spell list's pointer on the stack and the support labels' offset in a register where GCC does the opposite,
+  adds the panel's offsets to their constants before the window's x and y (a grouping GCC's folding undoes), and
+  merges the All and Quadra count calls. On the way: the grids index `top * 3 + j + i * 3` (next to each other GCC
+  factors `top * 3 + i * 3`), the support colours are a `switch` with 7 tested in its default and the label drawn
+  in 7 whatever the colour, the heal amounts go through a variable (the party-wide one divided by 3 inside the loop,
+  where GCC would fold a single expression), and the MP check and the "anyone to heal" tests keep their failing
+  branch last. `mgic_init`'s loop goes through a pointer to each spell.
 
 **Main exe layout** (splat's guess, corrected by hand):
 

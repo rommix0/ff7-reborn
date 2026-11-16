@@ -1,0 +1,18 @@
+// MGICMENU.MNU at 0x801D0000. The menu modules share their addresses, so each has its own symbol file.
+mgic_sound = 0x801D0124; // type:func
+mgic_init = 0x801D0164; // type:func
+mgic_hp_full = 0x801D0378; // type:func
+mgic_mp_full = 0x801D03B4; // type:func
+mgic_header = 0x801D03F0; // type:func
+mgic_frame = 0x801D0490; // type:func
+mgic_801D2928 = 0x801D2928; // type:func
+mgic_state = 0x801D2930; // size:0x4
+mgic_text = 0x801D2934; // size:0x118
+mgic_windows = 0x801D2A4C; // size:0x18
+mgic_category_window = 0x801D2A64; // size:0x8
+mgic_mp_window = 0x801D2A6C; // size:0x8
+mgic_title_window = 0x801D2A74; // size:0x8
+mgic_cursors = 0x801D2A7C; // size:0x6C
+mgic_member = 0x801D2AE8; // size:0x4
+mgic_all = 0x801D2AEC; // size:0x4
+mgic_bar = 0x801D2AF0; // size:0xE
