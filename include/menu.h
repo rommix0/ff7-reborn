@@ -21,6 +21,7 @@ void func_8001EB2C(int x, int y); /* takes shorts, but its callers pass ints une
 void func_8002120C(int module);
 void func_8002305C(int state, int command);
 void func_800230C4(int buf);
+int func_8002542C(int materia); /* adds a materia to the stock */
 void func_80025B8C(void *p);
 void func_80025BD0(void *p);
 void func_80025C14(void *p);

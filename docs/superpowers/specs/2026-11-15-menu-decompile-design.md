@@ -14,9 +14,9 @@ named and changed like the exe's menu code, which they call all the time (`menu.
 
   | Module | Screen | Bytes | Instructions | Functions |
   |---|---|---|---|---|
-  | `CHNGMENU` | not known yet | 536 | 113 | 3 |
+  | `CHNGMENU` | the Order command's unused module (module 6) | 536 | 113 | 3 |
   | `PATYMENU` | a debug party editor (module 11) | 29,900 | 305 | 3 |
-  | `BGINMENU` | Beginner's Hall (module 12, a guess from its command name) | 2,200 | 508 | 12 |
+  | `BGINMENU` | `CHNGMENU`'s screen plus unused materia helpers (module 12) | 2,200 | 508 | 12 |
   | `LIMTMENU` | Limit; also read first when the menu opens | 9,236 | 1,213 | 6 |
   | `STATMENU` | Status | 24,096 | 1,626 | 13 |
   | `CNFGMENU` | Config | 9,528 | 1,690 | 8 |

@@ -1,0 +1,23 @@
+// BGINMENU.MNU at 0x801D0000. The menu modules share their addresses, so each has its own symbol file.
+bgin_init = 0x801D0000; // type:func
+bgin_frame = 0x801D00C4; // type:func
+bgin_801D01BC = 0x801D01BC; // type:func
+bgin_materia_count = 0x801D01C4; // type:func
+bgin_read16 = 0x801D0258; // type:func
+bgin_write16 = 0x801D026C; // type:func
+bgin_scale_hp = 0x801D027C; // type:func
+bgin_take_mastered = 0x801D0324; // type:func
+bgin_has_mastered = 0x801D0408; // type:func
+bgin_has_materia = 0x801D0500; // type:func
+bgin_check_set = 0x801D05C4; // type:func
+bgin_trade_set = 0x801D0704; // type:func
+bgin_active = 0x801D07F0; // size:0x4
+bgin_windows = 0x801D07F4; // size:0x10
+bgin_title = 0x801D0804; // size:0x8
+bgin_magic_set = 0x801D082C; // size:0x18
+bgin_summon_set = 0x801D0844; // size:0x10
+bgin_command_set = 0x801D0854; // size:0x8
+bgin_bahamut_set = 0x801D085C; // size:0x4
+bgin_cursors = 0x801D0860; // size:0x24
+// The save's data, which the materia helpers reach from one address.
+save_data = 0x8009C6E4; // size:0x10F4

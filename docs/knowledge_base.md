@@ -927,6 +927,7 @@ recovered C. Details in §7.
 | PsyQ library block | `0x80036E84`–`0x80048D18` | 267 of 454 functions named (§8) |
 | `MENU/CHNGMENU.MNU` (`src/menu/chngmenu.c`) | `0x801D0000`–`0x801D01C4` | all 3 functions in C |
 | `MENU/PATYMENU.MNU` (`src/menu/patymenu.c`) | `0x801D0198`–`0x801D065C` | all 3 functions in C |
+| `MENU/BGINMENU.MNU` (`src/menu/bginmenu.c`) | `0x801D0000`–`0x801D07F0` | all 12 functions in C |
 
 Not recovered yet: 12 of the exe's game functions, parked as asm (§7), and every other overlay: battle, field, world,
 the other 11 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
@@ -1585,7 +1586,16 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   cover. `--code "30049454 000B"` points Status at it.
 - **The command list's names run on past Save:** `command_names` has 14 entries, the last four `Uso`, `Beginner`,
   `Uso`, `Uso` ("uso" is Japanese for "fake"). The command window shows entry module − 1, so module 11 (the party
-  editor) is labelled `Uso` and module 12 `Beginner`, probably `BGINMENU`, the Beginner's Hall.
+  editor) is labelled `Uso` and module 12 `Beginner`.
+- **`BGINMENU.MNU` (module 12) is `CHNGMENU`'s screen again**, title bytes and all, under the `Beginner` label; nothing
+  in the exe opens it either (`--code "30049454 000C"`). After its three functions come nine materia helpers that
+  nothing in it calls, reaching the save's data (`0x8009C6E4`) from one address: count a character's materia, check
+  for a materia (or a mastered one) on a joined character (bit n of `0x8009D78A`) or in the stock, take a mastered one
+  away, and trade sets for the master materia: all 21 magic (`0x31`–`0x48`) for `0x49`, all 16 summons
+  (`0x4A`–`0x59`) for `0x5A`, the seven commands in `0x24`–`0x2B` (`0x26` has no name) for `0x30`, and `0x51` with
+  `0x55` (kept) for `0x58`: Master Magic, Master Summon, Master Command, and Bahamut and Neo Bahamut for Bahamut ZERO,
+  by `KERNEL.BIN`'s materia names. The check answers in the field variable at `0x8009D6F7`. Another scales the first five characters' HP by 16-bit field variables
+  (`0x8009D3FC`) over `0xFFFF`. `ITEMMENU` and `SHOPMENU` have versions of some of these.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
