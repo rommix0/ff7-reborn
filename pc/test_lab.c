@@ -88,10 +88,14 @@ int main(void)
     lab_frame();
     assert(pad_buttons == 0xFFFF);
 
-    /* gameshark_codes: a 16-bit and an 8-bit constant write, held every frame; other code types aren't taken */
+    /* gameshark_codes: a 16-bit and an 8-bit constant write, held every frame, or from a given frame; other code
+     * types aren't taken */
     assert(!lab_code("8009D2A6 03FF") && !lab_code("30010001 0012") && lab_code("D009D2A6 0000"));
+    *(unsigned char *)0x80010002 = 0; /* a code from a later frame isn't written before it */
+    assert(!lab_code("30010002 0034 100000") && lab_code("8009D2A6"));
     lab_frame();
     assert(*(unsigned short *)0x8009D2A6 == 0x03FF && *(unsigned char *)0x80010001 == 0x12);
+    assert(!*(unsigned char *)0x80010002);
     *(unsigned short *)0x8009D2A6 = 0;
     lab_frame();
     assert(*(unsigned short *)0x8009D2A6 == 0x03FF);
