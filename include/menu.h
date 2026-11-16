@@ -15,10 +15,16 @@ extern unsigned short D_80062D7E;
 extern int results_buf; /* the draw buffer, 0 or 1 */
 extern int D_80062F90;
 extern unsigned char D_800756F8[];
+extern unsigned char D_80049208[12]; /* the window's four corner colours */
 
+unsigned int func_8001C808(void); /* the pad's buttons as read */
 void func_8001CF3C(int x, int y, int w, int h, int u, int v, int tw, int th, int pal, int semi); /* takes shorts */
 void func_8001D180(int x, int y, int w, int h, int u, int v, int tw, int th, int pal, int semi); /* takes shorts */
 void func_8001DE0C(RECT *r, int x, int y, int w, int h);
+void func_8001DE70(void);                  /* saves the window colours */
+void func_8001DEB0(void);                  /* puts them back */
+void func_8001DEF0(unsigned char *colors); /* sets them */
+void func_8001DF24(RECT *r, unsigned char red, unsigned char green, unsigned char blue); /* a plain rectangle */
 void func_8001E040(RECT *r);
 void func_8001EB2C(int x, int y); /* takes shorts, but its callers pass ints unextended */
 unsigned char func_8001F6B4(void); /* the caption's state */
@@ -48,10 +54,13 @@ void func_80026A34(int dfe, int dtd, int tpage, RECT *tw);
 int func_80026B70(unsigned char *text); /* text's width in pixels */
 int func_80026C5C(int x, int y, int color, unsigned short ch); /* draws a character */
 void func_80026F44(int x, int y, unsigned char *text, int color);
+void func_8002708C(int x, int y, int glyph, int color);
 void func_80027B84(RECT *r); /* a sunken panel */
+void func_80028030(RECT *r); /* a raised button */
 void func_800285AC(int x, int y, int value, int h, int r, int g, int b);
 void func_80028CA0(short x, short y, int u, int v, int w, int h, int pal, int semi);
 void func_80028E00(int x, int y, int n, int digits, int color);
+void func_80029114(int x, int y, int n, int digits, int color);
 
 /* battle.c's and the text's, which the menus use too */
 int limit_id(unsigned int character, int slot);

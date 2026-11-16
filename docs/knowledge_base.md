@@ -930,9 +930,10 @@ recovered C. Details in §7.
 | `MENU/BGINMENU.MNU` (`src/menu/bginmenu.c`) | `0x801D0000`–`0x801D07F0` | all 12 functions in C |
 | `MENU/LIMTMENU.MNU` (`src/menu/limtmenu.c`) | `0x801D002C`–`0x801D1320` | all 6 functions in C |
 | `MENU/STATMENU.MNU` (`src/menu/statmenu.c`) | `0x801D0000`–`0x801D1968` | all 13 functions in C |
+| `MENU/CNFGMENU.MNU` (`src/menu/cnfgmenu.c`) | `0x801D0040`–`0x801D1AA8` | 7 of 8 functions in C; the frame parked |
 
-Not recovered yet: 12 of the exe's game functions, parked as asm (§7), and every other overlay: battle, field, world,
-the other 8 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+Not recovered yet: 12 of the exe's game functions and `CNFGMENU`'s frame, parked as asm (§7), and every other overlay:
+battle, field, world, the other 7 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1614,6 +1615,16 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   weapon's `+8`, Defense% the member's Dex / 4 plus the armor's `+4`, Magic def% the armor's `+5`. The second
   status list is drawn into the module's own primitive buffers (two of `0x2000` bytes at `0x801D1E20`, by the draw
   buffer): the page's text outgrows the menu's.
+- **`CNFGMENU.MNU` is the Config command's module** (module 8). Its rows change with left and right and live in the
+  save's settings (`0x8009D7BC`: the battle speed, the battle message speed, `config` with two or three bits a row,
+  the button map, the field message speed at `+0x14`). Sound offers Mono and Stereo, and sends the driver command
+  `0x81` or `0x80` (a third mode, `0x82`, has a "Wide" name in the module but the row stops at Stereo); the three
+  speeds are sliders from 0 to 255 that move while the button is held; Magic order is one of six orders of restore,
+  attack and indirect. Window color picks one of the four corners and then its red, green and blue, on a copy of the
+  window colours (`0x80049208`) which ✕ writes back. Customize reads the pad itself, unmapped: START begins, a
+  press on a row gives that row's button the pressed one's function, and left or right ends, but only while Menu,
+  OK and Cancel (bits 4 to 6) are each still on some button. Its two prompts sit in the button-name table where
+  bits 9 and 10 (no button) would be.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1828,7 +1839,15 @@ same set). They give the original module and file split, and the staff folders b
   panel needs the same pointer for the character table. A two-byte character built from bytes and passed to a
   call goes through an `int` local (`ch = hi << 8 | lo`), or GCC puts the `or`'s operands the other way round; a
   list that wraps at the screen's edge counts its wraps (`y + lines * 14`) instead of stepping a y; and the
-  commands' one-column test sits outside the `if` that uses it, so GCC hoists it out of both loops.
+  commands' one-column test sits outside the `if` that uses it, so GCC hoists it out of both loops. In `CNFGMENU`
+  the button-glyph helper is an old-style definition (its callers pass coordinates unextended), the settings are
+  read as `settings.config` (a struct field, so GCC keeps its address in a register) and the two Customize prompts
+  are symbols of their own (GCC shares one address between two indexes of one array). Its frame (`cnfg_frame`) is
+  parked 18 instructions short, all saved registers: the game gives the colour editor's index `s0` and still puts
+  the drawing's x before its y, and every split of those roles among the locals swaps one pair or the other. On the
+  way there: ATB's row steps its value before the click sound and the other rows after it, which keeps the value
+  in a saved register across the call, and the frame reuses its locals across cases (one for the drawing's x and
+  the edited colour, the loop counter `i` for Customize's check).
 
 **Main exe layout** (splat's guess, corrected by hand):
 

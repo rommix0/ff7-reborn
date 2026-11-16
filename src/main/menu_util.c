@@ -17,15 +17,6 @@ extern struct {
     unsigned char materia_got; /* 1: one with icon palette 10 was added, 2: materia 0x2C was */
 } inventory;
 
-/* The save's settings around the Config menu's. */
-extern struct {
-    unsigned char battle_speed;
-    unsigned char battle_message_speed;
-    unsigned short config;
-    unsigned char button_map[16];
-    unsigned char message_speed;
-} settings;
-
 extern unsigned char D_8009CBDC[];  /* the party: three character ids, 0xFF for an empty place */
 extern PartyMember members[3];
 extern struct {

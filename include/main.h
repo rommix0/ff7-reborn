@@ -45,6 +45,15 @@ extern Character D_8009C738[];
 /* The party (D_8009CBDC) is declared in the files that read it: menu.c needs it as part of a larger struct. */
 extern int character_record[];     /* each character id's place in D_8009C738 */
 extern unsigned short config; /* the Config menu's settings: bits 2-3 the controller mapping, 10-12 Magic order */
+/* The save's settings around the Config menu's (config is its own symbol too). */
+extern struct {
+    unsigned char battle_speed;         /* 0 fastest, 0xFF slowest */
+    unsigned char battle_message_speed;
+    unsigned short config;              /* bits 0-1 Sound, 2-3 Controller, 4-5 Cursor, 6-7 ATB, 8-9 Camera angle,
+                                         * 10-12 Magic order */
+    unsigned char button_map[16];       /* by bit, the bit it becomes */
+    unsigned char message_speed;
+} settings;
 
 /* A menu's cursor as func_800264A8 moves it. */
 typedef struct MenuCursor {

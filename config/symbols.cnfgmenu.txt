@@ -1,0 +1,27 @@
+// CNFGMENU.MNU at 0x801D0000. The menu modules share their addresses, so each has its own symbol file.
+cnfg_sound = 0x801D0040; // type:func
+cnfg_sound_mode = 0x801D0080; // type:func
+cnfg_first_bit = 0x801D0118; // type:func
+cnfg_button = 0x801D014C; // type:func
+cnfg_list = 0x801D01C8; // type:func
+cnfg_init = 0x801D069C; // type:func
+cnfg_frame = 0x801D080C; // type:func
+cnfg_801D1AA0 = 0x801D1AA0; // type:func
+cnfg_state = 0x801D1AA8; // size:0x4
+cnfg_glyphs = 0x801D1AAC; // size:0x18 (each pad button's glyph and palette)
+cnfg_buttons = 0x801D1ADC; // size:0xC (the buttons in the order Customize lists them)
+cnfg_text = 0x801D1AE8; // size:0x750
+cnfg_button_names = 0x801D2238; // size:0x1B0 (what each button does, by mapped bit, on to 0x801D2478)
+cnfg_press_start = 0x801D23E8; // size:0x30 (the names' 9th, no button)
+cnfg_press_end = 0x801D2418; // size:0x30 (their 10th)
+cnfg_801D2448 = 0x801D2448; // size:0x30 (their 11th, Pause)
+cnfg_rgb_names = 0x801D2478; // size:0x12
+cnfg_orders = 0x801D248C; // size:0x12 (each Magic order, its three kinds in turn)
+cnfg_windows = 0x801D24A0; // size:0x10
+cnfg_held = 0x801D24B8; // size:0x2
+cnfg_prev = 0x801D24BA; // size:0x2
+cnfg_pressed = 0x801D24BC; // size:0x2
+cnfg_needed = 0x801D24C0; // size:0xC (the bits Customize must leave mapped, Menu, OK and Cancel)
+cnfg_cursors = 0x801D24CC; // size:0x48
+cnfg_remap_row = 0x801D2528; // size:0x4
+cnfg_colors = 0x801D252C; // size:0xC

@@ -65,7 +65,6 @@ extern int save_gil;
 extern unsigned int D_8009D264, D_8009D26C; /* the play time: seconds, and a second's fraction (main.c) */
 
 void func_8001C484(unsigned char *script);
-unsigned int func_8001C808(void);
 void func_8001CB48(void);
 void func_8001F6E4(short placed, short x, short y);
 void func_8001F710(void);
@@ -77,8 +76,6 @@ void func_80025CD4(void *p);
 void func_80026090(void);
 void func_80026A00(unsigned int *ot);
 void func_80026A94(DRAWENV *env, RECT *clip);
-void func_8002708C(int x, int y, int glyph, int color);
-void func_80029114(int x, int y, int n, int digits, int color);
 void func_80044000(RECT *r, void *p);
 void func_80044064(RECT *r, void *p);
 void func_8004418C(unsigned int *ot, int n);
