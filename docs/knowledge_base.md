@@ -932,9 +932,10 @@ recovered C. Details in §7.
 | `MENU/STATMENU.MNU` (`src/menu/statmenu.c`) | `0x801D0000`–`0x801D1968` | all 13 functions in C |
 | `MENU/CNFGMENU.MNU` (`src/menu/cnfgmenu.c`) | `0x801D0040`–`0x801D1AA8` | 7 of 8 functions in C; the frame parked |
 | `MENU/FORMMENU.MNU` (`src/menu/formmenu.c`) | `0x801D0198`–`0x801D1CF8` | 10 of 13 functions in C; 3 parked |
+| `MENU/NAMEMENU.MNU` (`src/menu/namemenu.c`, `namelevel.c`) | `0x801D0014`–`0x801D1E78` | all 26 functions in C |
 
 Not recovered yet: 12 of the exe's game functions and 4 menu functions, parked as asm (§7), and every other overlay:
-battle, field, world, the other 6 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+battle, field, world, the other 5 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1637,6 +1638,25 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   and a copy of `STATMENU`'s labels, which nothing reads. In the lab, `--code "8009D2A4 03FF 2900" --code "8009D2A6 0000 2900"` shows
   and unlocks PHS in the menu; a code's third field is the frame it starts at, as one on the save from boot
   spoils the load's check.
+- **`NAMEMENU.MNU` is the naming screen** (module 13). The field's `menu 06 #N` (`D_8009ABF5` 6, `D_8009ABF6` N)
+  leads main to `func_80024D88`, which loads it and calls `name_run(N)`: characters 0 to 8, a chocobo for 9 and 100
+  up. Up to nine letters (six for a chocobo) from a 10 by 7 grid, with Space, Delete, Select and Default beside it
+  (START jumps to Select); a letter typed at the last place replaces the one there. Select writes the name into the
+  save (naming Cloud names slot 6's young Cloud too), and naming Cait Sith or Vincent first copies a starting record
+  from the module over slot 6 or 7 (Young Cloud and Sephiroth's in the flashback). Anyone named but Cloud or a
+  chocobo is then levelled to the average of the other joined characters, or, with bit 0 of their KERNEL.BIN record's
+  byte `+0x0A` set, to the level in the field variable at `0x8009D28A` (the byte's other bits, halved and signed,
+  move the average): level-ups from their EXP curve, each with the battle's stat, HP and MP gains from the kernel's
+  tables at `0x80082460` (stat, HP and MP gain tables, 12 bytes each) and its curves at `0x80082484` (64 of 8
+  brackets, a gradient and base each). That code (`namelevel.c`, `0x801D14E8` on) was its own object: ASPSX 2.34,
+  where the screen's is 2.21. The module still has the Japanese version's two kana pages (only the letters page is
+  shown) and an unused cheat check (`name_cheat`, which nothing calls): six names in kana that fill the stock with 99
+  of every item and every materia and mark everyone joined, or add mastered sets of magic, summon or command materia
+  or both Bahamuts (the sets `BGINMENU` trades for master materia). In the lab, codes from a field frame open the
+  screen: `--code "8009C560 0005 F" --code "3009ABF5 0006 F" --code "8009ABF6 000N F"` (game_mode 5 makes the field
+  loop return; held on, the screen reopens each time it closes). From save 9 (the others at levels 13, 12, 12 and 10)
+  Red XIII's naming takes him from level 1 to 13 (their average, 11, plus his record's 2), stats grown and HP and
+  MP full.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1864,7 +1884,17 @@ same set). They give the original module and file split, and the staff folders b
   another (`p[i] = 0xFF`); its draw loop over the party has a counter of its own. Parked there, all on register
   choice or order: the experience panel (`form_member`, the first label's x worked out before its text's call),
   `form_init` (which of `v0`/`v1` the grid and `0xFF` get) and `form_ready` (the game branches to 0 or 1 where GCC
-  returns the comparison with `xor`/`sltiu`).
+  returns the comparison with `xor`/`sltiu`). `NAMEMENU` is two objects: the naming screen under ASPSX 2.21, and
+  the level-up code from `0x801D14E8` under 2.34 with its divide checks (indexed loads of the exe's tables fold into
+  `%lo` there, through `addiu $at` in the first). Its grid reads the pages as rows of ten (`page[row * 10 + col]`),
+  so each case keeps its own load; the cursors are set up field by field in `func_80026448`'s order, `name_state`
+  and `name_page` first, or GCC hoists the `name_who` load above the first stores; Delete keeps the length in an
+  `unsigned char` local, whose `len == 8` lets GCC fold `name_text[len]` into fixed addresses, and the chocobo's
+  branch is written the other way round (`len != 5 || ...`), as in `name_add`, for the game's block order. The
+  L1/R1 click is an `if`/`else if` pair GCC merges, the cheat check returns `int` (the delay slot before its
+  return stays empty), the materia ids are `i - i / 91 * 91`, the screen's loops share counters (the grid's
+  column and the later loops one, its row and the button list another), and the level-up's average is summed in
+  the level's own variable.
 
 **Main exe layout** (splat's guess, corrected by hand):
 

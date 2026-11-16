@@ -21,6 +21,7 @@ unsigned int func_8001C808(void); /* the pad's buttons as read */
 void func_8001CB48(void);
 void func_8001CF3C(int x, int y, int w, int h, int u, int v, int tw, int th, int pal, int semi); /* takes shorts */
 void func_8001D180(int x, int y, int w, int h, int u, int v, int tw, int th, int pal, int semi); /* takes shorts */
+void func_8001D47C(int x0, int x1, int y, int rgb); /* a line; takes shorts */
 void func_8001DE0C(RECT *r, int x, int y, int w, int h);
 void func_8001DE70(void);                  /* saves the window colours */
 void func_8001DEB0(void);                  /* puts them back */
@@ -47,6 +48,7 @@ void func_80025C14(void *p);
 void func_80025C54(void *p);
 void func_80025C94(void *p);
 void func_80025CD4(void *p);
+void func_80025D14(void *tim, int x, int y, int clut_x, int clut_y);
 void func_80025DF8(void);
 void func_800260DC(void);
 void func_80026448(MenuCursor *c, int col, int row, int cols, int rows, int pad0, int top, int pad4, int total,
