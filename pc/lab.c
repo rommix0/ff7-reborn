@@ -9,6 +9,7 @@
  * "FRAME command A C X T" and "FRAME dump".
  * An input script has a line for each change too: a frame, then the buttons held from it on ("-" for none); '#' starts
  * a comment. */
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,7 +45,7 @@ static struct {
 } inputs[MAX_INPUTS];
 static struct {
     unsigned int addr, value;
-    int bits, from; /* from: the first frame it's written in */
+    int bits, from, to; /* the first and last frames it's written in */
 } codes[MAX_CODES];
 static int code_count, input_count, next_input, warp_field = -1, dump_frame = -1, dump_every, frame;
 static int minigame = -1, minigame_asked, battle = -1, battle_asked, shot_every, shots_left, shots_from,
@@ -125,13 +126,14 @@ int lab_open(const char *trace_path, const char *input_path, int field, int dump
 }
 
 /* A GameShark code held every frame, as the cartridge does: 80AAAAAA VVVV writes 16 bits, 30AAAAAA 00VV 8 bits. A
- * frame after them holds it only from that frame, for a code on the save that would spoil its load. */
+ * frame after them holds it only from that frame, for a code on the save that would spoil its load; a second frame
+ * stops it after that one, for a request the game would otherwise act on again every frame. */
 int lab_code(const char *code)
 {
     unsigned int word, value;
-    int from = 0, n;
+    int from = 0, to = INT_MAX, n;
 
-    n = sscanf(code, "%x %x %d", &word, &value, &from);
+    n = sscanf(code, "%x %x %d %d", &word, &value, &from, &to);
     if (code_count == MAX_CODES || n < 2)
         return -1;
     if (word >> 24 != 0x80 && word >> 24 != 0x30)
@@ -139,6 +141,7 @@ int lab_code(const char *code)
     codes[code_count].addr = 0x80000000u | (word & 0x1FFFFF);
     codes[code_count].value = value;
     codes[code_count].from = from;
+    codes[code_count].to = to;
     codes[code_count++].bits = word >> 24 == 0x80 ? 16 : 8;
     return 0;
 }
@@ -323,7 +326,7 @@ int lab_frame(void)
     if (wav)
         wav_header();
     for (i = 0; i < code_count; i++) {
-        if (frame < codes[i].from)
+        if (frame < codes[i].from || frame > codes[i].to)
             continue;
         if (codes[i].bits == 16)
             *(volatile unsigned short *)codes[i].addr = codes[i].value;

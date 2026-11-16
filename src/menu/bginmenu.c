@@ -7,21 +7,6 @@
 #include "main.h"
 #include "menu.h"
 
-/* The save's data (0x8009C6E4), as far as the helpers use it: they reach all of it from one address. */
-extern struct {
-    unsigned char pad0[0x54];
-    Character chars[9];
-    unsigned char party[4];
-    unsigned short items[320];
-    unsigned int materia[200]; /* the stock: id in the low byte, AP above (0xFFFFFF once mastered); -1 for none */
-    unsigned char padA9C[0x27C];
-    unsigned char hp_scale[10]; /* five 16-bit values, byte by byte, in the field's variables */
-    unsigned char padD22[0x2F1];
-    unsigned char result;  /* the field variable bgin_check_set answers in */
-    unsigned char pad1014[0x92];
-    unsigned short joined; /* bit n: character n has joined */
-} save_data;
-
 extern int bgin_active; /* the cursor in use; -1 until bgin_init */
 extern RECT bgin_windows[2];
 extern unsigned char bgin_title[];

@@ -934,9 +934,10 @@ recovered C. Details in §7.
 | `MENU/FORMMENU.MNU` (`src/menu/formmenu.c`) | `0x801D0198`–`0x801D1CF8` | 10 of 13 functions in C; 3 parked |
 | `MENU/NAMEMENU.MNU` (`src/menu/namemenu.c`, `namelevel.c`) | `0x801D0014`–`0x801D1E78` | all 26 functions in C |
 | `MENU/MGICMENU.MNU` (`src/menu/mgicmenu.c`) | `0x801D0124`–`0x801D2930` | 6 of 7 functions in C; the frame parked |
+| `MENU/ITEMMENU.MNU` (`src/menu/itemmenu.c`) | `0x801D01E8`–`0x801D3260` | 33 of 36 functions in C; the frame and 2 materia helpers parked |
 
-Not recovered yet: 12 of the exe's game functions and 5 menu functions, parked as asm (§7), and every other overlay:
-battle, field, world, the other 4 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+Not recovered yet: 12 of the exe's game functions and 8 menu functions, parked as asm (§7), and every other overlay:
+battle, field, world, the other 3 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1670,6 +1671,33 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   on (for every member it revives), Life2 5,000. Character 10 (Sephiroth in the flashback) casts without paying MP. In
   the lab, save 28's party has Restore; a code holding a member's menu HP (`0x8009D85C` + 0x440 a slot) lets Cure
   land.
+- **`ITEMMENU.MNU` is the Item command's module** (`item_init`, `item_frame`). Use lists the 320 inventory entries
+  ten rows at a time, greyed where `func_8001FAF8`'s flags have bit 2 (not in the menu; bit 1 is battle, bit 3
+  throwing): a Tent also while `menu_locked` has `0x200`, the Save Crystal until bit 1 of `0x8009D5E8` (using it sets
+  bit 0 and closes the menu). Potion, Hi-Potion and X-Potion heal 100, 500 and 10,000 HP, Ether and Turbo Ether 100
+  and 10,000 MP, Elixir both 10,000, on a living member short of full; Megalixir and Tent the same on every living
+  member, if anyone is short; Phoenix Down a quarter of the max HP, on a dead one. Hyper takes Sadness away or else
+  gives Fury (not when Fury is on), Tranquilizer the reverse: the character's flags are `0x10` Sadness and `0x20`
+  Fury (the exe's strings at `0x80049350` and `0x80049344` say so). The six sources raise one `stat_bonus` byte up to
+  255 and rebuild the member. The eight limit manuals (`0x57`–`0x5E`, owners 0, 1, 2, 3, 4, 5, 7 and 8 at
+  `0x801D3D7C`) set the owner's limit bit `0x200` once every other limit is learned; the owner answers with one of
+  three lines per manual (learned, not ready, someone else's), Cait Sith with a 25th. The Earth Harp (`0x67`) case
+  rewrites records 6 and 7 as Cait Sith and Vincent at level 1, but the kernel marks it unusable, so it never runs.
+  Arrange sorts with a quicksort that keeps 64 ranges on its own stack and reaches the entries only through the
+  compare and swap callbacks: Field, Battle and Throw put the usable first, Type by item number, Name by a table at
+  `0x801D35B4`, Most and Least by count, empty entries always last; Customize swaps two entries by hand. Key Items
+  lists the 64 key-item bits at `0x8009D2C8` in two columns. The exe calls the rest for field menu requests 15–19
+  (game_mode 13 for 15–17, 5 for 18 and 19): 15 keeps the 48 materia with the highest `item_materia_rank`
+  (`0x801D3834`, by materia id) from the joined characters and the stock, takes them away and lists them at
+  `0x8009D180`; 16 gives each back to the first free slot it finds, from character 8 down and weapon before armor,
+  else to the stock, so materia don't go back where they were; 17 moves a character's materia to the stock and its
+  accessory to the items (Aeris leaving); 18 puts the party, one character's weapon, armor and 16 materia and the
+  stock's first three aside in the same `0x8009D180` area, leaving weapon 0 and no materia, and 19 puts them back.
+  `item_load_tim`, which the exe runs for a new game, loads the module's image to VRAM `(0x3F0, 0x120)`. In the lab,
+  save 28 opens the menu with triangle at 3000 and circle at 3100; the field calls run from save 9 with
+  `--code "8009C560 000D F F" --code "3009ABF5 000F F F"` (a code's second frame stops it after that frame) and a
+  code clearing `0x8009ABF5` the frame after the main loop takes the request: the field keeps returning while the
+  request is set, and each return runs the call again.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1916,6 +1944,17 @@ same set). They give the original module and file split, and the staff folders b
   in 7 whatever the colour, the heal amounts go through a variable (the party-wide one divided by 3 inside the loop,
   where GCC would fold a single expression), and the MP check and the "anyone to heal" tests keep their failing
   branch last. `mgic_init`'s loop goes through a pointer to each spell.
+  `ITEMMENU`'s frame (1,723 instructions, the game's count) is parked with 22 lines in another order or register:
+  the item list's count shift and the call before it, the key list's index, two constants of the Earth Harp case and
+  Customize's first pick. On the way: the item cases come in the game's order (Hyper, Tranquilizer, the manuals, the
+  sources, then the potions), the Megalixir's buzz comes after its work (the copy GCC keeps for every case's buzz), a
+  row's y is `i * 16 + 58 + step * 4` (other groupings strength-reduce the 58 into a counter), the take-item calls go
+  unprototyped (the game passes item numbers unextended), and the list entry is a temporary of its own in each loop.
+  The sort's comparators are old-style definitions (the sort passes plain ints), Arrange's switch has an empty
+  `case 0`, the item test is a `switch` with `0x62` first, the sort's stack is two index arrays with its pushes
+  tested `hi > lo`, `item_icon` takes a fourth argument the frame passes as 0, and the stash pair goes through a
+  pointer to the stash. `item_give_back` and `item_take_materia` are parked: the game swaps the loop counter's and
+  the strength-reduced pointer's registers.
 
 **Main exe layout** (splat's guess, corrected by hand):
 

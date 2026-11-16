@@ -17,7 +17,7 @@ typedef struct Bar {
 } Bar;
 
 extern PartyMember members[3];
-extern unsigned char D_80049350[], D_80049344[]; /* "Fury", "Sadness" */
+extern unsigned char D_80049350[], D_80049344[]; /* "Sadness", "Fury" */
 extern unsigned char D_800493A0[], D_80049390[], D_80049398[]; /* "LV", "HP", "MP" */
 
 AccessoryData *func_80025774(int id); /* accessory_table[id] */

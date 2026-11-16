@@ -37,7 +37,7 @@ extern unsigned char command_module[10];
 extern void (*module_inits[])();
 extern void (*module_frames[])(int frame);
 extern int clock_units[6]; /* seconds in ten hours, an hour, ten minutes, a minute, ten seconds, a second */
-extern unsigned char limit_colors[8][3]; /* a full limit bar flashes through them; [0] Fury, [2] Sadness */
+extern unsigned char limit_colors[8][3]; /* a full limit bar flashes through them; [0] Sadness, [2] Fury */
 extern unsigned char menu_labels[2][12];   /* "Time", "Gil" */
 extern unsigned char member_labels[2][12]; /* "LV", "Limit level" */
 extern unsigned char demo_text[];

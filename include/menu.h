@@ -25,6 +25,32 @@ typedef struct ScrollBar {
     short x, y, w, h;
 } ScrollBar;
 
+/* The save's data (0x8009C6E4), as far as the menu modules' materia helpers use it: they reach all of it from one
+ * address. */
+extern struct {
+    unsigned char pad0[0x54];
+    Character chars[9];
+    unsigned char party[4];
+    unsigned short items[320]; /* id in the low 9 bits, count above, 0xFFFF for none */
+    unsigned int materia[200]; /* the stock: id in the low byte, AP above (0xFFFFFF once mastered); -1 for none */
+    union { /* what field events take away and give back (ITEMMENU's helpers) */
+        int materia[48]; /* the best of the party's materia, by item_materia_rank */
+        struct Stash {   /* one character's equipment and the party */
+            unsigned char party[4];
+            unsigned char weapon, armor, pad6[2];
+            int weapon_materia[8];
+            int armor_materia[8];
+            int materia[3]; /* the stock's first three */
+        } stash;
+    } taken;
+    unsigned char padB5C[0x1BC];
+    unsigned char hp_scale[10]; /* five 16-bit values, byte by byte, in the field's variables */
+    unsigned char padD22[0x2F1];
+    unsigned char result;  /* the field variable bgin_check_set answers in */
+    unsigned char pad1014[0x92];
+    unsigned short joined; /* bit n: character n has joined */
+} save_data;
+
 unsigned int func_8001C808(void); /* the pad's buttons as read */
 void func_8001CB48(void);
 void func_8001CF3C(int x, int y, int w, int h, int u, int v, int tw, int th, int pal, int semi); /* takes shorts */

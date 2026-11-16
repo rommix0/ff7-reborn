@@ -14,7 +14,7 @@ CROSS    := mipsel-linux-gnu-
 OBJS := $(shell grep -o 'build/[^ ()]*\.o' build/main.ld 2>/dev/null | sort -u)
 # The menu modules being decompiled (docs/superpowers/specs/2026-11-15-menu-decompile-design.md), each with its
 # splat config in config/menu and checked against the disc's file. Each links at 0x801D0000 against the exe.
-MENUS := chngmenu patymenu bginmenu limtmenu statmenu cnfgmenu formmenu namemenu mgicmenu
+MENUS := chngmenu patymenu bginmenu limtmenu statmenu cnfgmenu formmenu namemenu mgicmenu itemmenu
 MENU_FILES := $(foreach m,$(MENUS),build/MENU/$(shell echo $(m) | tr a-z A-Z).MNU)
 
 check: build/SCUS_941.63 $(MENU_FILES)
@@ -181,7 +181,7 @@ build/src/main/menu_text.o: MASPSXFLAGS = --use-comm-section -G8 --expand-div
 # under ASPSX 2.21 and 2.34; 2.21 as for the exe's menu files.
 build/src/menu/chngmenu.o build/src/menu/patymenu.o build/src/menu/bginmenu.o \
 		build/src/menu/limtmenu.o build/src/menu/statmenu.o build/src/menu/cnfgmenu.o build/src/menu/formmenu.o build/src/menu/namemenu.o \
-		build/src/menu/mgicmenu.o: ASPSX = 2.21
+		build/src/menu/mgicmenu.o build/src/menu/itemmenu.o: ASPSX = 2.21
 # NAMEMENU's level-up code is an object of its own: ASPSX 2.34 (indexed loads fold into `%lo`), with divide checks.
 build/src/menu/namelevel.o: ASPSX = 2.34
 build/src/menu/namelevel.o: MASPSXFLAGS = --expand-div

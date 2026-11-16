@@ -24,7 +24,7 @@ typedef struct Character {
     unsigned char weapon;
     unsigned char armor;
     unsigned char accessory; /* 0xFF for none */
-    unsigned char flags;     /* 0x10 Fury, 0x20 Sadness */
+    unsigned char flags;     /* 0x10 Sadness, 0x20 Fury */
     unsigned char row; /* bit 0 clear: the back row */
     unsigned char exp_bar; /* the Status screen's bar */
     unsigned short limits; /* learned, a bit each by limit_id's slot */

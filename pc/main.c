@@ -1,16 +1,16 @@
 /* The PC build's entry: maps the PS1's RAM, loads the user's own exe into it, and runs the game from the exe's entry
  * point, recompiled. usage: ff7 [ASSETS] [--frames N] [--shot FILE.bmp] [--trace FILE] [--input FILE] [--field N]
  * [--minigame N] [--battle N] [--command A,C,X,T] [--shots K N] [--from N] [--wav FILE] [--dump-at N]
- * [--code "AAAAAAAA VVVV [FRAME]"]... [--fast] [--buttons xbox|keys]
+ * [--code "AAAAAAAA VVVV [FRAME [LAST]]"]... [--fast] [--buttons xbox|keys]
  *
  * With --frames, it saves what's on screen after N frames (to --shot, or screenshot.bmp) and exits. The rest is the
  * reversing lab (lab.c): --field N warps to field N (0x41 is the debug room) once the first field has loaded,
  * --minigame N then starts mini-game N (0-6) as a field would, --battle N battle N; --command puts in party member
  * A's command C (attack X, target mask T) once the battle's menu waits on A, and --shots saves N pictures K frames
  * apart from then on (from frame N with --from), then exits (like --frames, without a window); --wav keeps the
- * sound from the first of them (from the start without --shots); --code holds a GameShark code every frame (from FRAME on);
- * --fast runs frames as quickly as the host can instead of at 59.94 Hz; --buttons xbox (or keys) shows the Xbox pad's
- * glyphs (or the keyboard's) from the start; the window shows those of the device last used. */
+ * sound from the first of them (from the start without --shots); --code holds a GameShark code every frame (from
+ * FRAME on, to LAST); --fast runs frames as quickly as the host can instead of at 59.94 Hz; --buttons xbox (or keys)
+ * shows the Xbox pad's glyphs (or the keyboard's) from the start; the window shows those of the device last used. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -127,7 +127,7 @@ int main(int argc, char **argv)
             hw_set_clock(ps1_seconds);
         else if (!strcmp(argv[i], "--code") && i + 1 < argc) {
             if (lab_code(argv[++i])) {
-                fprintf(stderr, "%s: not a GameShark code the lab takes (80AAAAAA VVVV or 30AAAAAA 00VV, then a frame to start at)\n", argv[i]);
+                fprintf(stderr, "%s: not a GameShark code the lab takes (80AAAAAA VVVV or 30AAAAAA 00VV, then the frames to start and stop at)\n", argv[i]);
                 return 1;
             }
         }
