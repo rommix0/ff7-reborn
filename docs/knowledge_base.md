@@ -931,9 +931,10 @@ recovered C. Details in §7.
 | `MENU/LIMTMENU.MNU` (`src/menu/limtmenu.c`) | `0x801D002C`–`0x801D1320` | all 6 functions in C |
 | `MENU/STATMENU.MNU` (`src/menu/statmenu.c`) | `0x801D0000`–`0x801D1968` | all 13 functions in C |
 | `MENU/CNFGMENU.MNU` (`src/menu/cnfgmenu.c`) | `0x801D0040`–`0x801D1AA8` | 7 of 8 functions in C; the frame parked |
+| `MENU/FORMMENU.MNU` (`src/menu/formmenu.c`) | `0x801D0198`–`0x801D1CF8` | 10 of 13 functions in C; 3 parked |
 
-Not recovered yet: 12 of the exe's game functions and `CNFGMENU`'s frame, parked as asm (§7), and every other overlay:
-battle, field, world, the other 7 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+Not recovered yet: 12 of the exe's game functions and 4 menu functions, parked as asm (§7), and every other overlay:
+battle, field, world, the other 6 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1625,6 +1626,17 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   press on a row gives that row's button the pressed one's function, and left or right ends, but only while Menu,
   OK and Cancel (bits 4 to 6) are each still on some button. Its two prompts sit in the button-name table where
   bits 9 and 10 (no button) would be.
+- **`FORMMENU.MNU` is the PHS.** The main menu runs it as module 9 (`form_init`, `form_frame` through the exe's
+  module tables); the field's PHS (`func_80024DD4`) loads it as module 14 and calls `form_run`, which fades in, runs
+  its own loop with its own draw and display environments, and fades out. The party is on the left, the other
+  joined characters (bit n of `0x8009D78A`) in a 3 by 3 grid; ○ on one and then another swaps them, the same one
+  twice shows its equipment and experience, and characters with their bit set at `0x8009D788` can't be moved.
+  `form_run`'s argument is the party's size to leave with (0 for three); from 4 the party is being split for the end
+  of the game (4 to 7 leave with three, 8 with two). The module saves the VRAM it draws over into three buffers of
+  its own and puts it back. It also carries the portraits' TIM paths on the developers' PC (`x:\master\menu\data\`)
+  and a copy of `STATMENU`'s labels, which nothing reads. In the lab, `--code "8009D2A4 03FF 2900" --code "8009D2A6 0000 2900"` shows
+  and unlocks PHS in the menu; a code's third field is the frame it starts at, as one on the save from boot
+  spoils the load's check.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1847,7 +1859,12 @@ same set). They give the original module and file split, and the staff folders b
   the drawing's x before its y, and every split of those roles among the locals swaps one pair or the other. On the
   way there: ATB's row steps its value before the click sound and the other rows after it, which keeps the value
   in a saved register across the call, and the frame reuses its locals across cases (one for the drawing's x and
-  the edited colour, the loop counter `i` for Customize's check).
+  the edited colour, the loop counter `i` for Customize's check). `FORMMENU` reads its 3 by 3 grid through a pointer to
+  it set first (`grid = form_reserve; p = &grid[...]`), the third time a table needed that, and clears it through
+  another (`p[i] = 0xFF`); its draw loop over the party has a counter of its own. Parked there, all on register
+  choice or order: the experience panel (`form_member`, the first label's x worked out before its text's call),
+  `form_init` (which of `v0`/`v1` the grid and `0xFF` get) and `form_ready` (the game branches to 0 or 1 where GCC
+  returns the comparison with `xor`/`sltiu`).
 
 **Main exe layout** (splat's guess, corrected by hand):
 
