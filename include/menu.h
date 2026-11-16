@@ -25,10 +25,12 @@ unsigned char func_8001F6B4(void); /* the caption's state */
 void func_8001F6C0(unsigned char *text, int color); /* opens the caption */
 void func_80020B68(int x, int y, int slot);
 void func_8002120C(int module);
+unsigned char *func_80021280(int item); /* an item's name, the inventory's numbering */
 int func_80023050(void);
 void func_8002305C(int state, int command);
 void func_800230C4(int buf);
 int func_8002542C(int materia); /* adds a materia to the stock */
+short func_8002603C(int materia); /* its icon's palette */
 void func_80025B8C(void *p);
 void func_80025BD0(void *p);
 void func_80025C14(void *p);
@@ -39,8 +41,14 @@ void func_800260DC(void);
 void func_80026448(MenuCursor *c, int col, int row, int cols, int rows, int pad0, int top, int pad4, int total,
                    int padE, int scroll_step, int wrap_x, int wrap_y, unsigned short scrolling);
 void func_800264A8(MenuCursor *cursor);
+void func_800269C0(void *buf); /* sets prim_next */
+void func_800269D0(void);      /* saves prim_next */
+void func_800269E8(void);      /* puts it back */
 void func_80026A34(int dfe, int dtd, int tpage, RECT *tw);
+int func_80026B70(unsigned char *text); /* text's width in pixels */
+int func_80026C5C(int x, int y, int color, unsigned short ch); /* draws a character */
 void func_80026F44(int x, int y, unsigned char *text, int color);
+void func_80027B84(RECT *r); /* a sunken panel */
 void func_800285AC(int x, int y, int value, int h, int r, int g, int b);
 void func_80028CA0(short x, short y, int u, int v, int w, int h, int pal, int semi);
 void func_80028E00(int x, int y, int n, int digits, int color);

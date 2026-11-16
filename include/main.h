@@ -105,7 +105,9 @@ typedef struct WeaponData {
     unsigned char power;
     unsigned char status; /* the status it inflicts, a bit number */
     unsigned char growth; /* its materia's AP: 0 none, 1 normal, 2 double, 3 triple */
-    unsigned char pad7[9];
+    unsigned char pad7;
+    unsigned char hit; /* Attack% */
+    unsigned char pad9[7];
     unsigned short elements;
     unsigned char pad12[2];
     unsigned char stat[4];
@@ -120,7 +122,9 @@ typedef struct ArmorData {
     unsigned char pad0;
     unsigned char element_mode; /* which of PartyMember.elements[1]-[3] its elements go in */
     unsigned char defense;
-    unsigned char pad3[3];
+    unsigned char pad3;
+    unsigned char defense_pct;  /* Defense%, the member's Dex / 4 added */
+    unsigned char mdefense_pct; /* Magic def% */
     unsigned char status; /* the status it guards against, a bit number */
     unsigned char pad7[2];
     unsigned char slots[8];

@@ -929,9 +929,10 @@ recovered C. Details in §7.
 | `MENU/PATYMENU.MNU` (`src/menu/patymenu.c`) | `0x801D0198`–`0x801D065C` | all 3 functions in C |
 | `MENU/BGINMENU.MNU` (`src/menu/bginmenu.c`) | `0x801D0000`–`0x801D07F0` | all 12 functions in C |
 | `MENU/LIMTMENU.MNU` (`src/menu/limtmenu.c`) | `0x801D002C`–`0x801D1320` | all 6 functions in C |
+| `MENU/STATMENU.MNU` (`src/menu/statmenu.c`) | `0x801D0000`–`0x801D1968` | all 13 functions in C |
 
 Not recovered yet: 12 of the exe's game functions, parked as asm (§7), and every other overlay: battle, field, world,
-the other 11 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+the other 8 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1606,6 +1607,13 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   (`0x801D11A8`), which the exe calls every time the menu opens, redoes that copy for the whole party: the limit ids
   less `0x80` at `PartyMember` `+0xAC`, their 28-byte attack records (128 of them live in the module, `0x801D1324`) at
   `+0xB4`. The panel at the top is the exe's party panel again, with its own copy of the limit bar's colours.
+- **`STATMENU.MNU` is the Status command's module** (module 5). ○ steps through three pages: the stats, the
+  equipment (names, materia slots with their links and the materia in them) and the battle commands; the four
+  element sets (`PartyMember` `+0x3C`: Attack, Halve, Invalid, Absorb); the statuses the weapon inflicts and the
+  armor guards against (`+0x44`). L1 and R1 step through the party. Of the worked-out stats, Attack% is the
+  weapon's `+8`, Defense% the member's Dex / 4 plus the armor's `+4`, Magic def% the armor's `+5`. The second
+  status list is drawn into the module's own primitive buffers (two of `0x2000` bytes at `0x801D1E20`, by the draw
+  buffer): the page's text outgrows the menu's.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1816,7 +1824,11 @@ same set). They give the original module and file split, and the staff folders b
   the code (`y + 6 + row * 64 + 32` keeps `row * 64 + 6` as a value; `y + row * 64 + 6 + 32` folds to `+ 38`), its frame
   returns `int` (nothing reads it, but the return register is live at the end, which changes the delay slots), and
   Set copies a limit's record through a pointer to the table set at the top of the function: indexing the table
-  directly let GCC fold its address into each of the seven loads (found with the permuter).
+  directly let GCC fold its address into each of the seven loads (found with the permuter). `STATMENU`'s equipment
+  panel needs the same pointer for the character table. A two-byte character built from bytes and passed to a
+  call goes through an `int` local (`ch = hi << 8 | lo`), or GCC puts the `or`'s operands the other way round; a
+  list that wraps at the screen's edge counts its wraps (`y + lines * 14`) instead of stepping a y; and the
+  commands' one-column test sits outside the `if` that uses it, so GCC hoists it out of both loops.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
