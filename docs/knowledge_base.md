@@ -701,9 +701,9 @@ N % 4):
 from `0x801D0000` as the file is, the same on all three discs. A field script opens it with `menu 08 #N`, shop N.
 - `0x42C8`: 9 shop titles, 20 bytes each ("Item Shop", "Weapon Shop", ...); `0x437C`: two sets of 10 clerk lines, 46
   bytes each (the second in dialect; no shop uses it). Text ends `FF` unless it fills its slot, then zeros.
-- `0x4714`: 80 shops of 84 bytes (`func_801D0FE0` picks one): a title, a set of lines, a `u16` count, then 10
-  entries of a `u16` kind (0 an inventory number, 1 a materia; `func_801D11A4`), 2 zero bytes and a `u32` id.
-- `0x6854`: a `u32` price per inventory number (0–319), and from `+0x600` per materia (`func_801D10B0`); the rest is
+- `0x4714`: 80 shops of 84 bytes (`shop_open` picks one): a title, a set of lines, a `u16` count, then 10
+  entries of a `u16` kind (0 an inventory number, 1 a materia), 2 zero bytes and a `u32` id.
+- `0x6854`: a `u32` price per inventory number (0–319), and from `+0x600` per materia; the rest is
   `FF`. Of the 165 inventory numbers no shop sells, 89 cost 2 and 23 cost 0.
 - Checked in the lab: shop 1 retitled "Lab Shop", stocked with a Potion, an Elixir and materia 49, the Potion priced
   7 and the Elixir 1234, opened from `MD1STIN` after the opening movie; its buy list showed all of it, Fire at its
@@ -935,9 +935,10 @@ recovered C. Details in §7.
 | `MENU/NAMEMENU.MNU` (`src/menu/namemenu.c`, `namelevel.c`) | `0x801D0014`–`0x801D1E78` | all 26 functions in C |
 | `MENU/MGICMENU.MNU` (`src/menu/mgicmenu.c`) | `0x801D0124`–`0x801D2930` | 6 of 7 functions in C; the frame parked |
 | `MENU/ITEMMENU.MNU` (`src/menu/itemmenu.c`) | `0x801D01E8`–`0x801D3260` | 33 of 36 functions in C; the frame and 2 materia helpers parked |
+| `MENU/SHOPMENU.MNU` (`src/menu/shopmenu.c`) | `0x801D0084`–`0x801D42C8` | 24 functions in C; the frame, the materia page and the party panel parked |
 
-Not recovered yet: 12 of the exe's game functions and 8 menu functions, parked as asm (§7), and every other overlay:
-battle, field, world, the other 3 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+Not recovered yet: 12 of the exe's game functions and 11 menu functions, parked as asm (§7), and every other overlay:
+battle, field, world, the other 2 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1698,6 +1699,20 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   `--code "8009C560 000D F F" --code "3009ABF5 000F F F"` (a code's second frame stops it after that frame) and a
   code clearing `0x8009ABF5` the frame after the main loop takes the request: the field keeps returning while the
   request is set, and each return runs the call again.
+- **`SHOPMENU.MNU` is the shops** (module 15). The field's `menu 08 #N` (`D_8009ABF5` 8, `D_8009ABF6` N) leads main to
+  `func_80024E18`, which loads it and calls `shop_run(N)`; that runs the shop's own frame loop (fade in, `shop_frame`,
+  fade out) like `name_run`. Buy lists the stock five rows at a time with its price; the panel below shows each joined
+  character's portrait (the party's blinking) with Attack or Defense now and with the highlighted weapon or armor, the
+  new value in colour 6 if higher, 2 if lower (accessories, items and materia show none). Choosing an item asks how
+  many (right +1, up +10, left -1, down -10, never past 99 owned and on or what the gil covers), with a weapon's or
+  armor's slots and growth (Nothing, Normal, Double, Triple); a materia is bought at once if the stock has a free place.
+  Sell offers Item or Materia: items list two columns of the inventory, greyed where `func_8001FAF8`'s bit 0 says
+  they can't be sold, and sell at half price; a materia sells from the 200-place stock (beside the materia menu's
+  page for it, a copy of `EQIPMENU`'s with its texts) for `shop_materia_value`: its AP, or 70 times its price once
+  mastered, 1 for one priced 1. Exit closes the shop at once; cross on the first menu fades it out. Its buzz is
+  sound 3, a sale 0x108. In the lab, save 9 opens shop N with `--code "8009C560 0005 F F"`,
+  `--code "3009ABF5 0008 F F"`, `--code "8009ABF6 00NN F F"` and `0x8009ABF5` cleared at F+25; the menu is up about
+  100 frames later.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1955,6 +1970,16 @@ same set). They give the original module and file split, and the staff folders b
   tested `hi > lo`, `item_icon` takes a fourth argument the frame passes as 0, and the stash pair goes through a
   pointer to the stash. `item_give_back` and `item_take_materia` are parked: the game swaps the loop counter's and
   the strength-reduced pointer's registers.
+  `SHOPMENU`: 21 of 24 match. `shop_frame` returns an unread `int` like `item_frame` (its delay slots show it), and a
+  kind `switch` has an empty third case (`case 2:`) wherever the game's tree tests 1, then below 2, then 0. The icon
+  palette `func_8002603C` returns an `int`, so this module extends it at each use (STAT and FORM were built with it
+  declared `short`; each module now declares it). A centred title keeps `w / 2 - 0x3B` apart through an assignment
+  inside the expression (`x - (w = ... / 2 - 0x3B)`; GCC folds the constant otherwise), and the stat rows count their
+  rows (`rows * 11 + 0x98`). Row positions are `i * 12 + 0x62 + step * 3` (the counter alone strength-reduced), the
+  list's row count gets its own variable (with a count shared by a cursor setup the loop's entry test turns
+  `blez`), and the frame's buy-quantity box sets its RECT before the panel call. Parked: `shop_frame` (2,291 of the
+  game's 2,297; the game spills more in the sell paths), `shop_draw_materia` (17 short; the game keeps the Master
+  Magic case's tests) and `shop_draw_party` (same length; the entry's id and kind loads in the other order).
 
 **Main exe layout** (splat's guess, corrected by hand):
 

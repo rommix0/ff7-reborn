@@ -77,7 +77,6 @@ void func_800230C4(int buf);
 int func_8002542C(int materia); /* adds a materia to the stock */
 void func_800258BC(int slot, int n); /* a member's HP up by n */
 void func_80025988(int slot, int n); /* and MP down */
-short func_8002603C(int materia); /* its icon's palette */
 void func_80025B8C(void *p);
 void func_80025BD0(void *p);
 void func_80025C14(void *p);

@@ -16,11 +16,11 @@ from pathlib import Path
 import kernel
 from unpack import bingz
 
-# The module runs from 0x801D0000 as the file is (func_801D0FE0 picks a shop, func_801D11A4 lists it).
+# The module runs from 0x801D0000 as the file is (shop_open picks a shop, shop_frame lists it).
 TITLES, TITLE_SIZE, TITLE_COUNT = 0x42C8, 20, 9
 GREETINGS, GREETING_SIZE, GREETING_LINES = 0x437C, 46, 10
 SHOPS, SHOP_SIZE, SHOP_COUNT, STOCK = 0x4714, 84, 80, 10
-PRICES, MATERIA_PRICES = 0x6854, 0x6854 + 0x600  # a u32 per inventory number, then per materia (func_801D10B0)
+PRICES, MATERIA_PRICES = 0x6854, 0x6854 + 0x600  # a u32 per inventory number, then per materia (src/menu/shopmenu.c)
 KINDS = ["item", "materia"]
 
 

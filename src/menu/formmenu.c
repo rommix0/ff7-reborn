@@ -10,6 +10,8 @@
 #include "sound.h"
 #include "menu.h"
 
+short func_8002603C(int materia); /* its icon's palette: an int, but declared short where this file was built */
+
 /* The save around the party: menu.c's view of it, with the PHS's bits. */
 extern struct {
     unsigned char party[4]; /* three character ids, 0xFF for an empty place */

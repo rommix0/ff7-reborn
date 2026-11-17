@@ -9,6 +9,8 @@
 #include "sound.h"
 #include "menu.h"
 
+short func_8002603C(int materia); /* its icon's palette: an int, but declared short where this file was built */
+
 extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
 extern PartyMember members[3];
 extern int menu_member;

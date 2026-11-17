@@ -116,7 +116,8 @@ typedef struct WeaponData {
     unsigned char growth; /* its materia's AP: 0 none, 1 normal, 2 double, 3 triple */
     unsigned char pad7;
     unsigned char hit; /* Attack% */
-    unsigned char pad9[7];
+    unsigned char pad9[5];
+    unsigned short equip; /* who can equip it, a bit per character */
     unsigned short elements;
     unsigned char pad12[2];
     unsigned char stat[4];
@@ -138,7 +139,7 @@ typedef struct ArmorData {
     unsigned char pad7[2];
     unsigned char slots[8];
     unsigned char growth; /* as WeaponData.growth */
-    unsigned char pad12[2];
+    unsigned short equip; /* as WeaponData.equip */
     unsigned short elements;
     unsigned char pad16[2];
     unsigned char stat[4];
