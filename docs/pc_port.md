@@ -6,7 +6,9 @@ first and decompilation keeps replacing parts of it.
 
 ## What's left to run
 
-The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside it, nothing is recovered:
+The main exe is mostly C (boot, sound driver, CD layer, movie player), and so are all 13 menu modules
+(`MENU/*.MNU`: the field menu and its screens, the shops and the save screens; 20 functions parked as asm). Outside
+them, nothing is recovered:
 
 | Module | Unpacked |
 |---|---|
@@ -14,7 +16,6 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
 | Battle (`BATTLE/BATTLE.X`, `BATINI.X`, `BATRES.X`) | 350 KiB |
 | Title (`BATTLE/TITLE.BIN`), ending (`FIELD/ENDING.X`) | 201 KiB |
 | World map (`WORLD/WORLD.BIN`) | 160 KiB |
-| Menus (`MENU/*.MNU`, 13) | 473 KiB |
 | Mini-games (`MINI/*.BIN`, 22) and magic effects (`MAGIC/*.BIN`, 289) | ~47 MB, mostly graphics |
 
 ## The plan
@@ -35,6 +36,9 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player). Outside i
    - **Decompiled C replaces recompiled code one function at a time.** Thunks generated from the C prototypes bridge
      the two calling styles. Decompilation stays matching, and is prioritised by what the port or modding needs, not
      by what's needed to play.
+   - The menus are the first whole modules done this way: the PC build compiles their C in place of the recompiled
+     code, with the parked functions still recompiled. Their C, the parked functions' non-matching C and the fully
+     recompiled modules give the same traces, screens and save data on scripted runs through each module's screens.
 
 3. **Hardware where the PS1's behaviour is the point, libraries where the PC should differ.**
    - Emulated, so Sony's library code runs as compiled: the **GPU** (GP0/GP1 commands and DMA into 1024×512 VRAM),
