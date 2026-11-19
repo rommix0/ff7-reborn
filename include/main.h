@@ -132,7 +132,7 @@ typedef struct ArmorData {
     unsigned char pad0;
     unsigned char element_mode; /* which of PartyMember.elements[1]-[3] its elements go in */
     unsigned char defense;
-    unsigned char pad3;
+    unsigned char mdefense; /* Magic def */
     unsigned char defense_pct;  /* Defense%, the member's Dex / 4 added */
     unsigned char mdefense_pct; /* Magic def% */
     unsigned char status; /* the status it guards against, a bit number */
@@ -157,7 +157,7 @@ typedef struct AccessoryData {
     unsigned char special;
     unsigned short elements;
     unsigned int statuses;
-    unsigned char pad0C[2];
+    unsigned short equip; /* as WeaponData.equip */
     unsigned short usable;
 } AccessoryData;
 extern AccessoryData accessory_table[];

@@ -937,9 +937,10 @@ recovered C. Details in §7.
 | `MENU/ITEMMENU.MNU` (`src/menu/itemmenu.c`) | `0x801D01E8`–`0x801D3260` | 33 of 36 functions in C; the frame and 2 materia helpers parked |
 | `MENU/SHOPMENU.MNU` (`src/menu/shopmenu.c`) | `0x801D0084`–`0x801D42C8` | 24 functions in C; the frame, the materia page and the party panel parked |
 | `MENU/SAVEMENU.MNU` (`src/menu/savemenu.c`, `savecard.c`, `saveload.c`) | `0x801D0408`–`0x801D4EC4` | 39 functions in C; the two frames and `card_read_save` parked |
+| `MENU/EQIPMENU.MNU` (`src/menu/eqipmenu.c`, `eqipmateria.c`) | `0x801D0124`–`0x801D82A4` | 53 functions in C; the two frames, Exchange's two, the stats panel and the materia page parked |
 
-Not recovered yet: 12 of the exe's game functions and 14 menu functions, parked as asm (§7), and every other overlay:
-battle, field, world, the last menu (`EQIPMENU`), mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+Not recovered yet: 12 of the exe's game functions and 20 menu functions, parked as asm (§7), and every other overlay:
+battle, field, world, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1733,6 +1734,33 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     four files have their titles (`ＦＦ７／ＳＡＶＥ０２／０５：１７`) and good checksums, and the native, all-C and
     all-recompiled builds write the same files but for the play time's fraction of a second (the recompiled module
     runs a frame later from the load on).
+- **`EQIPMENU.MNU` is the Materia and Equip screens** (modules 3 and 4), two objects: `eqipmenu.c` and
+  `eqipmateria.c`.
+  - Equip lists the member's weapon, armor and accessory. ○ on one lists what the inventory holds that the member can
+    equip there (by each kind's `equip` mask, a bit per character: weapons at `0x0E`, armor `0x12`, accessories
+    `0x0C`), with the weapon's or armor's slots and growth and the highlighted item's description. The stats panel
+    shows Attack, Attack%, Defense, Defense%, Magic atk, Magic def and Magic def% now and with the highlighted one on
+    (higher in colour 6, lower in 2); Magic atk is always 0. ○ again equips it: the old one goes back to the
+    inventory, and materia in slots the new weapon or armor lacks goes to the stock. △ on the accessory takes it off,
+    L1 and R1 change the member, and □ (and ✕ after a weapon or armor change) go on to the Materia screen when that
+    command is shown. Bit 0 of `0x8009D4F7` keeps the equipment as it is.
+  - Materia shows the member's slots and the stock (ten rows, scrolling), with the highlighted materia's page (the
+    one the shops copy) and description. ○ on a slot and then on a stock place swaps them; △ on a slot sends its
+    materia to the stock. Check lists the member's commands and from them the magic (three to a row, with an arrow on
+    those All or Quadra Magic reach the whole party with), summons or enemy skills, each with its MP cost and uses.
+    Arrange offers Arrange (sorts the stock by icon colour, then AP and id, empty places last), Exchange (its own
+    screen: every joined character's slots, four rows at a time, swapping single materia, whole sets or with the
+    stock), Remove all (whatever the stock has room for) and Trash (after "Do you really want to remove this?"). With
+    the menu locked, Arrange is greyed and the slots can't change; on Sephiroth a caption says so.
+  - Quirks kept as the game has them: the frame writes 0xFF 128 times to the one byte after its materia-page buffer
+    (the first cursor's unused first field), and Exchange's △ tests the armor's slot at the main screen's cursor
+    column instead of its own. An unused function reads a TMD's first triangle into two primitive buffers, and an
+    unused one turns it with L2 and R2.
+  - Checked in the lab on save 28 (world map), opening Equip and then Materia from the menu: Cloud's Rune Blade for a
+    Butterfly Edge (Attack 40 to 39 in red), △ taking off his Power Wrist, R1 to Cait Sith, ✕ after the change going
+    on to the Materia screen; a stock materia into a slot and △ sending it back, Check's commands and Magic list,
+    Arrange's sort and the Exchange screen. The native, all-C and all-recompiled builds give the same traces, all 128
+    screenshots, and the same save data and module RAM.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2012,6 +2040,24 @@ same set). They give the original module and file split, and the staff folders b
   other registers). The list cursor `load_move_cursor` is the exe's `func_800264A8` with this module's beep and an
   eight-frame scroll. Parked: `save_frame` and `load_frame` (each 1 instruction short, the rest registers) and
   `card_read_save` (same length; the file and the retry count swap registers).
+  `EQIPMENU`: 47 of 53 match, in two objects: the Equip screen (`eqipmenu.c`, no read-only data) and the Materia
+  screen (`eqipmateria.c`, all five jump tables). A byte search of every module with branch targets and data
+  addresses masked found the copies: the slot drawer (SHOPMENU's, and STATMENU's with the materia), the portrait header
+  (STATMENU's), the quicksort (ITEMMENU's), the stat-change rows and the materia page (SHOPMENU's; the page is parked
+  here as there). Five functions return an unread `int`: a delay slot the game leaves empty before the exit means
+  `$v0` is live there. Unused RECT locals pad four frames. A switch whose tree tests row 2 first is a two-case switch
+  inside `if (row != 2)`; a growth clamp is two `if`s (one `||` folds into an unsigned compare); a list builder's
+  loops each set `i = 0, n = 0`; an extra empty case (`case 4: break;`) sets a tree's pivot. The Check lists copy the
+  cursor's top into a local before their loops (premultiplied: `top * 3`), reuse the loop counters as the panel's x
+  and y after them (the Summon list keeps its x apart), put the constant before the counter (`y + 6 + j * 16`, so it
+  joins the strength-reduced counter), and set their flag with `if (...) all = 1; else all = 0;`; the hands' y is
+  `w.y + 8 + row * 16` (SAVEMENU's lever) and an x keeps its offset together with parentheses
+  (`w.x + (col * 44 - 0x14)`). `func_8002603C` returns an `int` that each use casts to `short`; the second pad and
+  a field bank are read as a scalar and as an array (`field_pad2`, `D_8009D78A[0]`); the Exchange list's fill value
+  is an `unsigned char` variable; the unused TMD reader's walking pointers are set before its first call. Parked:
+  `eqip_stats` (5 short: the game keeps the current Attack in a saved register), `eqip_frame` (same length,
+  registers), `mtr_exchange_draw` (3 short), `mtr_exchange_input` (12 short), `mtr_frame` (4 short) and
+  `mtr_draw_materia` (as SHOPMENU's, 17 short).
 
 **Main exe layout** (splat's guess, corrected by hand):
 
