@@ -25,10 +25,22 @@ typedef struct ScrollBar {
     short x, y, w, h;
 } ScrollBar;
 
-/* The save's data (0x8009C6E4), as far as the menu modules' materia helpers use it: they reach all of it from one
- * address. */
+/* A save's opening bytes, what the save menu's file lists show. */
+typedef struct SavePreview {
+    unsigned int checksum; /* SAVEMENU's card_checksum over the save's data after it */
+    unsigned char level;   /* the leader's */
+    unsigned char portraits[3];
+    unsigned char name[16]; /* the leader's */
+    unsigned short hp, max_hp, mp, max_mp;
+    unsigned int gil;
+    unsigned int seconds; /* played */
+    unsigned char place[32];
+    unsigned char colors[12]; /* the window's corners */
+} SavePreview;
+
+/* The save's data (0x8009C6E4), as far as the menu modules use it: they reach all of it from one address. */
 extern struct {
-    unsigned char pad0[0x54];
+    SavePreview preview;
     Character chars[9];
     unsigned char party[4];
     unsigned short items[320]; /* id in the low 9 bits, count above, 0xFFFF for none */
@@ -45,7 +57,9 @@ extern struct {
     } taken;
     unsigned char padB5C[0x1BC];
     unsigned char hp_scale[10]; /* five 16-bit values, byte by byte, in the field's variables */
-    unsigned char padD22[0x2F1];
+    unsigned char padD22[0x1EA];
+    unsigned char place[24]; /* the place's name, game text */
+    unsigned char padF24[0xEF];
     unsigned char result;  /* the field variable bgin_check_set answers in */
     unsigned char pad1014[0x92];
     unsigned short joined; /* bit n: character n has joined */

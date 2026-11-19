@@ -936,9 +936,10 @@ recovered C. Details in §7.
 | `MENU/MGICMENU.MNU` (`src/menu/mgicmenu.c`) | `0x801D0124`–`0x801D2930` | 6 of 7 functions in C; the frame parked |
 | `MENU/ITEMMENU.MNU` (`src/menu/itemmenu.c`) | `0x801D01E8`–`0x801D3260` | 33 of 36 functions in C; the frame and 2 materia helpers parked |
 | `MENU/SHOPMENU.MNU` (`src/menu/shopmenu.c`) | `0x801D0084`–`0x801D42C8` | 24 functions in C; the frame, the materia page and the party panel parked |
+| `MENU/SAVEMENU.MNU` (`src/menu/savemenu.c`, `savecard.c`, `saveload.c`) | `0x801D0408`–`0x801D4EC4` | 39 functions in C; the two frames and `card_read_save` parked |
 
-Not recovered yet: 12 of the exe's game functions and 11 menu functions, parked as asm (§7), and every other overlay:
-battle, field, world, the other 2 menus, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
+Not recovered yet: 12 of the exe's game functions and 14 menu functions, parked as asm (§7), and every other overlay:
+battle, field, world, the last menu (`EQIPMENU`), mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
 title screen).
 
 ### PC vs PS1
@@ -1713,6 +1714,25 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   sound 3, a sale 0x108. In the lab, save 9 opens shop N with `--code "8009C560 0005 F F"`,
   `--code "3009ABF5 0008 F F"`, `--code "8009ABF6 00NN F F"` and `0x8009ABF5` cleared at F+25; the menu is up about
   100 frames later.
+- **`SAVEMENU.MNU` is the save and load screens** (modules 10 and 16, and the main menu's Save). Three objects: the
+  save screen (`savemenu.c`), the card layer (`savecard.c`) and the load screen (`saveload.c`). A save point's field
+  request 14 runs `save_run` (its own frame loop and fade); the main menu's Save runs `save_init(0)`, `save_frame` and
+  `save_finish` over the menu's screen. The title's NEW GAME / Continue? choice is this module's too: `load_run`
+  (module 16) returns 1 for NEW GAME, and Continue picks a card and a file and loads it, refusing one whose checksum
+  fails. Both screens: pick a slot (white if a card is in it, checked every 64 frames), "Checking Memory card." while
+  the 15 files' previews are read, then the file list (three panels, scrolling over eight frames) with each file's
+  party, leader, place, time and gil in its own window colours. Saving asks "Are you sure you want to save?" (Yes,
+  No) and writes ("Saved.", or for any failed write "No enough memory left on Memory card."); an unformatted card
+  asks "Want to format it now?" (default No). A failed preview read is "Couldn't read it.", a bad checksum "File is
+  ruined.". For its first 240 frames the save screen's missing-card caption is another entry of the same text ("No
+  Memory card."). Its sounds: 1 move, 3 buzz, 4 back, 0xD0 done. The texts are data in the third object's part of
+  the file (`0x12CFC`: 41 of 0x24 bytes; `0x132C0`: 19 of 0x30).
+  - Checked in the lab, on PC card files only: Continue save 9, a save point's save screen (`--code "8009C560 0005 F
+    F"`, `--code "3009ABF5 000E F F"`, cleared at F+25; up about 100 frames later) saving to file 02, formatting an
+    all-zero `memcard2.mcd` and saving to its file 01, the main menu's Save to file 03, then Continue of file 03. All
+    four files have their titles (`ＦＦ７／ＳＡＶＥ０２／０５：１７`) and good checksums, and the native, all-C and
+    all-recompiled builds write the same files but for the play time's fraction of a second (the recompiled module
+    runs a frame later from the load on).
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -1980,6 +2000,18 @@ same set). They give the original module and file split, and the staff folders b
   `blez`), and the frame's buy-quantity box sets its RECT before the panel call. Parked: `shop_frame` (2,291 of the
   game's 2,297; the game spills more in the sell paths), `shop_draw_materia` (17 short; the game keeps the Master
   Magic case's tests) and `shop_draw_party` (same length; the entry's id and kind loads in the other order).
+  `SAVEMENU`: 36 of 39 match, in three objects as the game linked them, each with its own strings (two copies of
+  `"bu10:"`) and sound helper: the save screen (`savemenu.c`), the card layer (`savecard.c`) and the load screen with
+  the helpers both screens use (`saveload.c`). The card layer's file names and titles are initialized pointer arrays in
+  the game's data whose strings GCC put in `.rodata` last first; they stay data, included where they fall. Its path
+  formats are named arrays so the parked read's asm can reach them. A loop's retry count drops before the short-read
+  test (`retry--;` first) and the play-time flag `D_80062D99` is `volatile` (the VSync callback reads it; the store
+  then stays after the call's arguments). `card_check` is declared `int` with nothing returned, and `save_frame`
+  likewise (`save_run` returns what it leaves in `$v0`): that keeps `$v0` live and changes a delay slot. A file
+  loop's y is `i * 64 + ...`, not a second counter, and centred boxes use `w / 2` in place (a `half` variable takes
+  other registers). The list cursor `load_move_cursor` is the exe's `func_800264A8` with this module's beep and an
+  eight-frame scroll. Parked: `save_frame` and `load_frame` (each 1 instruction short, the rest registers) and
+  `card_read_save` (same length; the file and the retry count swap registers).
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2360,11 +2392,13 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   emulators keep them; a missing one is a formatted empty card. The BIOS's file functions on `bu00:`/`bu10:` work
   on them in whole sectors, `_card_info` and `_card_load` answer at once (`F4000001h`: 4 done, 2000h unformatted),
   and every change goes to a temporary file that then replaces the image.
-  - The save menu (`SAVEMENU.MNU`) keeps all card access: `func_801D19C4` opens four software and four hardware card
-    events and calls `_bu_init` and `_card_auto`; a check is `_card_info` then a wait on the four (a new card gets
-    `_card_clear` and `_card_load`); `func_801D1C2C` lists `bu00:*` for `BASCUS-94163FF7-S01`-`S15`; `func_801D1D40` opens one with
-    mode 1 and reads 0x280 bytes, `func_801D1F40` the same way, each retrying a short read like the write below.
-  - Saving (`func_801D2408`): if the file opens it's deleted; then created (mode `0x200` with the block count in
+  - The save menu (`SAVEMENU.MNU`) keeps all card access: `card_start` opens four software and four hardware card
+    events and calls `_bu_init` and `_card_auto`; a check (`card_check`) is `_card_info` then a wait on the four (a new
+    card gets `_card_clear` and `_card_load`); `card_list` lists `bu00:*` for `BASCUS-94163FF7-S01`-`S15`;
+    `card_read_preview` opens one with mode 1 and reads 0x280 bytes, `card_read_save` the whole 0x2000, each retrying a
+    short read from the buffer's start like the write below. The preview's read gives up after 30 tries; the save's
+    counts its tries up from 30, not down, so it retries a short read until one comes up whole.
+  - Saving (`card_write_save`): if the file opens it's deleted; then created (mode `0x200` with the block count in
     bits 16-31), closed, reopened for writing (mode 2) and written at once, 0x2000 bytes. It retries each open up to
     30 times, and a short write by writing the remaining length again **from the start of its buffer**, not from
     where the write stopped. A card that took a partial write would get the save's opening bytes where its end
@@ -2380,9 +2414,9 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   - **The save's data** is 0x10F4 bytes of RAM from `0x8009C6E4`, the block's bytes `0x200`-`0x12F3` (the rest of the
     0x2000 is zeros). Checked against the save menu's code, all 57 saves on the user's cards and RAM at the new game's
     first menu (Cloud LV 6, HP 302/302, MP 54/56, 240 gil, 2:31, "Platform"):
-    - `+0`: a checksum word, `func_801D1950` (the save menu's) over the 0x10F0 bytes from `+4`: from `0xFFFF`, each
+    - `+0`: a checksum word, `card_checksum` (the save menu's) over the 0x10F0 bytes from `+4`: from `0xFFFF`, each
       byte XORed into the high byte, then eight shifts left, XORing in `0x1021` when the top bit falls out; the
-      result inverted. Saving (`0x801D2808`) stores it as a 32-bit word (its top half 0); loading (`0x801D496C`)
+      result inverted. Saving (`card_write_save`, `0x801D2808`) stores it as a 32-bit word (its top half 0); loading (`load_frame`, `0x801D496C`)
       compares the word and flags a mismatch. All 57 saves check out.
     - `+4`: the file list's preview (above). `+0x54`: the nine characters' records, 0x84 bytes each (Cloud, Barret,
       Tifa, Aeris, Red XIII, Yuffie, Cait Sith, Vincent, Cid): `+1` level, `+0x10` the name (12 bytes of game

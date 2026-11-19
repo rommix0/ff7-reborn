@@ -1,0 +1,49 @@
+# splat config for MENU/SAVEMENU.MNU, a menu module loaded at 0x801D0000. Started from tools/module_yaml.py's.
+name: SAVEMENU.MNU
+sha1: 430d54dbe01d9a0c670b1d2d2b5c642bdd1b3199
+options:
+  basename: savemenu
+  target_path: disks/MENU/SAVEMENU.MNU
+  base_path: ../..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm/menu/savemenu
+  src_path: src/menu
+  build_path: build
+  ld_script_path: build/menu/savemenu.ld
+  undefined_funcs_auto_path: build/menu/savemenu_undefined_funcs_auto.txt
+  undefined_syms_auto_path: build/menu/savemenu_undefined_syms_auto.txt
+  symbol_addrs_path:
+    - config/symbols.main.txt
+    - config/symbols.main.psyq.txt
+    - config/symbols.savemenu.txt
+
+  find_file_boundaries: False
+  gp_value: 0x80062D44
+  o_as_suffix: True
+  use_legacy_include_asm: False
+  generate_asm_macros_files: False
+  section_order: [".rodata", ".text", ".data", ".bss"]
+  subalign: 2
+  ld_align_section_vram_end: False
+  ld_align_segment_vram_end: False
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+segments:
+  - name: savemenu
+    type: code
+    start: 0
+    vram: 0x801D0000
+    subsegments:
+      - [0x0, .rodata, savemenu]
+      - [0x50, .rodata, savecard]
+      - [0x3B8, .rodata, saveload]
+      - [0x408, c, savemenu]
+      - [0x1950, c, savecard]
+      - [0x2B58, c, saveload]
+      - [0x4EC4, data]
+  - [0x1BC44]
