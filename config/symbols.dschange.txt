@@ -1,0 +1,18 @@
+// FIELD/DSCHANGE.X at 0x800A0000. It shares its address with the field and the other 0x800A0000 overlays.
+dsc_disc_change = 0x800A0000; // type:func
+dsc_game_over = 0x800A0C58; // type:func
+dsc_pictures = 0x800A1580; // size:0x60
+dsc_buffer = 0x800A15E0; // size:0x4
+dsc_draw = 0x800A15E4; // size:0xB8
+dsc_disp = 0x800A169C; // size:0x28
+dsc_cur_disp = 0x800A16C4; // size:0x4
+dsc_cur_draw = 0x800A16C8; // size:0x4
+dsc_released1 = 0x800A16CC; // size:0x4
+dsc_released2 = 0x800A16D0; // size:0x4
+dsc_held1 = 0x800A16D4; // size:0x4
+dsc_held2 = 0x800A16D8; // size:0x4
+dsc_pressed1 = 0x800A16DC; // size:0x4
+dsc_pressed2 = 0x800A16E0; // size:0x4
+dsc_ot = 0x800A16E4; // size:0x8
+dsc_tiles = 0x800A16EC; // size:0x20
+dsc_modes = 0x800A170C; // size:0x68

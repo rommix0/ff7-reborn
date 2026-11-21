@@ -7,8 +7,8 @@ first and decompilation keeps replacing parts of it.
 ## What's left to run
 
 The main exe is mostly C (boot, sound driver, CD layer, movie player), and so are all 13 menu modules
-(`MENU/*.MNU`: the field menu and its screens, the shops and the save screens; 20 functions parked as asm). Outside
-them, nothing is recovered:
+(`MENU/*.MNU`: the field menu and its screens, the shops and the save screens; 20 functions parked as asm), and the
+game over screen in `FIELD/DSCHANGE.X` (its disc prompt parked). Outside them, nothing is recovered:
 
 | Module | Unpacked |
 |---|---|

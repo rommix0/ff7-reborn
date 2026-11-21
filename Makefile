@@ -15,11 +15,15 @@ OBJS := $(shell grep -o 'build/[^ ()]*\.o' build/main.ld 2>/dev/null | sort -u)
 # The menu modules being decompiled (docs/superpowers/specs/2026-11-15-menu-decompile-design.md), each with its
 # splat config in config/menu and checked against the disc's file. Each links at 0x801D0000 against the exe.
 MENUS := chngmenu patymenu bginmenu limtmenu statmenu cnfgmenu formmenu namemenu mgicmenu itemmenu shopmenu savemenu eqipmenu
-MENU_FILES := $(foreach m,$(MENUS),build/MENU/$(shell echo $(m) | tr a-z A-Z).MNU)
+# The other overlays being decompiled, as name:file, each with its splat config in config/overlay.
+OVERLAYS := dschange:FIELD/DSCHANGE.X
+# Every module the build relinks, as its config's path:the file it rebuilds.
+MODULES := $(foreach m,$(MENUS),menu/$(m):MENU/$(shell echo $(m) | tr a-z A-Z).MNU) $(addprefix overlay/,$(OVERLAYS))
+MODULE_FILES := $(foreach m,$(MODULES),build/$(word 2,$(subst :, ,$(m))))
 
-check: build/SCUS_941.63 $(MENU_FILES)
+check: build/SCUS_941.63 $(MODULE_FILES)
 	@echo "a95e8b16b97071203b953bb81a33980509262f30  build/SCUS_941.63" | sha1sum -c
-	@for m in $(MENUS); do echo "$$(sed -n 's/^sha1: //p' config/menu/$$m.yaml)  build/MENU/$$(echo $$m | tr a-z A-Z).MNU"; \
+	@for m in $(MODULES); do set -- $$(echo $$m | tr : ' '); echo "$$(sed -n 's/^sha1: //p' config/$$1.yaml)  build/$$2"; \
 		done | sha1sum -c
 
 disks/SCUS_941.63:
@@ -55,8 +59,9 @@ split: disks/SCUS_941.63 $(foreach m,$(PC_MODULE_NAMES),disks/$(call module,$(m)
 	for m in $(PC_MODULES); do set -- $$(echo $$m | tr : ' '); rm -rf asm/$$1; \
 		$(PYTHON) tools/module_yaml.py disks/$$2 $$1 $$3 > build/modules/$$1.yaml && \
 		$(PYTHON) -m splat split build/modules/$$1.yaml || exit 1; done
-	mkdir -p build/menu
-	for m in $(MENUS); do rm -rf asm/menu/$$m; $(PYTHON) -m splat split config/menu/$$m.yaml || exit 1; done
+	mkdir -p build/menu build/overlay
+	for m in $(MODULES); do set -- $$(echo $$m | tr : ' '); rm -rf asm/$$1; \
+		$(PYTHON) -m splat split config/$$1.yaml || exit 1; done
 
 build/SCUS_941.63: build/main.elf
 	$(CROSS)objcopy -O binary $< $@
@@ -65,19 +70,19 @@ build/main.elf: $(OBJS) build/main.ld build/absolute_syms.ld config/module_entri
 	$(CROSS)ld -EL -T build/main.ld -T build/undefined_syms_auto.txt -T build/undefined_funcs_auto.txt \
 		-T build/absolute_syms.ld -T config/module_entries.ld --no-check-sections -Map build/main.map -o $@
 
-# A menu module calls the exe by its addresses: every name in the exe's ELF, splat's D_ and func_ ones included.
-build/menu/exe_syms.ld: build/main.elf
+# A module calls the exe by its addresses: every name in the exe's ELF, splat's D_ and func_ ones included.
+build/exe_syms.ld: build/main.elf
 	$(CROSS)nm $< | awk '$$3 !~ /^\./ && $$2 != "a" {print $$3 " = 0x" $$1 ";"}' > $@
-define menu_rules
-build/menu/$(1).elf: $$(shell grep -o 'build/[^ ()]*\.o' build/menu/$(1).ld 2>/dev/null | sort -u) build/menu/$(1).ld \
-		build/menu/exe_syms.ld
-	$$(CROSS)ld -EL -T build/menu/$(1).ld -T build/menu/exe_syms.ld -T build/menu/$(1)_undefined_syms_auto.txt \
-		-T build/menu/$(1)_undefined_funcs_auto.txt --no-check-sections -Map build/menu/$(1).map -o $$@
-build/MENU/$(shell echo $(1) | tr a-z A-Z).MNU: build/menu/$(1).elf
-	@mkdir -p build/MENU
+# $(1) is the module's config path (menu/chngmenu), $(2) the file it rebuilds (MENU/CHNGMENU.MNU).
+define module_rules
+build/$(1).elf: $$(shell grep -o 'build/[^ ()]*\.o' build/$(1).ld 2>/dev/null | sort -u) build/$(1).ld build/exe_syms.ld
+	$$(CROSS)ld -EL -T build/$(1).ld -T build/exe_syms.ld -T build/$(1)_undefined_syms_auto.txt \
+		-T build/$(1)_undefined_funcs_auto.txt --no-check-sections -Map build/$(1).map -o $$@
+build/$(2): build/$(1).elf
+	@mkdir -p $$(dir $$@)
 	$$(CROSS)objcopy -O binary $$< $$@
 endef
-$(foreach m,$(MENUS),$(eval $(call menu_rules,$(m))))
+$(foreach m,$(MODULES),$(eval $(call module_rules,$(word 1,$(subst :, ,$(m))),$(word 2,$(subst :, ,$(m))))))
 
 # splat leaves `absolute:True` symbols (BSS past the end of the file) for us to define.
 build/absolute_syms.ld: config/symbols.main.txt
@@ -183,6 +188,8 @@ build/src/menu/chngmenu.o build/src/menu/patymenu.o build/src/menu/bginmenu.o \
 		build/src/menu/limtmenu.o build/src/menu/statmenu.o build/src/menu/cnfgmenu.o build/src/menu/formmenu.o build/src/menu/namemenu.o \
 		build/src/menu/mgicmenu.o build/src/menu/itemmenu.o build/src/menu/shopmenu.o build/src/menu/savemenu.o \
 		build/src/menu/savecard.o build/src/menu/saveload.o build/src/menu/eqipmenu.o build/src/menu/eqipmateria.o: ASPSX = 2.21
+# DSCHANGE.X: GCC 2.7.2 and ASPSX 2.21 (`li` as `ori`), -G0, like the menus.
+build/src/overlay/dschange.o: ASPSX = 2.21
 # NAMEMENU's level-up code is an object of its own: ASPSX 2.34 (indexed loads fold into `%lo`), with divide checks.
 build/src/menu/namelevel.o: ASPSX = 2.34
 build/src/menu/namelevel.o: MASPSXFLAGS = --expand-div
@@ -247,6 +254,9 @@ build/pc/game/%.o: src/main/%.c
 	$(PC_CC) $(PC_CFLAGS) $(PC_GAME_CFLAGS) -c $< -o $@
 build/pc/game/main.o: PC_CFLAGS += -Dmain=game_main
 build/pc/game/menu/%.o: src/menu/%.c
+	@mkdir -p $(dir $@)
+	$(PC_CC) $(PC_CFLAGS) $(PC_GAME_CFLAGS) -c $< -o $@
+build/pc/game/overlay/%.o: src/overlay/%.c
 	@mkdir -p $(dir $@)
 	$(PC_CC) $(PC_CFLAGS) $(PC_GAME_CFLAGS) -c $< -o $@
 build/pc/game/sound_init.o build/pc/game/loader.o build/pc/game/random.o build/pc/game/text.o build/pc/game/battle.o build/pc/game/inflate.o build/pc/game/materia_ap.o \
@@ -354,6 +364,7 @@ PC_GAME := $(addprefix build/pc/game/,main.o transition.o loader.o bitops.o rand
 PC_GAME += $(foreach m,$(MENUS),build/pc/game/menu/$(m).o) $(if $(filter namemenu,$(MENUS)),build/pc/game/menu/namelevel.o) \
 	$(if $(filter savemenu,$(MENUS)),build/pc/game/menu/savecard.o build/pc/game/menu/saveload.o) \
 	$(if $(filter eqipmenu,$(MENUS)),build/pc/game/menu/eqipmateria.o)
+PC_GAME += $(foreach o,$(OVERLAYS),build/pc/game/overlay/$(firstword $(subst :, ,$(o))).o)
 PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o buttons.o gte.o display.o cd_native.o sdl.o controls.o lab.o card.o)
 build/pc/obj/sdl.o build/pc/obj/controls.o: PC_CFLAGS += $(PC_SDL_CFLAGS)
 build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)

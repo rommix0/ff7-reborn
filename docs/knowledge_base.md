@@ -938,10 +938,11 @@ recovered C. Details in §7.
 | `MENU/SHOPMENU.MNU` (`src/menu/shopmenu.c`) | `0x801D0084`–`0x801D42C8` | 24 functions in C; the frame, the materia page and the party panel parked |
 | `MENU/SAVEMENU.MNU` (`src/menu/savemenu.c`, `savecard.c`, `saveload.c`) | `0x801D0408`–`0x801D4EC4` | 39 functions in C; the two frames and `card_read_save` parked |
 | `MENU/EQIPMENU.MNU` (`src/menu/eqipmenu.c`, `eqipmateria.c`) | `0x801D0124`–`0x801D82A4` | 53 functions in C; the two frames, Exchange's two, the stats panel and the materia page parked |
+| `FIELD/DSCHANGE.X` (`src/overlay/dschange.c`) | `0x800A0000`–`0x800A1580` | both functions in C; the disc prompt parked |
 
-Not recovered yet: 12 of the exe's game functions and 20 menu functions, parked as asm (§7), and every other overlay:
-battle, field, world, mini-games, the 289 `MAGIC/*.BIN` effects, `DSCHANGE.X`, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the
-title screen).
+Not recovered yet: 12 of the exe's game functions, 20 menu functions and `DSCHANGE.X`'s disc prompt, parked as asm
+(§7), and every other overlay: battle, field, world, mini-games, the 289 `MAGIC/*.BIN` effects, `ENDING.X`,
+`BATTLE/TITLE.BIN` (probably the title screen).
 
 ### PC vs PS1
 
@@ -1761,6 +1762,21 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     on to the Materia screen; a stock materia into a slot and △ sending it back, Check's commands and Magic list,
     Arrange's sort and the Exchange screen. The native, all-C and all-recompiled builds give the same traces, all 128
     screenshots, and the same save data and module RAM.
+- **`DSCHANGE.X` is the disc prompt and the game over screen** (`src/overlay/dschange.c`), loaded at `0x800A0000` in the
+  field's place. Both draw 640x480 interlaced with the two buffers in the same place, upload only the lines of the field
+  on screen each frame (`GetODE`, every other line from the picture in RAM), and fade with a subtractive tile
+  (brightness 255 down by 4 to fade in, 8 a frame for 64 frames to fade out).
+  - The disc prompt (`main` runs it when the save's disc differs from the drive's) reads its table of 12 sector and size
+    pairs: `MOVIE/DISK1.LZS`-`DISK3.LZS` (the prompt, 400x120 at y 340) and `CHANGE0.LZS`-`CHANGE8.LZS` (the picture,
+    400x300 at y 32, picked by `VSync(-1) % 9`). It waits for □, △, ○ or ✕, or for the lid to open and close (`CdlNop`'s
+    status bit `0x10`), fades out and checks the disc, and asks again until it's the right one (returns 0). L1, L2, R1,
+    R2, START and SELECT held is a soft reset (returns 1).
+  - The game over screen reads `MOVIE/OVER2.SND` (one sector, started as a song with sound command `0x10`) and
+    `MOVIE/OVER.LZS` (576x416 at 32,32) from fixed sectors (`0x1F480`, `0x1F400`: the files sit there on all three
+    discs, and the file is the same on each). Any of the four buttons, START or SELECT (even while it fades in) slides
+    the master volume down (command `0xC1` with 60 and 0) and fades the screen out; `main` then goes to the title.
+  - Checked in the lab: battle `0x1CC` from `--battle`, lost, ○ on the game over screen and on to the title. The port
+    has no disc swaps, so the prompt never runs there.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2058,6 +2074,21 @@ same set). They give the original module and file split, and the staff folders b
   `eqip_stats` (5 short: the game keeps the current Attack in a saved register), `eqip_frame` (same length,
   registers), `mtr_exchange_draw` (3 short), `mtr_exchange_input` (12 short), `mtr_frame` (4 short) and
   `mtr_draw_materia` (as SHOPMENU's, 17 short).
+- **Other overlays:** `OVERLAYS` in the Makefile lists the rest being decompiled (`dschange:FIELD/DSCHANGE.X`), with
+  their splat configs in `config/overlay` and asm in `asm/overlay` (`asm/<name>` is the PC port's split, and `make
+  split` wipes it). The menus' link rule serves them too: `wsl make` checks `build/FIELD/DSCHANGE.X`. `DSCHANGE` is GCC
+  2.7.2 at `-G0` with ASPSX 2.21, like the menus. Its GPU setup is a `static inline` function: inlined, each
+  `SetDefDrawEnv`/`SetDefDispEnv` call loads its env's address afresh (as a macro or written out, GCC keeps the first
+  address in a register and adds to it), and its locals 480, 0 and BreakDraw's -1 sit in saved registers from before the
+  reset loop. The colours are three stores each (written as a chain, they come out in another order once the game over
+  screen is the setup's only caller). The frame flip and the fade tile are macros (the tile as an inline function
+  compiles differently), with `{ }` bodies, not `do { } while (0)`, which GCC treats as a loop. The disc table is two
+  pointers into one array of sector and size pairs (`lba[n * 2]`, `size[n * 2]`, the index in a variable so GCC keeps
+  the disc's minus one and the background's plus three apart from the scale), the pad state six scalars, the picture
+  loops `while` loops (a `for` tests at the bottom), and the retry a `for (;;)` whose soft-reset block sits inside it: a
+  jump into the loop from outside stops GCC hoisting the envs' addresses and the x of 120 out of it. Parked:
+  `dsc_disc_change` (same length: the first index's subtraction and the read's buffer address in the other order, and
+  the `% 9` quotient through another register).
 
 **Main exe layout** (splat's guess, corrected by hand):
 
