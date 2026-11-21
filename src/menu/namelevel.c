@@ -5,39 +5,7 @@
 
 #include "common.h"
 #include "main.h"
-
-/* KERNEL.BIN section 2 as loaded: a record for each character, then the tables levelling up reads. */
-typedef struct {
-    unsigned char curves[9]; /* Str, Vit, Mag, Spr, Dex, Luck, HP, MP, EXP: rows of the curves below */
-    unsigned char pad9;
-    unsigned char join; /* bit 0: joins at the level in D_8009D28A; else at the party's average plus join / 2 */
-    unsigned char padB[45];
-} KernelCharacter;
-extern KernelCharacter kernel_characters[9];
-extern unsigned char kernel_stat_gains[12]; /* a stat's rise, by how far under its curve it is */
-extern unsigned char kernel_hp_gains[12];   /* percentages of the HP curve's rise */
-extern unsigned char kernel_mp_gains[12];
-extern struct {
-    unsigned char gradient;
-    signed char base;
-} kernel_curves[64][8]; /* by the level's bracket */
-
-/* A character as name_catch_up levels it. */
-typedef struct {
-    int bracket; /* where the level falls on the curves: tens to 60, then twenties */
-    unsigned char id, level;
-    unsigned short pad6;
-    unsigned short base[8];  /* Str, Vit, Mag, Spr, Dex, Luck, HP, MP as they were */
-    unsigned short stats[8]; /* and as they grow */
-    KernelCharacter *kernel;
-    unsigned int exp;
-    unsigned int total; /* exp plus gain */
-    unsigned int gain;
-    unsigned int start;      /* the EXP of the level it had */
-    unsigned int levels[16]; /* each new level's EXP */
-    unsigned int reached;    /* the EXP of the level reached */
-    unsigned int next;       /* and of the one after */
-} Growth;
+#include "levelup.h"
 
 extern unsigned char D_8009D28A;  /* a field variable */
 extern unsigned short D_8009D78A; /* the joined characters, bit n for character n */

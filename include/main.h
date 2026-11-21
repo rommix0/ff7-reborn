@@ -28,7 +28,8 @@ typedef struct Character {
     unsigned char row; /* bit 0 clear: the back row */
     unsigned char exp_bar; /* the Status screen's bar */
     unsigned short limits; /* learned, a bit each by limit_id's slot */
-    unsigned char pad24[8];
+    unsigned short kills;
+    unsigned short limit_uses[3]; /* by limit level */
     unsigned short hp;
     unsigned short base_hp; /* before materia */
     unsigned short mp;
@@ -44,6 +45,17 @@ typedef struct Character {
 extern Character D_8009C738[];
 /* The party (D_8009CBDC) is declared in the files that read it: menu.c needs it as part of a larger struct. */
 extern int character_record[];     /* each character id's place in D_8009C738 */
+
+/* What the results screen counts from and to, set up before it starts. */
+typedef struct {
+    unsigned int exp[4];       /* as counted so far */
+    unsigned int exp_end[4];   /* with the battle's EXP */
+    unsigned int levels[4][12]; /* the EXP of each level from the one the member had */
+    unsigned char frac[4];     /* the count's fractions */
+    unsigned char level[4];    /* the level the member had */
+} ExpTally;
+extern ExpTally exp_tally;
+
 extern unsigned short config; /* the Config menu's settings: bits 2-3 the controller mapping, 10-12 Magic order */
 /* The save's settings around the Config menu's (config is its own symbol too). */
 extern struct {
@@ -178,7 +190,10 @@ typedef struct PartyMember {
     short max_hp;
     short mp;
     short max_mp;
-    unsigned char pad18[9];
+    unsigned short atb;       /* the battle's ATB at the start */
+    unsigned short limit_bar; /* the battle's, << 8 */
+    unsigned short pad1C[2];
+    unsigned char limit_level;
     unsigned char command_rows; /* the battle menu's rows of commands */
     unsigned char pad22;
     unsigned char flags23; /* 8: HP and MP swapped */

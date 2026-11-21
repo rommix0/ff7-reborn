@@ -939,10 +939,12 @@ recovered C. Details in §7.
 | `MENU/SAVEMENU.MNU` (`src/menu/savemenu.c`, `savecard.c`, `saveload.c`) | `0x801D0408`–`0x801D4EC4` | 39 functions in C; the two frames and `card_read_save` parked |
 | `MENU/EQIPMENU.MNU` (`src/menu/eqipmenu.c`, `eqipmateria.c`) | `0x801D0124`–`0x801D82A4` | 53 functions in C; the two frames, Exchange's two, the stats panel and the materia page parked |
 | `FIELD/DSCHANGE.X` (`src/overlay/dschange.c`) | `0x800A0000`–`0x800A1580` | both functions in C; the disc prompt parked |
+| `BATTLE/BATINI.X` (`src/overlay/batini.c`) | `0x801B0050`–`0x801B27B4` | 22 functions in C; 5 parked |
+| `BATTLE/BATRES.X` (`src/overlay/batres.c`) | `0x801B0000`–`0x801B193C` | 19 functions in C; 2 parked |
 
-Not recovered yet: 12 of the exe's game functions, 20 menu functions and `DSCHANGE.X`'s disc prompt, parked as asm
-(§7), and every other overlay: battle, field, world, mini-games, the 289 `MAGIC/*.BIN` effects, `ENDING.X`,
-`BATTLE/TITLE.BIN` (probably the title screen).
+Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt and 7 functions of
+`BATINI.X` and `BATRES.X`, parked as asm (§7), and every other overlay: `BATTLE.X`, field, world, mini-games, the 289
+`MAGIC/*.BIN` effects, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the title screen).
 
 ### PC vs PS1
 
@@ -1777,6 +1779,22 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     the master volume down (command `0xC1` with 60 and 0) and fades the screen out; `main` then goes to the title.
   - Checked in the lab: battle `0x1CC` from `--battle`, lost, ○ on the game over screen and on to the title. The port
     has no disc swaps, so the prompt never runs there.
+- **`BATINI.X` sets a battle up and `BATRES.X` closes it** (`src/overlay/batini.c`, `batres.c`), both at `0x801B0000`.
+  - `BATINI.X` reads the battle's scene from `SCENE.BIN` (`ini_load_scene`: four battles a scene, scenes packed in 8 KB
+    blocks, `ini_scene_block` finds the block), builds the party's actors from the save and the enemies' from the
+    scene, copies the items for the Item menu, sets the battle type's sides and rows (`ini_layout`) and the ATB start
+    values, and the battle speed from the config (`ini_set_speed`).
+  - `BATRES.X`'s entry (`res_finish`) adds up the defeated enemies' EXP, gil and AP and their drops (into the spoils,
+    four kinds at most), applies the gil and EXP bonuses (`>> 4` of the support's sum), levels the party and halves
+    the EXP for joined characters outside it (`res_share_exp`), counts kills and limit uses toward new limits
+    (`res_learn_limits`: kills learn limit slots 3 and 6, uses the level's next two), writes HP, MP, limit bars and
+    Sadness/Fury back to the save (`res_store_party`; 7777 HP becomes 1), puts the battle's copy of the items back
+    in the inventory, and sets mode 4 (the results screens) unless the battle was escaped or lost.
+  - Its level-up code (`res_level_up` and the curve and gain helpers) is the same as `NAMEMENU`'s (`namelevel.c`);
+    both use `include/levelup.h` for the kernel's curves and the `Growth` record. A character's bytes `+0x24` and
+    `+0x26` are its kills and the uses of each limit level, which the kernel's `+0x18` and `+0x1C` thresholds read.
+  - Checked in the lab: the first battle (`0x12C`) four times over from `--battle`, ○ mashed through it and its
+    results.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2089,6 +2107,19 @@ same set). They give the original module and file split, and the staff folders b
   jump into the loop from outside stops GCC hoisting the envs' addresses and the x of 120 out of it. Parked:
   `dsc_disc_change` (same length: the first index's subtraction and the read's buffer address in the other order, and
   the `% 9` quotient through another register).
+- **`BATINI.X` and `BATRES.X`** are GCC 2.7.2 at `-G0` with ASPSX 2.34 (indexed loads fold into `%lo`, `li` still an
+  `ori`) and its divide checks, like `NAMEMENU`'s level-up object. The game addresses some of `BATTLE.X`'s globals from
+  one another's base, so they're one struct here: the enemy records and the departed-enemies mask (`battle_data`,
+  `+0x1E88` off the records' register), and the winnings, the results screen's rows and the spoils (`results` at
+  `0x8009D7D8`, the exe's `battle_won`, `tally_shown` and `spoils`). The saved stage HP is read through a local copy of
+  its row count (GCC hoists that load only from a scalar), the inventory copy through an index into a pointer, and
+  `res_finish`'s party loop reuses the earlier loops' counters. In `BATINI.X` a table used inside one function is a
+  `static const` local, or its rodata lands before the jump table; `x += C; x -= y;` as two statements stops GCC folding
+  the constant; nested `if`s stop it merging tests of adjacent fields into one load. `ofcmp`'s masked diff hides wrong
+  struct offsets, so the sha1 is the check. Parked, all the same length: `res_store_party` (the record copy's source,
+  end and destination set up before the search), `res_learn_limits` (register choice; it also ends on the `jr $ra` whose
+  delay slot is past the file, which C would add), `ini_start`, `ini_next_stage`, `ini_party`, `ini_layout` and
+  `ini_enemies` (register choice).
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2378,7 +2409,8 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   - `BATTLE.X` runs at `0x800A0000` from `func_800A1158` (`run_overlay(5, …)`); `loader.c` called it and the file-3
     entry by `D_` names, which the PC link took as plain addresses, so they're `func_` names now, given to the PS1 link
     by `config/module_entries.ld` (the module splits read `symbols.main.txt`, and would cut their code there).
-  - `BATINI.X` runs at `0x801B0000`, read straight after `BATTLE.X`: a table of pointers, then code from `0x50`.
+  - `BATINI.X` runs at `0x801B0000`, read straight after `BATTLE.X`: a jump table and four small tables, then code
+    from `0x50`.
   - `BATRES.X` (the results screen) runs at `0x801B0000` too: when the battle ends `BATTLE.X` reads it to
     `0x801C0000`, unpacks it to `0x801B0000` and calls `func_801B0000` (at `0x800A1700`).
   - The first battle (`0x12C`, the guards on the opening platform) reads `BATTLE.X`, `BATINI.X`, `SCENE.BIN` from

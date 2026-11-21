@@ -16,7 +16,7 @@ OBJS := $(shell grep -o 'build/[^ ()]*\.o' build/main.ld 2>/dev/null | sort -u)
 # splat config in config/menu and checked against the disc's file. Each links at 0x801D0000 against the exe.
 MENUS := chngmenu patymenu bginmenu limtmenu statmenu cnfgmenu formmenu namemenu mgicmenu itemmenu shopmenu savemenu eqipmenu
 # The other overlays being decompiled, as name:file, each with its splat config in config/overlay.
-OVERLAYS := dschange:FIELD/DSCHANGE.X
+OVERLAYS := dschange:FIELD/DSCHANGE.X batini:BATTLE/BATINI.X.dec batres:BATTLE/BATRES.X.dec
 # Every module the build relinks, as its config's path:the file it rebuilds.
 MODULES := $(foreach m,$(MENUS),menu/$(m):MENU/$(shell echo $(m) | tr a-z A-Z).MNU) $(addprefix overlay/,$(OVERLAYS))
 MODULE_FILES := $(foreach m,$(MODULES),build/$(word 2,$(subst :, ,$(m))))
@@ -190,6 +190,12 @@ build/src/menu/chngmenu.o build/src/menu/patymenu.o build/src/menu/bginmenu.o \
 		build/src/menu/savecard.o build/src/menu/saveload.o build/src/menu/eqipmenu.o build/src/menu/eqipmateria.o: ASPSX = 2.21
 # DSCHANGE.X: GCC 2.7.2 and ASPSX 2.21 (`li` as `ori`), -G0, like the menus.
 build/src/overlay/dschange.o: ASPSX = 2.21
+# BATRES.X: ASPSX 2.34 (indexed loads fold into `%lo`) with its divide checks, like NAMEMENU's level-up code.
+build/src/overlay/batres.o: ASPSX = 2.34
+build/src/overlay/batres.o: MASPSXFLAGS = --expand-div
+# BATINI.X: the same.
+build/src/overlay/batini.o: ASPSX = 2.34
+build/src/overlay/batini.o: MASPSXFLAGS = --expand-div
 # NAMEMENU's level-up code is an object of its own: ASPSX 2.34 (indexed loads fold into `%lo`), with divide checks.
 build/src/menu/namelevel.o: ASPSX = 2.34
 build/src/menu/namelevel.o: MASPSXFLAGS = --expand-div

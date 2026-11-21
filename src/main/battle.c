@@ -4,6 +4,7 @@
 
 #include "common.h"
 #include "main.h"
+#include "levelup.h"
 
 int battle_error;  /* the "Data Error" code, -1 for none; 0x100 on once the battle has halted for it */
 int D_80062F60;
@@ -24,28 +25,10 @@ extern BattleState D_800F83A4;
 void func_800A3278(void);
 void func_800B6D6C(void);
 
-/* What the results screen counts from and to, set up before it starts. */
-typedef struct {
-    unsigned int exp[4];       /* as counted so far */
-    unsigned int exp_end[4];   /* with the battle's EXP */
-    unsigned int levels[4][12]; /* the EXP of each level from the one the member had */
-    unsigned char frac[4];     /* the count's fractions */
-    unsigned char level[4];    /* the level the member had */
-} ExpTally;
-extern ExpTally exp_tally;
-
 extern struct {
     unsigned short items[320]; /* id in the low 9 bits, count above, 0xFFFF for none */
     int materia[256];          /* -1 for none */
 } inventory;
-
-/* KERNEL.BIN section 2 begins with a record for each character. */
-typedef struct {
-    unsigned char pad0[12];
-    unsigned char limits[12]; /* limit ids, 0x80 on; 0xFF for none */
-    unsigned char pad18[32];
-} KernelCharacter;
-extern KernelCharacter kernel_characters[];
 
 void battle_set_error(int code)
 {
