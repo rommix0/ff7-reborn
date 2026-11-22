@@ -10,7 +10,8 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player), and so ar
 (`MENU/*.MNU`: the field menu and its screens, the shops and the save screens; 20 functions parked as asm), the
 game over screen in `FIELD/DSCHANGE.X` (its disc prompt parked), the battle's setup and results, `BATTLE/BATINI.X`
 and `BATRES.X` (7 functions parked), the logo and credits in `FIELD/ENDING.X` (its star field parked) and the Speed
-Square, `MINI/JET.BIN` (29 functions parked). Outside them, nothing is recovered:
+Square, `MINI/JET.BIN` (29 functions parked), and part of the submarine, `MINI/SUBMAR.BIN` (9 of its functions).
+Outside them, nothing is recovered:
 
 | Module | Unpacked |
 |---|---|
@@ -48,6 +49,8 @@ Square, `MINI/JET.BIN` (29 functions parked). Outside them, nothing is recovered
    - The Speed Square with `jet.c` gives the same traces as fully recompiled, and its ride starts a frame sooner: the
      start is timed in vblanks (`VSync(-1)`), PS1 time advances with polls, and recompiled loops poll on every
      backward branch where native C doesn't, so a frame of C passes less PS1 time.
+   - The submarine with `submar.c` gives the same traces, screens and VRAM as fully recompiled; only its clock's
+     vblank counts differ, for the same reason.
 
 3. **Hardware where the PS1's behaviour is the point, libraries where the PC should differ.**
    - Emulated, so Sony's library code runs as compiled: the **GPU** (GP0/GP1 commands and DMA into 1024×512 VRAM),

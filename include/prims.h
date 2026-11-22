@@ -80,6 +80,26 @@ typedef struct POLY_G4 {
     short x3, y3;
 } POLY_G4;
 
+typedef struct POLY_GT4 {
+    unsigned int tag;
+    unsigned char r0, g0, b0, code;
+    short x0, y0;
+    unsigned char u0, v0;
+    unsigned short clut;
+    unsigned char r1, g1, b1, p1;
+    short x1, y1;
+    unsigned char u1, v1;
+    unsigned short tpage;
+    unsigned char r2, g2, b2, p2;
+    short x2, y2;
+    unsigned char u2, v2;
+    unsigned short pad2;
+    unsigned char r3, g3, b3, p3;
+    short x3, y3;
+    unsigned char u3, v3;
+    unsigned short pad3;
+} POLY_GT4;
+
 typedef struct DR_MODE {
     unsigned int tag;
     unsigned int code[2];
@@ -123,5 +143,23 @@ void AddPrim(void *ot, void *p);
 #define setlen(p, len) (((unsigned char *)(p))[3] = (len))
 #define setcode(p, c) ((p)->code = (c))
 #define setRECT(r, _x, _y, _w, _h) ((r)->x = (_x), (r)->y = (_y), (r)->w = (_w), (r)->h = (_h))
+
+/* libgpu's addPrim: a primitive's tag and an ordering table's entry keep the next one's address in their low 24 bits
+ * and the length in words in the top 8. libgpu writes them through a bitfield; the PC build uses masks, as its
+ * compiler may reorder an entry written as one type and read as another. */
+#ifdef NATIVE
+#define setaddr(p, a) (*(unsigned int *)(p) = (*(unsigned int *)(p) & 0xFF000000) | ((unsigned int)(a) & 0xFFFFFF))
+#define getaddr(p) (*(unsigned int *)(p) & 0xFFFFFF)
+#else
+typedef struct P_TAG {
+    unsigned addr : 24;
+    unsigned len : 8;
+} P_TAG;
+
+#define getaddr(p) (((P_TAG *)(p))->addr)
+#define setaddr(p, a) (((P_TAG *)(p))->addr = (unsigned int)(a))
+#endif
+#define addPrim(ot, p) (setaddr(p, getaddr(ot)), setaddr(ot, p))
+#define addPrims(ot, p0, p1) (setaddr(p1, getaddr(ot)), setaddr(ot, p0))
 
 #endif

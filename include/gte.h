@@ -15,6 +15,9 @@ typedef struct MATRIX {
     int t[3];
 } MATRIX;
 
+/* libgte's setVector. */
+#define setVector(v, _x, _y, _z) ((v)->vx = (_x), (v)->vy = (_y), (v)->vz = (_z))
+
 /* The GTE's registers and commands, as libgte's inline macros load and run them. */
 #ifdef NATIVE
 /* The PC build runs them on its GTE (pc/gte.c), commands by their low 25 bits. */

@@ -943,11 +943,12 @@ recovered C. Details in §7.
 | `BATTLE/BATRES.X` (`src/overlay/batres.c`) | `0x801B0000`–`0x801B193C` | 19 functions in C; 2 parked |
 | `FIELD/ENDING.X` (`src/overlay/ending.c`) | `0x800A0030`–`0x800A3934` | 62 functions in C; the star field's two parked |
 | `MINI/JET.BIN` (`src/overlay/jet.c`) | `0x800A0450`–`0x800A8310` | 75 functions in C; 29 parked, and the six hand-written GTE routines after the data stay asm |
+| `MINI/SUBMAR.BIN` (`src/overlay/submar.c`) | `0x800A00BC`–`0x800AD330` | 64 functions: 9 in C, 26 more parked with their C, and 29 still asm (the GTE code, and copies of `ratan2` and a vector normalise) |
 
 Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
-`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field and 29 functions of `JET.BIN`, parked as asm (§7), and every other
-overlay: `BATTLE.X`, field, world, the other six mini-games, the 289 `MAGIC/*.BIN` effects, `BATTLE/TITLE.BIN`
-(probably the title screen).
+`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN` and 55 of `SUBMAR.BIN`, parked as
+asm (§7), and every other overlay: `BATTLE.X`, field, world, the other five mini-games, the 289 `MAGIC/*.BIN`
+effects, `BATTLE/TITLE.BIN` (probably the title screen).
 
 ### PC vs PS1
 
@@ -1844,6 +1845,30 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   - Start pauses (sound `0x3B`). With `jet_aim_mode` 0, a debug mode no code sets, the pad moves the fog, a debug
     camera offset and the speed instead.
   - Checked in the lab: the ride from `--minigame 5` with the sight swept and ○ held in turns, 7,100 frames.
+- **`SUBMAR.BIN` is the submarine** (`src/overlay/submar.c`; partly recovered).
+  - `submar_main(mode)` takes a mode of 0-5 (more reads as 5) and returns 1 when the mission is won. It reads two
+    LZS-packed TIMs and the sound by sector, then the mode's mission file (`submar_load_mission`, six files): the sea
+    floor's 64x64 heights, the settings (time limit, floor offset and depth, how many cells to raise, torpedo
+    speeds), the player's record, twelve subs' records and 128 path nodes.
+  - The sea floor is 64x64 cells of 64 units (`Cell`: its height, its four neighbours' to draw without looking them
+    up, flags, the height it eases to). `submar_raise_cells` picks the mission's number of cells (at most 500) away
+    from the player at random and gives each a height to rise to; `submar_update_floor` eases every cell by 1-2 units
+    a frame up, or a quarter of the gap down, and updates its neighbours.
+  - The pad (`submar_control`): △ and ✕ change gear (19 speeds from a table the mission scales; the top and bottom
+    only while held), L1 and L2 rise and dive (0x1000 a frame, within the mission's depth, 0x400000 and the floor
+    under the sub), the d-pad pitches
+    (±0x200) and turns, □ fires a torpedo from the first loaded of four tubes at the locked sub (`submar_fire`), R2
+    steps through four views and R1 toggles a fifth (`submar_change_view` starts the camera's move). Start pauses;
+    in modes 1-5, select during the pause asks whether to quit (←/→ choose, ○ confirms).
+  - The nearest sub flagged as a target is locked (`submar_lock_target`). The sonar's volume and pan follow the
+    torpedoes and the subs within range (`submar_sonar_torpedoes`, `submar_sonar_subs`), which also set the HUD's
+    alerts (`submar_show_alerts`).
+  - The HUD (`submar_update_hud`): depth and speed digits beside their scales, a compass strip that wraps across two
+    sprites, gauges, the M:SS timer, and the score (`submar_set_score`: five digits, leading zeros blank).
+  - It ends 1 (won: two counts of subs reach the mission's number, and the time left is kept as a bonus), 2 (the
+    gauge at the player's `+0x10` is empty), 3 (the time limit passed) or 5 (quit); after 1-3 a countdown of 900
+    vblanks (1,200 in modes 1-5) shows the result.
+  - Checked in the lab: `--minigame 4`, 9,600 frames of gear changes, turns, dives and torpedoes.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2181,7 +2206,7 @@ same set). They give the original module and file split, and the staff folders b
   registers).
 - **`JET.BIN`** is GCC 2.6.3 with ASPSX 2.21 and its divide checks, at `-G0`, and with `-fforce-addr`: any global used
   twice in a function is reached through its address in a register (`la`), scalar or not, and an offset-0 member of a
-  struct the same way; that is the only module so far built so. Others: an `extern` struct or array shares no
+  struct the same way; `SUBMAR.BIN` is built so too. Others: an `extern` struct or array shares no
   address with its neighbours (GCC derives one member's address from another's in the same symbol), the plane
   distances are `inline` functions (2.6.3 puts a loaded operand of a multiply last unless it is in a variable), as
   are the path select, the despawn and the place helpers, which only later functions inline; a block-local
@@ -2190,6 +2215,15 @@ same set). They give the original module and file split, and the staff folders b
   translation is stored from IR1-3. The six routines after the data are a second splat segment of asm. Parked (29):
   register choice in most; `jet_update_targets` (2,312 instructions, 18 short: GCC merges the kinds' shared tails
   into other cases than the game's); `jet_draw_target` (GCC narrows the points' loads to halfwords).
+- **`SUBMAR.BIN`** is GCC 2.6.3 with ASPSX 2.21 and its divide checks, `-G0 -fforce-addr`, like `JET.BIN`. Only a
+  symbol's own address goes through a register: the mission's settings, members at an offset, are reached directly,
+  and the path array after them is a symbol of its own. Array loops are `do`/`while` (GCC here doesn't fold
+  `&a < &a[n]` before the first pass), searches are `while (x != v) { i++; if (i >= n) break; }`, libgpu's
+  `getTPage` takes the TIM's `RECT` fields (short), and groups of three stores are `setVector`. Two copies each of
+  libgte's `ratan2` and of a vector normalise (one per source file, it seems) stay asm with about 20 functions built
+  from fine-grained GTE register macros, not tried yet. Parked (26): register choice in most;
+  `submar_camera_to_result` and `submar_update_hud` keep every load below the stores before it, which GCC here
+  doesn't.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2549,7 +2583,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   | 1 | 7 | `CHOCOBO.BIN` | `func_800A02D0` | the chocobo races |
   | 2 | 8 | `SNOBO.BIN` | `func_800A0390` | the snowboard down to the Great Glacier |
   | 3 | 9 | `CONDOR.BIN` | `func_800B6B58` | Fort Condor |
-  | 4 | 10 | `SUBMAR.BIN` | `func_800A00BC` | the submarine (its result to `0x8009D5E6`) |
+  | 4 | 10 | `SUBMAR.BIN` | `submar_main` | the submarine (its result to `0x8009D5E6`) |
   | 5 | 11 | `JET.BIN` | `jet_main` | the Speed Square (its score to `0x8009D3EA`) |
   | 6 | 14 | `SNOBO2.BIN` | `func_800A0448` | the Gold Saucer snowboard |
 

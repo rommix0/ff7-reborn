@@ -17,7 +17,7 @@ OBJS := $(shell grep -o 'build/[^ ()]*\.o' build/main.ld 2>/dev/null | sort -u)
 MENUS := chngmenu patymenu bginmenu limtmenu statmenu cnfgmenu formmenu namemenu mgicmenu itemmenu shopmenu savemenu eqipmenu
 # The other overlays being decompiled, as name:file, each with its splat config in config/overlay.
 OVERLAYS := dschange:FIELD/DSCHANGE.X ending:FIELD/ENDING.X batini:BATTLE/BATINI.X.dec batres:BATTLE/BATRES.X.dec \
-	jet:MINI/JET.BIN.dec
+	jet:MINI/JET.BIN.dec submar:MINI/SUBMAR.BIN.dec
 # Every module the build relinks, as its config's path:the file it rebuilds.
 MODULES := $(foreach m,$(MENUS),menu/$(m):MENU/$(shell echo $(m) | tr a-z A-Z).MNU) $(addprefix overlay/,$(OVERLAYS))
 MODULE_FILES := $(foreach m,$(MODULES),build/$(word 2,$(subst :, ,$(m))))
@@ -201,6 +201,11 @@ build/src/overlay/jet.o: ASPSX = 2.21
 build/src/overlay/jet.o: GCC = 2.6.3
 build/src/overlay/jet.o: MASPSXFLAGS = --expand-div
 build/src/overlay/jet.o: CFLAGS = -O2 -G0 -fforce-addr
+# SUBMAR.BIN: GCC 2.6.3 and ASPSX 2.21 with its divide checks, at -G0.
+build/src/overlay/submar.o: ASPSX = 2.21
+build/src/overlay/submar.o: GCC = 2.6.3
+build/src/overlay/submar.o: MASPSXFLAGS = --expand-div
+build/src/overlay/submar.o: CFLAGS = -O2 -G0 -fforce-addr
 # BATRES.X: ASPSX 2.34 (indexed loads fold into `%lo`) with its divide checks, like NAMEMENU's level-up code.
 build/src/overlay/batres.o: ASPSX = 2.34
 build/src/overlay/batres.o: MASPSXFLAGS = --expand-div

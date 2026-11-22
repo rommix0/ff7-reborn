@@ -1,0 +1,46 @@
+# splat config for MINI/SUBMAR.BIN, the submarine mini-game, run at 0x800A0000 in the field's place. The disc's file is
+# packed; this is it unpacked (SUBMAR.BIN.dec). Started from tools/module_yaml.py's.
+name: SUBMAR.BIN
+sha1: a8a28632ca5631567259ec57cc2257751e867f76
+options:
+  basename: submar
+  target_path: disks/MINI/SUBMAR.BIN.dec
+  base_path: ../..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm/overlay/submar
+  src_path: src/overlay
+  build_path: build
+  ld_script_path: build/overlay/submar.ld
+  undefined_funcs_auto_path: build/overlay/submar_undefined_funcs_auto.txt
+  undefined_syms_auto_path: build/overlay/submar_undefined_syms_auto.txt
+  symbol_addrs_path:
+    - config/symbols.main.txt
+    - config/symbols.main.psyq.txt
+    - config/symbols.submar.txt
+
+  find_file_boundaries: False
+  gp_value: 0x80062D44
+  o_as_suffix: True
+  use_legacy_include_asm: False
+  generate_asm_macros_files: False
+  section_order: [".rodata", ".text", ".data", ".bss"]
+  subalign: 4
+  ld_align_section_vram_end: False
+  ld_align_segment_vram_end: False
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+segments:
+  - name: submar
+    type: code
+    start: 0
+    vram: 0x800A0000
+    subsegments:
+      - [0x0, .rodata, submar]
+      - [0xBC, c, submar]
+      - [0xD330, data]
+  - [0x12E38]
