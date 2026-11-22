@@ -10,7 +10,7 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player), and so ar
 (`MENU/*.MNU`: the field menu and its screens, the shops and the save screens; 20 functions parked as asm), the
 game over screen in `FIELD/DSCHANGE.X` (its disc prompt parked), the battle's setup and results, `BATTLE/BATINI.X`
 and `BATRES.X` (7 functions parked), the logo and credits in `FIELD/ENDING.X` (its star field parked) and the Speed
-Square, `MINI/JET.BIN` (29 functions parked), and part of the submarine, `MINI/SUBMAR.BIN` (9 of its functions).
+Square, `MINI/JET.BIN` (29 functions parked), and most of the submarine, `MINI/SUBMAR.BIN` (12 of its functions; 46 parked).
 Outside them, nothing is recovered:
 
 | Module | Unpacked |
@@ -50,7 +50,11 @@ Outside them, nothing is recovered:
      start is timed in vblanks (`VSync(-1)`), PS1 time advances with polls, and recompiled loops poll on every
      backward branch where native C doesn't, so a frame of C passes less PS1 time.
    - The submarine with `submar.c` gives the same traces, screens and VRAM as fully recompiled; only its clock's
-     vblank counts differ, for the same reason.
+     vblank counts differ, for the same reason. Built with its parked C (`-DNON_MATCHING`) it gives the same
+     traces; the screens differ only in where the raised cells come up, which moves with how much native code runs
+     (sets of functions that never call `rand` move it the same way).
+   - C that calls `rand` or `srand` gets the game's own (`common.h` maps them to the recompiled `psx_rand` and
+     `psx_srand`), not the host C library's.
 
 3. **Hardware where the PS1's behaviour is the point, libraries where the PC should differ.**
    - Emulated, so Sony's library code runs as compiled: the **GPU** (GP0/GP1 commands and DMA into 1024×512 VRAM),

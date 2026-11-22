@@ -12,6 +12,13 @@ void hw_poll(void);
 #define HW_WAIT()
 #endif
 
+/* The game's own rand and srand (its libc's, in the exe). The host C library has functions by these names, so the PC
+ * build's recompiled ones carry a psx_ prefix. */
+#ifdef NATIVE
+#define rand psx_rand
+#define srand psx_srand
+#endif
+
 /* A call through a code address in the game's data. On the PC the exe's own are native pointers once patched, but a
  * module's is still its game address, so the call goes through the dispatcher. */
 #ifdef NATIVE

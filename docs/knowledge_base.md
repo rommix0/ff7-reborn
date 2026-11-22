@@ -943,10 +943,10 @@ recovered C. Details in §7.
 | `BATTLE/BATRES.X` (`src/overlay/batres.c`) | `0x801B0000`–`0x801B193C` | 19 functions in C; 2 parked |
 | `FIELD/ENDING.X` (`src/overlay/ending.c`) | `0x800A0030`–`0x800A3934` | 62 functions in C; the star field's two parked |
 | `MINI/JET.BIN` (`src/overlay/jet.c`) | `0x800A0450`–`0x800A8310` | 75 functions in C; 29 parked, and the six hand-written GTE routines after the data stay asm |
-| `MINI/SUBMAR.BIN` (`src/overlay/submar.c`) | `0x800A00BC`–`0x800AD330` | 64 functions: 9 in C, 26 more parked with their C, and 29 still asm (the GTE code, and copies of `ratan2` and a vector normalise) |
+| `MINI/SUBMAR.BIN` (`src/overlay/submar.c`) | `0x800A00BC`–`0x800AD330` | 64 functions: 12 in C, 46 more parked with their C, and 6 still asm (two copies each of `ratan2` and a vector normalise, and two large functions without GTE code) |
 
 Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
-`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN` and 55 of `SUBMAR.BIN`, parked as
+`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN` and 52 of `SUBMAR.BIN`, parked as
 asm (§7), and every other overlay: `BATTLE.X`, field, world, the other five mini-games, the 289 `MAGIC/*.BIN`
 effects, `BATTLE/TITLE.BIN` (probably the title screen).
 
@@ -1868,6 +1868,14 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   - It ends 1 (won: two counts of subs reach the mission's number, and the time left is kept as a bonus), 2 (the
     gauge at the player's `+0x10` is empty), 3 (the time limit passed) or 5 (quit); after 1-3 a countdown of 900
     vblanks (1,200 in modes 1-5) shows the result.
+  - Drawing, through the GTE: the sea floor around the player is 63x63 cells, each two Gouraud triangles shaded by
+    depth under a wire line, out-of-view cells the line only (`sub_800AC2FC`, with a near-plane clip in
+    `sub_800ACA40`, `sub_800ACCA8` and `sub_800ACF6C`); the floor in view with fog and lit tops (`sub_800A1F9C`); a
+    line from the floor down to each sub and to the player in steps of 64 (`sub_800A4624`, `sub_800A9130`); each
+    sub's marker, two lines boxing it, coloured by its state (`sub_800A4914`); the sonar's ping ring showing and
+    marking the mine cells it passes (`sub_800AB518`); the torpedoes' trails as five quads each (`sub_800AA714`).
+    Rotation matrices come from three angles through the GTE (`sub_800A1DA0`, `sub_800A8124`), and the camera's move
+    between views is one struct (`CamMove`, `submar_move_camera`).
   - Checked in the lab: `--minigame 4`, 9,600 frames of gear changes, turns, dives and torpedoes.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
@@ -2219,11 +2227,19 @@ same set). They give the original module and file split, and the staff folders b
   symbol's own address goes through a register: the mission's settings, members at an offset, are reached directly,
   and the path array after them is a symbol of its own. Array loops are `do`/`while` (GCC here doesn't fold
   `&a < &a[n]` before the first pass), searches are `while (x != v) { i++; if (i >= n) break; }`, libgpu's
-  `getTPage` takes the TIM's `RECT` fields (short), and groups of three stores are `setVector`. Two copies each of
-  libgte's `ratan2` and of a vector normalise (one per source file, it seems) stay asm with about 20 functions built
-  from fine-grained GTE register macros, not tried yet. Parked (26): register choice in most;
-  `submar_camera_to_result` and `submar_update_hud` keep every load below the stores before it, which GCC here
-  doesn't.
+  `getTPage` takes the TIM's `RECT` fields (short), and groups of three stores are `setVector`. Parked (46):
+  register choice in most; `submar_camera_to_result` and `submar_update_hud` keep every load below the stores before
+  it, which GCC here doesn't.
+  - The GTE code is C around one-instruction asm statements, not libgte's macros: `gte_ctc2`/`gte_mtc2` take `"rJ"`
+    and print `%z0`, so a zero is `$zero`; `gte_mfc2` is a statement expression; a command is two `nop`s and its word
+    (`gte_op`), or the word alone where the game has no gap. Runs that use `$12`-`$14` are either one asm block or C
+    with `register` variables pinned there (`FIXED_REG`, empty on the PC); runs of `mfc2` into GCC registers are one
+    statement with several outputs; `swc2` into a field takes an `"=m"` operand.
+  - Levers: a temporary reused (`x = -sx; ... x = sx << 16`) gives the game's registers; primitive links written as
+    `len << 24 | p << 8 >> 8` give its `lbu`/`sll`/`srl`; the camera's move as one struct gives its base register.
+  - Matched: `sub_800A1DA0`, `sub_800A8124`, `submar_move_camera`. The two copies of `ratan2` divide without the
+    checks this build adds, so they are library code built elsewhere, and stay asm with the two vector normalises
+    beside them. `sub_800A4D90` and `sub_800A8944` (no GTE code) are still asm.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
