@@ -1790,6 +1790,10 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     (`res_learn_limits`: kills learn limit slots 3 and 6, uses the level's next two), writes HP, MP, limit bars and
     Sadness/Fury back to the save (`res_store_party`; 7777 HP becomes 1), puts the battle's copy of the items back
     in the inventory, and sets mode 4 (the results screens) unless the battle was escaped or lost.
+  - Both read `BATTLE.X`'s globals through `include/battle.h`: its state and actors (`battle`, `0x800F83A4`, actors
+    from `+0x3C`), the places' and the members' battle records (`units`, `0x800F5BB8`; a member's limit uses at `+4`
+    and kills at `+7`), its copy of the scene (`battle_data`), `SCENE.BIN`'s own records (`scene`, `places`), the
+    enemies' HP kept between stages (`stage_hp`) and the battle's copy of the items (`battle_items`).
   - Its level-up code (`res_level_up` and the curve and gain helpers) is the same as `NAMEMENU`'s (`namelevel.c`);
     both use `include/levelup.h` for the kernel's curves and the `Growth` record. A character's bytes `+0x24` and
     `+0x26` are its kills and the uses of each limit level, which the kernel's `+0x18` and `+0x1C` thresholds read.

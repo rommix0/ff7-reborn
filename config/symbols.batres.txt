@@ -22,8 +22,13 @@ kernel_stat_gains = 0x80082460; // size:0xC
 kernel_hp_gains = 0x8008246C; // size:0xC
 kernel_mp_gains = 0x80082478; // size:0xC
 kernel_curves = 0x80082484; // size:0x400
+battle = 0x800F83A4; // size:0x3C
+// battle.actors in C; the parked asm's name for it:
 battle_actors = 0x800F83E0; // size:0x410
-battle_members = 0x800F5E64; // size:0x9C
+units = 0x800F5BB8; // size:0x38C
+scene = 0x8016360C; // size:0xAC
+places = 0x801636B8; // size:0xA0
+stage_hp = 0x80075D04; // size:0x68
+battle_items = 0x801671B8; // size:0x780
 battle_data = 0x800F5F44; // size:0x1E90
 results = 0x8009D7D8; // size:0x48
-D_800F5BE0 = 0x800F5BE0; // size:0x2A8

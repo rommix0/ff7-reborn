@@ -1,10 +1,11 @@
 /* BATTLE/BATRES.X, 0x801B0000-0x801B193C: the battle's results. When BATTLE.X ends a battle it reads this over
- * BATINI.X, which shares tallies the spoils, levels the party (the same level-up code as NAMEMENU's namelevel.c) and
+ * BATINI.X. It tallies the spoils, levels the party (the same level-up code as NAMEMENU's namelevel.c) and
  * counts kills and limit uses towards new limits. GCC 2.7.2, ASPSX 2.34 with its divide checks, -G0. */
 
 #include "common.h"
 #include "main.h"
 #include "levelup.h"
+#include "battle.h"
 
 /* The battle's winnings and what the results screens show of them (0x8009D7D8): the exe's battle_won, tally_shown and
  * spoils, which the game here reaches from one base. */
@@ -15,84 +16,7 @@ extern struct {
 } results;
 extern unsigned char D_8009CBDC[]; /* the party: three character ids, 0xFF for an empty place */
 
-/* BATTLE.X's, at 0x800F83A4. */
-typedef struct {
-    unsigned char pad0[0x22];
-    unsigned short flags;
-    unsigned char pad24[8];
-    unsigned short flags2C; /* 0x10: Cloud learns all his limits */
-    unsigned char pad2E[0x0E];
-} BattleState;
-extern BattleState D_800F83A4;
-
-/* BATTLE.X's actors: the party's three, then the enemies (0x800F83E0, 0x68 bytes each). */
-typedef struct {
-    unsigned int status; /* 0x10 Sadness, 0x20 Fury among them; 0x4001 out of the fight */
-    unsigned char pad4[4];
-    signed char present; /* -1 for an empty place */
-    unsigned char pad9[0xD];
-    unsigned char state16;
-    unsigned char pad17[0x11];
-    unsigned short mp;
-    unsigned char pad2A[2];
-    int hp;
-    unsigned char pad30[0x28];
-    int gil;
-    int exp;
-    unsigned char pad60[8];
-} BattleActor;
-extern BattleActor battle_actors[10];
-
-/* BATTLE.X's records of the party's three (0x800F5E64, 0x34 bytes each). */
-typedef struct {
-    unsigned char uses; /* of the limit level's limits */
-    unsigned char pad1[2];
-    unsigned char kills;
-    unsigned short limit_bar;
-    unsigned char pad6[0x1A];
-    unsigned int materia20, materia24; /* res_finish ORs their difference into kind 7 materia */
-    unsigned char pad28[0xC];
-} BattleMember;
-extern BattleMember battle_members[3];
-
-/* BATTLE.X's enemy records (0x800F5F44, 0xB8 bytes each). */
-typedef struct {
-    unsigned char pad0[0x9E];
-    unsigned short ap;
-    unsigned char padA0[0x18];
-} BattleEnemy;
-extern struct {
-    BattleEnemy enemies[3];
-    unsigned char pad228[0x1C60];
-    unsigned short left; /* enemies that have left the battle, from bit 4 */
-    unsigned char pad1E8A[4];
-    unsigned short given; /* members whose HP and MP res_store_party is given */
-} battle_data;
-
-extern struct {
-    int n;
-    int hp[1][6];
-} D_80075D08; /* enemies' HP kept for a later battle */
-extern struct {
-    unsigned int a, b;
-    unsigned char pad8[8];
-} D_801636C0[3];
-extern struct {
-    short id; /* the enemy's record, -1 for none */
-    unsigned char pad2[0xE];
-} D_80163658[6];
-extern struct {
-    unsigned char pad0;
-    unsigned char flags1; /* 0x11: drops nothing */
-    unsigned char pad2[0x42];
-} D_800F5BE0[10];
-typedef struct {
-    unsigned short id;
-    unsigned char count;
-    unsigned char pad3[3];
-} BattleItem;
-extern BattleItem D_801671B8[320]; /* the battle's copy of the inventory's items */
-extern unsigned short D_80163B80, D_800FA6B8, D_80163624;
+extern unsigned short D_80163B80, D_800FA6B8;
 extern unsigned short D_8009D78A; /* the joined characters, bit n for character n */
 extern volatile short D_80095DD4;
 extern unsigned char party_effects[4];
@@ -153,7 +77,7 @@ void res_finish(void)
     BattleEnemy *e;
     unsigned int gain;
 
-    flags = D_800F83A4.flags;
+    flags = battle.outcome;
     who = D_8009D78A;
     wait = 0;
     kinds = 0;
@@ -161,21 +85,21 @@ void res_finish(void)
     hp = 0;
     mp = 0;
     for (i = 0; i < 10; i++) {
-        if (battle_actors[i].present != -1)
+        if (battle.actors[i].present != -1)
             func_800A6000(i, 6, 6);
     }
-    if (D_800F83A4.flags2C & 4) {
-        row = D_80075D08.n;
+    if (battle.flags & 4) {
+        row = stage_hp.stage;
         for (i = 0; i < 6; i++)
-            D_80075D08.hp[row][i] = battle_actors[i + 4].hp;
+            stage_hp.hp[row][i] = battle.actors[i + 4].hp;
     }
     if (battle_data.given) {
         n = count_bits(battle_data.given);
         alive = 0;
         for (i = 0; i < 4; i++) {
-            if (battle_actors[i].present != -1) {
-                hp += battle_actors[i].hp;
-                mp += battle_actors[i].mp;
+            if (battle.actors[i].present != -1) {
+                hp += battle.actors[i].hp;
+                mp += battle.actors[i].mp;
                 alive++;
             }
         }
@@ -203,8 +127,8 @@ void res_finish(void)
     for (i = 0; i < 10; i++)
         func_800A7254(0, i, 4, 0);
     for (i = 0; i < 3; i++) {
-        D_801636C0[i].a &= 0x1831;
-        D_801636C0[i].b = D_801636C0[i].a;
+        places[i].x8 &= 0x1831;
+        places[i].xC = places[i].x8;
     }
     if (!(flags & 8)) {
         if (flags & 2) {
@@ -217,11 +141,11 @@ void res_finish(void)
             if (!(flags & 0x40)) {
                 wait = 8;
                 for (i = 0; i < 3; i++)
-                    battle_actors[i].state16 = 14;
+                    battle.actors[i].state16 = 14;
             }
-        } else if (D_80163624 & 8 && !(D_8016376A & 0x100)) {
+        } else if (scene.setup.flags & 8 && !(D_8016376A & 0x100)) {
             for (i = 0; i < 3; i++)
-                battle_actors[i].state16 = 12;
+                battle.actors[i].state16 = 12;
             wait = 49;
             D_800FA6B8 = 1;
         }
@@ -235,14 +159,14 @@ void res_finish(void)
         func_800A3354();
     if (busy)
         func_80014540();
-    if (!(D_800F83A4.flags2C & 8))
+    if (!(battle.flags & 8))
         func_800A31A0(0, 0, 0, 0);
     if (flags & 2)
         *(short *)&D_800707BE |= 1;
     else if (flags & 0xC)
         *(short *)&D_800707BE |= 8;
     for (i = 0; i < 6; i++) {
-        if (battle_actors[i + 4].present != -1 && !(battle_data.left >> (i + 4) & 1))
+        if (battle.actors[i + 4].present != -1 && !(battle_data.left >> (i + 4) & 1))
             break;
     }
     if (i == 6)
@@ -254,25 +178,25 @@ void res_finish(void)
             func_800A56B0(k);
     }
     func_800DCF94(-1);
-    held = D_801671B8;
+    held = battle_items;
     for (i = 0; i < 320; i++) {
         inventory.items[i] = 0xFFFF;
         if (held[i].id != 0xFFFF)
             inventory.items[i] = (held[i].id & 0x1FF) | (held[i].count << 9 & 0xFE00);
     }
-    if (!(flags & 0xDE) && !(D_800F83A4.flags2C & 0x20)) {
+    if (!(flags & 0xDE) && !(battle.flags & 0x20)) {
         next = 4;
         for (i = 0; i < 6; i++) {
-            id = D_80163658[i].id;
+            id = scene.formation[i].id;
             if (id == -1)
                 continue;
             e = &battle_data.enemies[id];
-            if (!(battle_actors[i + 4].status & 0x4001) || battle_data.left >> (i + 4) & 1)
+            if (!(battle.actors[i + 4].status & 0x4001) || battle_data.left >> (i + 4) & 1)
                 continue;
-            results.exp += battle_actors[i + 4].exp;
-            results.gil += battle_actors[i + 4].gil;
+            results.exp += battle.actors[i + 4].exp;
+            results.gil += battle.actors[i + 4].gil;
             results.ap += e->ap;
-            if (D_800F5BE0[i + 4].flags1 & 0x11)
+            if (units.slots[i + 4].flags1 & 0x11)
                 continue;
             item = func_800B0F04(e, 0, 0, 0x100);
             if ((item & 0xFFFF) == 0xFFFF)
@@ -300,15 +224,15 @@ void res_finish(void)
                 who &= ~(1 << D_8009CBDC[i]);
                 c = &D_8009C738[k];
                 pm = &members[i];
-                if (!(battle_actors[i].status & 0x4001)) {
+                if (!(battle.actors[i].status & 0x4001)) {
                     func_800A4ACC(i, results.ap);
                     gain = results.exp;
                     if (pm->misc[0])
                         gain = gain * pm->misc[0] >> 4;
                 }
                 res_level_up(c, gain, i);
-                results.shown[i].new_limits = res_learn_limits(c, battle_members[i].kills, battle_members[i].uses);
-                diff = battle_members[i].materia20 ^ battle_members[i].materia24;
+                results.shown[i].new_limits = res_learn_limits(c, units.members[i].kills, units.members[i].uses);
+                diff = units.members[i].materia ^ units.members[i].materia2;
                 if (diff)
                     res_801B0C74(c, diff);
             }
@@ -339,8 +263,8 @@ void res_store_party(int hp, int mp)
     for (k = 0; k < 4; k++)
         D_8009D58A[k] = ((unsigned char *)&n)[k];
     for (m = 0; m < 3; m++) {
-        h = battle_actors[m].hp;
-        mm = battle_actors[m].mp;
+        h = battle.actors[m].hp;
+        mm = battle.actors[m].mp;
         id = D_80163790[m];
         if (battle_data.given >> m & 1) {
             h = hp;
@@ -353,9 +277,9 @@ void res_store_party(int hp, int mp)
             if (id == c->id) {
                 c->hp = h;
                 c->mp = mm;
-                c->limit_bar = battle_members[m].limit_bar;
-                c->flags = battle_actors[m].status & 0x30;
-                if (D_800F83A4.flags2C & 0x10 && !c->id) {
+                c->limit_bar = units.members[m].limit_bar;
+                c->flags = battle.actors[m].status & 0x30;
+                if (battle.flags & 0x10 && !c->id) {
                     for (s = 0; s < 12; s++) {
                         if (limit_id(id, s) != 0x7F)
                             c->limits |= 1 << s;
