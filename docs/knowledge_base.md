@@ -941,10 +941,11 @@ recovered C. Details in §7.
 | `FIELD/DSCHANGE.X` (`src/overlay/dschange.c`) | `0x800A0000`–`0x800A1580` | both functions in C; the disc prompt parked |
 | `BATTLE/BATINI.X` (`src/overlay/batini.c`) | `0x801B0050`–`0x801B27B4` | 22 functions in C; 5 parked |
 | `BATTLE/BATRES.X` (`src/overlay/batres.c`) | `0x801B0000`–`0x801B193C` | 19 functions in C; 2 parked |
+| `FIELD/ENDING.X` (`src/overlay/ending.c`) | `0x800A0030`–`0x800A3934` | 62 functions in C; the star field's two parked |
 
-Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt and 7 functions of
-`BATINI.X` and `BATRES.X`, parked as asm (§7), and every other overlay: `BATTLE.X`, field, world, mini-games, the 289
-`MAGIC/*.BIN` effects, `ENDING.X`, `BATTLE/TITLE.BIN` (probably the title screen).
+Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
+`BATINI.X` and `BATRES.X` and `ENDING.X`'s star field, parked as asm (§7), and every other overlay: `BATTLE.X`, field,
+world, mini-games, the 289 `MAGIC/*.BIN` effects, `BATTLE/TITLE.BIN` (probably the title screen).
 
 ### PC vs PS1
 
@@ -1799,6 +1800,23 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     `+0x26` are its kills and the uses of each limit level, which the kernel's `+0x18` and `+0x1C` thresholds read.
   - Checked in the lab: the first battle (`0x12C`) four times over from `--battle`, ○ mashed through it and its
     results.
+- **`ENDING.X` shows the SCEA logo, the opening credits and the ending's** (`src/overlay/ending.c`), read at
+  `0x800A0000` in the field's place.
+  - `end_logo` reads `STARTUP\SCEAP.LZS` itself (libcd's search and read, not the CD layer), unpacks the 640x480
+    picture and uploads the field being drawn line by line each frame, as `DSCHANGE.X` does; a subtractive tile over
+    the logo's band fades it in, five seconds hold it, and the tile fades it out.
+  - `end_credits(0)` (the opening, until a button fades it out) and `end_credits(1)` (the ending, for good) run a
+    script of 16-bit words, `end_script_opening` and `end_script_ending` in the module's data: each frame runs
+    commands from the 30 in `end_ops` until one returns 0 (call it again next frame) and none asked for another.
+    They read files to `0x800D0000` (three by sector), upload or stream-unpack TIMs from them, open and wait on
+    movies, play songs and sound commands, wait frames, jump back, set the screen up again, and start one of three
+    sprite tasks: sprites in place, rolled up a letterboxed screen (gone 16 lines above the top) or moved towards a
+    target (20.12 fixed point), each animated from the file's frame tables (`func_80036244`) and faded to a grey.
+  - Tasks are a list kept in priority order (`end_task_add`); one added this frame starts the next.
+  - The ending's script closes on commands 28 and 29: a star field of 256 streaks coming at the camera, for good (the
+    pad's buttons move a view that nothing reads).
+  - Checked in the lab: the boot to frame 9600, with and without ○ during the opening credits, the same screen for
+    screen as the recompiled module. The ending's credits and its star field can't be reached from the lab.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2124,6 +2142,16 @@ same set). They give the original module and file split, and the staff folders b
   end and destination set up before the search), `res_learn_limits` (register choice; it also ends on the `jr $ra` whose
   delay slot is past the file, which C would add), `ini_start`, `ini_next_stage`, `ini_party`, `ini_layout` and
   `ini_enemies` (register choice).
+- **`ENDING.X`** is GCC 2.6.3 (2.7.2 fills the epilogue's delay slot with the return value's last instruction) with
+  ASPSX 2.21 and its divide checks, at `-G0`, like the exe's CD layer and movie player. Its rodata ends on a 21-byte
+  string, so its config has `subalign: 4`, or the code after it starts on a halfword. The GTE code is libgte's inline
+  macros, written out here as `__asm__` (the commands as `.word`s; maspsx needs each instruction on its own line), and
+  for the PC through `pc/gte.c`. The script's file table is a flat `unsigned int` array (a struct puts each read
+  through `%lo`); the stores of a sprite's place go through `%lo` while its loads use a pointer; the logo's field
+  parity is a variable of `end_logo`'s, not the macro's; `end_credits` sets its reset up in a loop that runs once, or
+  GCC loads the script's address before the stores. Parked: `end_op_stars` (one instruction short: the game loads
+  the array's address once for both the star and its place) and `end_op_stars_frame` (the target's stores and two
+  registers).
 
 **Main exe layout** (splat's guess, corrected by hand):
 

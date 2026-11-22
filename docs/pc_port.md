@@ -8,14 +8,15 @@ first and decompilation keeps replacing parts of it.
 
 The main exe is mostly C (boot, sound driver, CD layer, movie player), and so are all 13 menu modules
 (`MENU/*.MNU`: the field menu and its screens, the shops and the save screens; 20 functions parked as asm), the
-game over screen in `FIELD/DSCHANGE.X` (its disc prompt parked), and the battle's setup and results, `BATTLE/BATINI.X`
-and `BATRES.X` (7 functions parked). Outside them, nothing is recovered:
+game over screen in `FIELD/DSCHANGE.X` (its disc prompt parked), the battle's setup and results, `BATTLE/BATINI.X`
+and `BATRES.X` (7 functions parked), and the logo and credits in `FIELD/ENDING.X` (its star field parked). Outside them,
+nothing is recovered:
 
 | Module | Unpacked |
 |---|---|
 | Field (`FIELD/FIELD.BIN`) | 258 KiB |
 | Battle (`BATTLE/BATTLE.X`) | 334 KiB |
-| Title (`BATTLE/TITLE.BIN`), ending (`FIELD/ENDING.X`) | 201 KiB |
+| Title (`BATTLE/TITLE.BIN`) | 140 KiB |
 | World map (`WORLD/WORLD.BIN`) | 160 KiB |
 | Mini-games (`MINI/*.BIN`, 22) and magic effects (`MAGIC/*.BIN`, 289) | ~47 MB, mostly graphics |
 
