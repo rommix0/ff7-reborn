@@ -10,7 +10,7 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player), and so ar
 (`MENU/*.MNU`: the field menu and its screens, the shops and the save screens; 20 functions parked as asm), the
 game over screen in `FIELD/DSCHANGE.X` (its disc prompt parked), the battle's setup and results, `BATTLE/BATINI.X`
 and `BATRES.X` (7 functions parked), the logo and credits in `FIELD/ENDING.X` (its star field parked) and the Speed
-Square, `MINI/JET.BIN` (29 functions parked), and most of the submarine, `MINI/SUBMAR.BIN` (12 of its functions; 46 parked).
+Square, `MINI/JET.BIN` (29 functions parked), and the submarine, `MINI/SUBMAR.BIN` (12 of its functions; 48 parked).
 Outside them, nothing is recovered:
 
 | Module | Unpacked |

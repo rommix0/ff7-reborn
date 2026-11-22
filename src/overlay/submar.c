@@ -1,6 +1,6 @@
 /* MINI/SUBMAR.BIN, the submarine, 0x800A00BC-0x800AD330 (its data follows to 0x800B2E38). GCC 2.6.3, ASPSX 2.21 with
  * its divide checks, -G0 -fforce-addr. Still asm without C: the two copies each of libgte's ratan2 and of a vector
- * normalise, and sub_800A4D90 and sub_800A8944. */
+ * normalise. */
 
 #include "common.h"
 #include "main.h"
@@ -120,9 +120,8 @@ void func_80044000(RECT *r, void *p); /* LoadImage */
 extern unsigned int D_800AD340, D_800AD344, D_800AD348, D_800AD34C;
 extern SubTex D_800AD904, D_800AD91C;
 extern int D_800AD8E0, D_800AD8E4;
-extern unsigned char D_800AE484, D_800AE498;
-extern unsigned int D_800AE3C8, D_800AE3F0;
-extern unsigned int D_801BCF08[];
+extern unsigned int D_800AE3C8, D_800AE3F0; /* the quit menu's two choices' colours */
+extern unsigned int D_801BCF08[20], D_801BCF58[8]; /* the HUD's ordering tables */
 typedef struct OtChain {
     unsigned int *first, *last;
 } OtChain;
@@ -403,7 +402,6 @@ extern unsigned int D_800AE96C;
 extern int D_800AD93C;
 extern int D_800AE8E0, D_800AD3B4, D_800AE9FC;
 extern int D_800AD934, D_800AD3A8, D_800AE97C;
-extern SPRT D_800AE540[5];
 /* A shake: two angles turning, scaled by an amplitude that decays. */
 typedef struct Shake {
     int start;
@@ -419,13 +417,7 @@ typedef struct Shake {
 } Shake;
 extern Shake D_800AD95C;
 
-extern SPRT D_800ADAE0[25];
-extern TILE D_800ADCD4[2]; /* the gauge's two bars */
 extern unsigned short D_800ADD10[6];
-extern POLY_GT4 D_800ADD44, D_800ADDB4;
-extern SPRT D_800ADE10, D_800ADE38, D_800ADE60;
-extern SPRT D_800ADEC4[4];
-extern SPRT D_800AE2AC[4];
 extern unsigned int D_800AE984[4];
 extern short D_800AE8E4, D_800AE8E6;
 extern int D_800AD944, D_800AD948, D_800AD94C, D_800AD950, D_800AD954, D_800AD958;
@@ -567,7 +559,6 @@ extern unsigned int D_801B730C[2][0x600];
 extern unsigned int D_801C5700[2][0x90];
 extern unsigned char D_801BA348[2][0x15E0];
 extern int D_800AD8F0, D_800AEA0C, D_800AEB30;
-extern SPRT D_800ADF40;
 void func_800444AC(DISPENV *env);            /* PutDispEnv */
 void PutDrawEnv(DRAWENV *env);
 void func_80044244(unsigned int *ot, int n); /* ClearOTagR */
@@ -604,9 +595,9 @@ void submar_control(void);
 void submar_init_player(PlayerRecord *r);
 void submar_init_torpedoes(void);
 void submar_list_cells(int max);
-void sub_800A4D90(void);
+void submar_init_hud(void);
 void sub_800A832C(void);
-void sub_800A8944(void);
+void submar_probe_floor(void);
 void sub_800A32C8(void);
 void sub_800A36F4(void);
 void sub_800A9130(void);
@@ -1064,6 +1055,62 @@ typedef struct ModelWork {
 #define gte_stsxy12_g3(p) __asm__ volatile("swc2 $13, 16(%0)\nswc2 $14, 24(%0)" : : "r"(p) : "memory")
 #endif
 
+/* A point the player's sub is checked at, as an offset from it, and where it falls on the sea floor. */
+typedef struct Probe {
+    int vx, vy, vz;
+    int x0C;
+    int h; /* its depth */
+    int cell;
+    unsigned int alert; /* the alert it raises */
+    int x1C;
+} Probe;
+
+/* The floor check's work area in the scratchpad. */
+typedef struct ProbeWork {
+    int x, y, z;
+    int x0C;
+    SVECTOR fwd, side, up;
+    int gear;
+    unsigned int alerts;
+    Probe hull[12]; /* around the hull */
+    Probe ahead[6]; /* along its heading: a length ahead, then this frame's move */
+} ProbeWork;
+#define PROBE_WORK ((ProbeWork *)0x1F800000)
+
+void func_80044A68(void *p, int dfe, int dtd, int tpage, RECT *tw); /* SetDrawMode */
+void func_80046A9C(void *p0, void *p1);                             /* MargePrim */
+#define termPrim(p) setaddr(p, 0xFFFFFFFF)
+
+/* The HUD's primitives. Icons are a draw mode merged with a sprite; text is a run of glyph sprites, linked one to the
+ * next. */
+typedef struct IconText {
+    ModeSprite icon;
+    DR_MODE mode;
+    SPRT text[7];
+} IconText;
+extern IconText D_800AD9FC, D_800ADAB4;
+extern SPRT D_800ADB6C[4], D_800ADBBC[5], D_800ADC20[5], D_800ADC84[3];
+/* A bar shaded from one colour to another under its own draw mode, then its icon. */
+typedef struct Gauge {
+    DR_MODE mode;
+    POLY_G4 bar;
+    ModeSprite icon;
+} Gauge;
+extern Gauge D_800ADCC0;
+/* A meter: two sprites, a textured quad that slides along it, and one on top. */
+typedef struct Meter {
+    SPRT face[2];
+    POLY_GT4 slider;
+    SPRT cap;
+} Meter;
+extern Meter D_800ADD1C, D_800ADD8C;
+extern SPRT D_800ADDFC[2], D_800ADE24[2], D_800ADE4C[2], D_800ADE74[8];
+extern SPRT D_800ADF00, D_800ADF14;
+extern DR_MODE D_800ADF28;
+extern ModeSprite D_800ADF34;
+extern SPRT D_800ADF50[15], D_800AE07C[17], D_800AE1D0[9], D_800AE284[6], D_800AE2FC[5], D_800AE360[8];
+extern SPRT D_800AE400[11], D_800AE4DC[10];
+
 /* end of declarations */
 
 #ifdef NON_MATCHING
@@ -1099,7 +1146,7 @@ unsigned short submar_main(unsigned char mode)
     submar_init_gfx();
     submar_load_mission(D_800AD380.mode);
     submar_init_player(&D_800B0E5C.player);
-    sub_800A4D90();
+    submar_init_hud();
     D_800AD3B8 = 0;
     submar_init_floor();
     if (D_800B0E5C.drops > 500) {
@@ -1112,7 +1159,7 @@ unsigned short submar_main(unsigned char mode)
     PutDrawEnv(&D_800B5E5C[D_800AD3B8]);
     func_80044244(D_801B730C[D_800AD3B8], 0x600);
     sub_800A832C();
-    sub_800A8944();
+    submar_probe_floor();
     submar_set_view();
     sub_800A32C8();
     sub_800A36F4();
@@ -1125,7 +1172,7 @@ unsigned short submar_main(unsigned char mode)
     while (1) {
         func_8004433C(&D_801B730C[D_800AD3B8][D_800AD3BA]);
         func_8004433C(D_801C5700[D_800AD3B8]);
-        func_8004433C(&D_801BCF08[20]);
+        func_8004433C(D_801BCF58);
         func_8004433C(D_801BCF08);
         D_800AD3B8 = (D_800AD3B8 ^ 1) & 1;
         func_80044244(D_801B730C[D_800AD3B8], 0x600);
@@ -1210,7 +1257,7 @@ unsigned short submar_main(unsigned char mode)
         sub_800ABD4C(D_801BA348[D_800AD3B8], (void *)D_800AE8D0.x_b0);
         if (!(D_800AD388 & 3)) {
             sub_800A832C();
-            sub_800A8944();
+            submar_probe_floor();
         }
         gte_SetRotMatrix(&D_800F5F4C);
         gte_SetTransMatrix(&D_800F5F4C);
@@ -1252,7 +1299,7 @@ unsigned short submar_main(unsigned char mode)
             }
             submar_update_hud();
         }
-        func_8004418C(&D_801BCF08[20], 8);
+        func_8004418C(D_801BCF58, 8);
         if (!(D_800AD388 & 2)) {
             submar_show_alerts();
         }
@@ -1341,7 +1388,7 @@ unsigned short submar_main(unsigned char mode)
                 D_800AD95C.decay = -0x10;
                 D_800AD95C.amp += D_800AD95C.amp_start * 2;
             case 3:
-                D_800ADF40.r0 = 0;
+                D_800ADF34.sprt.r0 = 0;
                 submar_show_layer(19, 1);
             case 1:
                 submar_show_message(end);
@@ -1377,12 +1424,12 @@ unsigned short submar_main(unsigned char mode)
             }
         }
         if (D_800AD380.mode) {
-            D_800ADF40.r0 = (1200 - D_800AD38C.countdown) / 15;
+            D_800ADF34.sprt.r0 = (1200 - D_800AD38C.countdown) / 15;
         } else {
-            D_800ADF40.r0 = (900 - D_800AD38C.countdown) * 80 / 900;
+            D_800ADF34.sprt.r0 = (900 - D_800AD38C.countdown) * 80 / 900;
         }
-        D_800ADF40.x0 = -0xA0 - D_800AD3C8.x;
-        D_800ADF40.y0 = -0x96 - D_800AD3C8.y;
+        D_800ADF34.sprt.x0 = -0xA0 - D_800AD3C8.x;
+        D_800ADF34.sprt.y0 = -0x96 - D_800AD3C8.y;
         if (D_800AD38C.countdown <= 0) {
             break;
         }
@@ -3100,7 +3147,197 @@ void submar_init_subs(SubRecord *r)
 }
 
 
-INCLUDE_ASM("asm/overlay/submar/nonmatchings/submar", sub_800A4D90);
+#ifdef NON_MATCHING
+/* Register choice and order in the readout's links: the game loads every tag before it stores the
+ * palettes and keeps the loop's masks in s0 and s1. Everything else matches. */
+void submar_init_hud(void)
+{
+    unsigned short clut = D_800AD904.clut;
+    SPRT *p;
+    int tpage;
+    int i;
+
+    func_8004418C(D_801BCF08, 20);
+    func_8004418C(D_801BCF58, 8);
+    for (i = 0; i < 4; i++) {
+        func_80044A68(&D_800AD97C[i].mode, 0, 0,
+                      getTPage(D_800AD904.mode, 1, D_800AD904.image.x, D_800AD904.image.y), 0);
+        D_800AD97C[i].sprt.clut = clut + 3;
+        func_80046A9C(&D_800AD97C[i].mode, &D_800AD97C[i].sprt);
+    }
+    D_800AD97C[1].sprt.clut = D_800AD97C[0].sprt.clut = clut + 1;
+
+    func_80044A68(&D_800AD9FC.icon.mode, 0, 0, getTPage(D_800AD904.mode, 1, D_800AD904.image.x, D_800AD904.image.y),
+                  0);
+    D_800AD9FC.icon.sprt.clut = clut;
+    func_80046A9C(&D_800AD9FC.icon.mode, &D_800AD9FC.icon.sprt);
+    func_80044A68(&D_800AD9FC.mode, 0, 0, getTPage(D_800AD904.mode, 0, D_800AD904.image.x, D_800AD904.image.y), 0);
+    setaddr(&D_800AD9FC.mode, &D_800AD9FC.text[0]);
+    for (i = 0; i < 6; i++) {
+        D_800AD9FC.text[i].clut = clut;
+        D_800AD9FC.text[i + 1].clut = clut;
+        setaddr(&D_800AD9FC.text[i], &D_800AD9FC.text[i + 1]);
+    }
+    setaddr(&D_800AD9FC.icon, &D_800AD9FC.mode);
+
+    func_80044A68(&D_800ADAB4.icon.mode, 0, 0, getTPage(D_800AD904.mode, 1, D_800AD904.image.x, D_800AD904.image.y),
+                  0);
+    D_800ADAB4.icon.sprt.clut = clut;
+    func_80046A9C(&D_800ADAB4.icon.mode, &D_800ADAB4.icon.sprt);
+    func_80044A68(&D_800ADAB4.mode, 0, 0, getTPage(D_800AD904.mode, 0, D_800AD904.image.x, D_800AD904.image.y), 0);
+    setaddr(&D_800ADAB4.mode, &D_800ADAB4.text[0]);
+    for (i = 0; i < 6; i++) {
+        D_800ADAB4.text[i].clut = clut;
+        D_800ADAB4.text[i + 1].clut = clut;
+        setaddr(&D_800ADAB4.text[i], &D_800ADAB4.text[i + 1]);
+    }
+    D_800ADB6C[0].clut = clut;
+    D_800ADB6C[1].clut = clut;
+    D_800ADB6C[2].clut = clut;
+    D_800ADB6C[3].clut = clut;
+    D_800ADBBC[0].clut = clut;
+    setaddr(&D_800ADAB4.icon, &D_800ADAB4.mode);
+    setaddr(&D_800ADB6C[0], &D_800ADB6C[1]);
+    setaddr(&D_800ADB6C[1], &D_800ADB6C[2]);
+    setaddr(&D_800ADB6C[2], &D_800ADB6C[3]);
+    termPrim(&D_800ADB6C[3]);
+    setaddr(&D_800ADBBC[0], &D_800ADBBC[1]);
+    for (i = 0, p = D_800ADBBC; i < 3; i++, p++) {
+        p[1].clut = clut;
+        setaddr(&D_800ADBBC[i + 1], &D_800ADBBC[i + 2]);
+    }
+    D_800ADBBC[4].clut = clut;
+    D_800ADC20[0].clut = clut;
+    termPrim(&D_800ADBBC[4]);
+    setaddr(&D_800ADC20[0], &D_800ADC20[1]);
+    for (i = 0, p = D_800ADC20; i < 3; i++, p++) {
+        p[1].clut = clut;
+        setaddr(&D_800ADC20[i + 1], &D_800ADC20[i + 2]);
+    }
+    D_800ADC20[4].clut = clut;
+    D_800ADC84[0].clut = clut;
+    D_800ADC84[1].clut = clut;
+    D_800ADC84[2].clut = clut;
+    termPrim(&D_800ADC20[4]);
+    setaddr(&D_800ADC84[0], &D_800ADC84[2]);
+    setaddr(&D_800ADC84[1], &D_800ADC84[2]);
+    termPrim(&D_800ADC84[2]);
+
+    func_80044A68(&D_800ADCC0.mode, 0, 0, getTPage(D_800AD904.mode, 1, D_800AD904.image.x, D_800AD904.image.y), 0);
+    func_80044A68(&D_800ADCC0.icon.mode, 0, 0, getTPage(D_800AD904.mode, 0, D_800AD904.image.x, D_800AD904.image.y),
+                  0);
+    D_800ADCC0.icon.sprt.clut = clut;
+    func_80046A9C(&D_800ADCC0.mode, &D_800ADCC0.bar);
+    func_80046A9C(&D_800ADCC0.icon.mode, &D_800ADCC0.icon.sprt);
+    setaddr(&D_800ADCC0.mode, &D_800ADCC0.icon);
+    termPrim(&D_800ADCC0.icon);
+
+    tpage = getTPage(D_800AD904.mode, 0, D_800AD904.image.x, D_800AD904.image.y);
+    D_800ADD1C.slider.tpage = tpage;
+    D_800ADD1C.face[0].clut = clut + 2;
+    D_800ADD1C.face[1].clut = clut;
+    D_800ADD1C.slider.clut = clut + 1;
+    func_80046A9C(&D_800ADD1C.face[0], &D_800ADD1C.face[1]);
+    setaddr(&D_800ADD1C.face[0], &D_800ADD1C.slider);
+    termPrim(&D_800ADD1C.slider);
+    tpage = getTPage(D_800AD904.mode, 0, D_800AD904.image.x, D_800AD904.image.y);
+    D_800ADD8C.slider.tpage = tpage;
+    D_800ADD8C.face[0].clut = clut + 2;
+    D_800ADD8C.face[1].clut = clut;
+    D_800ADD8C.slider.clut = clut + 1;
+    D_800ADD8C.cap.clut = clut;
+    func_80046A9C(&D_800ADD8C.face[0], &D_800ADD8C.face[1]);
+    setaddr(&D_800ADD8C.face[0], &D_800ADD8C.slider);
+    setaddr(&D_800ADD8C.slider, &D_800ADD8C.cap);
+    termPrim(&D_800ADD8C.cap);
+    D_800ADDFC[0].clut = clut;
+    D_800ADDFC[1].clut = clut;
+    func_80046A9C(&D_800ADDFC[0], &D_800ADDFC[1]);
+    termPrim(&D_800ADDFC[0]);
+    D_800ADE24[0].clut = clut;
+    D_800ADE24[1].clut = clut;
+    func_80046A9C(&D_800ADE24[0], &D_800ADE24[1]);
+    termPrim(&D_800ADE24[0]);
+    D_800ADE4C[0].clut = clut;
+    D_800ADE4C[1].clut = clut;
+    func_80046A9C(&D_800ADE4C[0], &D_800ADE4C[1]);
+    termPrim(&D_800ADE4C[0]);
+
+    for (i = 3; i >= 0; i--) {
+        D_800ADE74[i].clut = clut;
+    }
+    for (i = 4; i < 8; i++) {
+        D_800ADE74[i].clut = clut + 3;
+    }
+    for (i = 0; i < 7; i++) {
+        setaddr(&D_800ADE74[i], &D_800ADE74[i + 1]);
+    }
+    D_800ADF14.clut = clut + 4;
+    D_800ADF14.u0 = 0;
+    D_800ADF14.v0 = 0x60;
+    termPrim(&D_800ADF00);
+    termPrim(&D_800ADF14);
+    for (i = 0; i < 5; i++) {
+        D_800AE284[i].clut = clut + 7;
+        setaddr(&D_800AE284[i], &D_800AE284[i + 1]);
+    }
+    D_800AE284[5].clut = clut + 7;
+    termPrim(&D_800AE284[5]);
+
+    func_80044A68(&D_800ADF28, 0, 0, getTPage(D_800AD904.mode, 1, D_800AD904.image.x, D_800AD904.image.y), 0);
+    addPrim(&D_801BCF08[14], &D_800ADF28);
+    func_80044A68(&D_800ADF34.mode, 0, 0, getTPage(D_800AD91C.mode, 1, D_800AD91C.image.x, D_800AD91C.image.y),
+                  0);
+    func_80046A9C(&D_800ADF34.mode, &D_800ADF34.sprt);
+    termPrim(&D_800ADF34);
+    for (i = 0; i < 14; i++) {
+        D_800ADF50[i].clut = clut + 5;
+        setaddr(&D_800ADF50[i], &D_800ADF50[i + 1]);
+    }
+    D_800ADF50[14].clut = clut + 5;
+    termPrim(&D_800ADF50[14]);
+    for (i = 0; i < 16; i++) {
+        D_800AE07C[i].clut = clut + 5;
+        setaddr(&D_800AE07C[i], &D_800AE07C[i + 1]);
+    }
+    D_800AE07C[16].clut = clut + 5;
+    termPrim(&D_800AE07C[16]);
+    for (i = 0; i < 8; i++) {
+        D_800AE1D0[i].clut = clut + 5;
+        setaddr(&D_800AE1D0[i], &D_800AE1D0[i + 1]);
+    }
+    D_800AE1D0[8].clut = clut + 5;
+    termPrim(&D_800AE1D0[8]);
+    for (i = 0; i < 4; i++) {
+        D_800AE2FC[i].clut = clut + 5;
+        setaddr(&D_800AE2FC[i], &D_800AE2FC[i + 1]);
+    }
+    D_800AE2FC[4].clut = clut + 5;
+    termPrim(&D_800AE2FC[4]);
+    for (i = 0; i < 7; i++) {
+        D_800AE360[i].clut = clut + 5;
+        setaddr(&D_800AE360[i], &D_800AE360[i + 1]);
+    }
+    D_800AE360[7].clut = clut + 5;
+    termPrim(&D_800AE360[7]);
+    for (i = 0; i < 9; i++) {
+        D_800AE4DC[i].clut = clut + 5;
+        setaddr(&D_800AE4DC[i], &D_800AE4DC[i + 1]);
+    }
+    D_800AE4DC[9].clut = clut + 5;
+    termPrim(&D_800AE4DC[9]);
+    for (i = 0; i < 10; i++) {
+        D_800AE400[i].clut = clut + 5;
+        setaddr(&D_800AE400[i], &D_800AE400[i + 1]);
+    }
+    D_800AE400[10].clut = clut + 5;
+    termPrim(&D_800AE400[10]);
+    D_800AE400[9].u0 = D_800AD8DC / 10 << 4;
+    D_800AE400[10].u0 = D_800AD8DC % 10 << 4;
+}
+#else
+INCLUDE_ASM("asm/overlay/submar/nonmatchings/submar", submar_init_hud);
+#endif
 #ifdef NON_MATCHING
 /* Instruction order and register choice in the digits. */
 void submar_set_score(void)
@@ -3129,7 +3366,7 @@ void submar_set_score(void)
     } else {
         lead = 0;
     }
-    D_800AE540[0].u0 = c << 4;
+    D_800AE4DC[5].u0 = c << 4;
     n -= d * 10000;
     d = n / 1000;
     c = d;
@@ -3138,7 +3375,7 @@ void submar_set_score(void)
     } else {
         lead = 0;
     }
-    D_800AE540[1].u0 = c << 4;
+    D_800AE4DC[6].u0 = c << 4;
     n -= d * 1000;
     d = n / 100;
     c = d;
@@ -3147,7 +3384,7 @@ void submar_set_score(void)
     } else {
         lead = 0;
     }
-    D_800AE540[2].u0 = c << 4;
+    D_800AE4DC[7].u0 = c << 4;
     n -= d * 100;
     d = n / 10;
     c = d;
@@ -3156,9 +3393,9 @@ void submar_set_score(void)
     } else {
         lead = 0;
     }
-    D_800AE540[3].u0 = c << 4;
+    D_800AE4DC[8].u0 = c << 4;
     n -= d * 10;
-    D_800AE540[4].u0 = n << 4;
+    D_800AE4DC[9].u0 = n << 4;
 }
 #else
 INCLUDE_ASM("asm/overlay/submar/nonmatchings/submar", submar_set_score);
@@ -3170,8 +3407,8 @@ void submar_set_count(void)
 {
     int n = D_800AD8E0 + D_800AD8E4;
 
-    D_800AE484 = n / 10 << 4;
-    D_800AE498 = n % 10 << 4;
+    D_800AE400[6].u0 = n / 10 << 4;
+    D_800AE400[7].u0 = n % 10 << 4;
 }
 #else
 INCLUDE_ASM("asm/overlay/submar/nonmatchings/submar", submar_set_count);
@@ -3264,19 +3501,19 @@ void submar_show_alerts(void)
         if (flags & 0x200) {
             D_800AD97C[0].sprt.clut = D_800AD904.clut + 1;
         }
-        addPrim(&D_801BCF08[20], &D_800AD97C[0]);
+        addPrim(D_801BCF58, &D_800AD97C[0]);
         n = 1;
     }
     if (flags & 0x400) {
-        addPrim(&D_801BCF08[21], &D_800AD97C[1]);
+        addPrim(&D_801BCF58[1], &D_800AD97C[1]);
         n += 2;
     }
     if (flags & 0x4000) {
-        addPrim(&D_801BCF08[22], &D_800AD97C[2]);
+        addPrim(&D_801BCF58[2], &D_800AD97C[2]);
         n += 3;
     }
     if (flags & 0x8000) {
-        addPrim(&D_801BCF08[22], &D_800AD97C[3]);
+        addPrim(&D_801BCF58[2], &D_800AD97C[3]);
         n += 5;
     }
     if (n) {
@@ -3304,55 +3541,55 @@ void submar_update_hud(void)
 
     y = D_800AE8D4 >> 12;
     n = y * 11 / 100;
-    D_800ADAE0[11].y0 = n - 0x73;
-    D_800ADAE0[12].y0 = D_800ADAE0[13].y0 = D_800ADAE0[14].y0 = D_800ADAE0[15].y0 = n - 0x70;
+    D_800ADBBC[0].y0 = n - 0x73;
+    D_800ADBBC[1].y0 = D_800ADBBC[2].y0 = D_800ADBBC[3].y0 = D_800ADBBC[4].y0 = n - 0x70;
     d = y / 10;
-    D_800ADAE0[15].u0 = (y - d * 10) * 4 + 200;
+    D_800ADBBC[4].u0 = (y - d * 10) * 4 + 200;
     y = d / 10;
-    D_800ADAE0[14].u0 = (d - y * 10) * 4 + 200;
+    D_800ADBBC[3].u0 = (d - y * 10) * 4 + 200;
     d = y / 10;
-    D_800ADAE0[13].u0 = (y - d * 10) * 4 + 200;
-    D_800ADAE0[12].u0 = (d - d / 10 * 10) * 4 + 200;
+    D_800ADBBC[2].u0 = (y - d * 10) * 4 + 200;
+    D_800ADBBC[1].u0 = (d - d / 10 * 10) * 4 + 200;
     a = (D_800AE97C << 6) / (D_800B0E5C.player.speed_scale * 2);
     n = D_800AE97C * 200 / (D_800B0E5C.player.speed_scale * 2);
-    D_800ADAE0[16].y0 = -0x33 - a;
-    D_800ADAE0[17].y0 = D_800ADAE0[18].y0 = D_800ADAE0[19].y0 = D_800ADAE0[20].y0 = -0x30 - a;
+    D_800ADC20[0].y0 = -0x33 - a;
+    D_800ADC20[1].y0 = D_800ADC20[2].y0 = D_800ADC20[3].y0 = D_800ADC20[4].y0 = -0x30 - a;
     if (n > 0) {
-        D_800ADAE0[17].u0 = 0xF0;
+        D_800ADC20[1].u0 = 0xF0;
     } else if (n == 0) {
-        D_800ADAE0[17].u0 = 0xF8;
+        D_800ADC20[1].u0 = 0xF8;
     } else {
-        D_800ADAE0[17].u0 = 0xF4;
+        D_800ADC20[1].u0 = 0xF4;
         n = -n;
     }
     d = n / 10;
-    D_800ADAE0[20].u0 = (n - d * 10) * 4 + 200;
+    D_800ADC20[4].u0 = (n - d * 10) * 4 + 200;
     n = d;
     d = n / 10;
-    D_800ADAE0[19].u0 = (n - d * 10) * 4 + 200;
+    D_800ADC20[3].u0 = (n - d * 10) * 4 + 200;
     n = d;
     a = ((D_800AE8E6 + 0xC00) & 0xFFF) / 16;
     d = n / 10;
-    D_800ADAE0[18].u0 = (n - d * 10) * 4 + 200;
+    D_800ADC20[2].u0 = (n - d * 10) * 4 + 200;
     a = (a + 0xCB) & 0xFF;
     n = 0x100 - a;
     if (n >= 0x7D) {
-        D_800ADAE0[21].w = 0x7D;
-        D_800ADAE0[21].u0 = a;
-        setaddr(&D_800ADAE0[21], &D_800ADAE0[23]);
+        D_800ADC84[0].w = 0x7D;
+        D_800ADC84[0].u0 = a;
+        setaddr(&D_800ADC84[0], &D_800ADC84[2]);
     } else {
-        D_800ADAE0[22].x0 = n - 0x3E;
-        D_800ADAE0[22].w = 0x7D - n;
-        D_800ADAE0[21].u0 = a;
-        D_800ADAE0[21].w = n;
-        D_800ADAE0[22].u0 = 0;
-        setaddr(&D_800ADAE0[21], &D_800ADAE0[22]);
+        D_800ADC84[1].x0 = n - 0x3E;
+        D_800ADC84[1].w = 0x7D - n;
+        D_800ADC84[0].u0 = a;
+        D_800ADC84[0].w = n;
+        D_800ADC84[1].u0 = 0;
+        setaddr(&D_800ADC84[0], &D_800ADC84[1]);
     }
     color = D_800AE8E4 ? 0x66808080 : 0x66C0C0A0;
     c = D_800AE8E4 ? 0x66808080 : 0x64606060;
-    *(unsigned int *)&D_800ADAE0[7].r0 = c;
-    *(unsigned int *)&D_800ADAE0[10].r0 = color;
-    D_800ADAE0[10].y0 = -0x30 - D_800AE8E4 / 16;
+    *(unsigned int *)&D_800ADB6C[0].r0 = c;
+    *(unsigned int *)&D_800ADB6C[3].r0 = color;
+    D_800ADB6C[3].y0 = -0x30 - D_800AE8E4 / 16;
     n = D_800AE8E0;
     if (n < 0) {
         n = 0;
@@ -3361,9 +3598,9 @@ void submar_update_hud(void)
     if (a == 0 && n > 0) {
         a = 1;
     }
-    D_800ADCD4[0].x0 = D_800ADCD4[1].x0 = a - 0x3F;
+    D_800ADCC0.bar.x1 = D_800ADCC0.bar.x3 = a - 0x3F;
     a = n * 255 / 16384;
-    *(unsigned int *)&D_800ADCD4[0].r0 = *(unsigned int *)&D_800ADCD4[1].r0 = a << 8 | (0xFF - a);
+    *(unsigned int *)&D_800ADCC0.bar.r1 = *(unsigned int *)&D_800ADCC0.bar.r3 = a << 8 | (0xFF - a);
     a = D_800AD948 + 1;
     f = D_800AD94C;
     if (a >= 40) {
@@ -3375,13 +3612,13 @@ void submar_update_hud(void)
     }
     D_800AD94C = (unsigned short)f;
     D_800AD948 = a;
-    D_800ADD44.x0 = D_800ADD44.x2 = a + 0x52;
-    D_800ADD44.x1 = D_800ADD44.x3 = a + 0x5A;
+    D_800ADD1C.slider.x0 = D_800ADD1C.slider.x2 = a + 0x52;
+    D_800ADD1C.slider.x1 = D_800ADD1C.slider.x3 = a + 0x5A;
     w = D_800ADD10[(unsigned short)f];
-    D_800ADD44.u0 = D_800ADD44.u2 = w + a;
-    D_800ADD44.u1 = D_800ADD44.u3 = w + a + 8;
-    D_800ADD44.v0 = D_800ADD44.v1 = w >> 8;
-    D_800ADD44.v2 = D_800ADD44.v3 = (w >> 8) + 0x1A;
+    D_800ADD1C.slider.u0 = D_800ADD1C.slider.u2 = w + a;
+    D_800ADD1C.slider.u1 = D_800ADD1C.slider.u3 = w + a + 8;
+    D_800ADD1C.slider.v0 = D_800ADD1C.slider.v1 = w >> 8;
+    D_800ADD1C.slider.v2 = D_800ADD1C.slider.v3 = (w >> 8) + 0x1A;
     n = D_800AD944 + 1;
     if (n >= 0x7C) {
         n = 0x56;
@@ -3397,28 +3634,28 @@ void submar_update_hud(void)
             }
         }
     }
-    D_800ADDB4.x0 = D_800ADDB4.x2 = a - 0x7E;
-    D_800ADDB4.x1 = D_800ADDB4.x3 = a - 0x7A;
-    D_800ADDB4.u0 = D_800ADDB4.u2 = n + 0x70;
-    D_800ADDB4.u1 = D_800ADDB4.u3 = n + 0x74;
+    D_800ADD8C.slider.x0 = D_800ADD8C.slider.x2 = a - 0x7E;
+    D_800ADD8C.slider.x1 = D_800ADD8C.slider.x3 = a - 0x7A;
+    D_800ADD8C.slider.u0 = D_800ADD8C.slider.u2 = n + 0x70;
+    D_800ADD8C.slider.u1 = D_800ADD8C.slider.u3 = n + 0x74;
     a = D_800AD950 + 1;
     if (a >= 0x20) {
         a = 0;
     }
     D_800AD950 = a;
-    D_800ADE10.u0 = a / 8 * 16 + 0x50;
+    D_800ADDFC[1].u0 = a / 8 * 16 + 0x50;
     a = D_800AD954 + 1;
     if (a >= 0x20) {
         a = 0;
     }
     D_800AD954 = a;
-    D_800ADE38.v0 = a / 8 * 24;
+    D_800ADE24[1].v0 = a / 8 * 24;
     a = D_800AD958 + 1;
     if (a >= 0x10) {
         a = 0;
     }
     D_800AD958 = a;
-    D_800ADE60.v0 = a / 4 * 24 + 0x81;
+    D_800ADE4C[1].v0 = a / 4 * 24 + 0x81;
     for (i = 0; i < 4; i++) {
         v = 0x20;
         color = 0x66000000;
@@ -3432,8 +3669,8 @@ void submar_update_hud(void)
             color = 0x66FFFFFF;
             v = 0x10;
         }
-        *(unsigned int *)&D_800ADEC4[i].r0 = color;
-        D_800ADEC4[i].v0 = v;
+        *(unsigned int *)&D_800ADE74[i + 4].r0 = color;
+        D_800ADE74[i + 4].v0 = v;
     }
     n = D_800AD3A8;
     if (n < 0) {
@@ -3442,14 +3679,14 @@ void submar_update_hud(void)
     n /= 60;
     d = n / 600;
     n -= d * 600;
-    D_800AE2AC[0].u0 = d * 8 + 0x78;
+    D_800AE284[2].u0 = d * 8 + 0x78;
     d = n / 60;
     n -= d * 60;
-    D_800AE2AC[1].u0 = d * 8 + 0x78;
+    D_800AE284[3].u0 = d * 8 + 0x78;
     d = n / 10;
-    D_800AE2AC[2].u0 = d * 8 + 0x78;
+    D_800AE284[4].u0 = d * 8 + 0x78;
     n -= d * 10;
-    D_800AE2AC[3].u0 = n * 8 + 0x78;
+    D_800AE284[5].u0 = n * 8 + 0x78;
 }
 #else
 INCLUDE_ASM("asm/overlay/submar/nonmatchings/submar", submar_update_hud);
@@ -4163,7 +4400,132 @@ void sub_800A832C(void)
 INCLUDE_ASM("asm/overlay/submar/nonmatchings/submar", sub_800A832C);
 #endif
 
-INCLUDE_ASM("asm/overlay/submar/nonmatchings/submar", sub_800A8944);
+#ifdef NON_MATCHING
+/* Register choice and order: the first block's copies go out in another order, the clamps' second halves
+ * keep their result in the input's register, and the last loop's step fills two delay slots the game leaves empty. */
+void submar_probe_floor(void)
+{
+    ProbeWork *w = PROBE_WORK;
+    Probe *p;
+    int x, z;
+    int gear;
+    int col, row;
+    int ux, uy, uz;
+    int vx, vy, vz;
+
+    w->x = D_800AE8D0.x;
+    w->y = D_800AE8D0.y;
+    w->z = D_800AE8D0.z;
+    /* The axes go over as words, each one's second word first. */
+    ((int *)&w->fwd)[1] = ((int *)&D_800AE8D0.fwd)[1];
+    ((int *)&w->fwd)[0] = ((int *)&D_800AE8D0.fwd)[0];
+    ((int *)&w->side)[1] = ((int *)&D_800AE8D0.side)[1];
+    ((int *)&w->side)[0] = ((int *)&D_800AE8D0.side)[0];
+    ((int *)&w->up)[1] = ((int *)&D_800AE8D0.up)[1];
+    ((int *)&w->up)[0] = ((int *)&D_800AE8D0.up)[0];
+    w->gear = D_800AE8D0.gear;
+    w->alerts = 0;
+    ux = w->up.vx;
+    uy = w->up.vy;
+    uz = w->up.vz;
+    vx = w->side.vx;
+    vy = w->side.vy;
+    vz = w->side.vz;
+    setVector(&w->hull[0], ux + vx, uy + vy, uz + vz);
+    setVector(&w->hull[1], ux - vx, uy - vy, uz - vz);
+    setVector(&w->hull[2], -ux - vx, -uy - vy, -uz - vz);
+    setVector(&w->hull[3], -ux + vx, -uy + vy, -uz + vz);
+    setVector(&w->hull[4], ux, uy, uz);
+    setVector(&w->hull[5], ux * 2, uy * 2, uz * 2);
+    setVector(&w->hull[6], -ux, -uy, -uz);
+    setVector(&w->hull[7], -ux * 2, -uy * 2, -uz * 2);
+    vx = w->fwd.vx;
+    vy = w->fwd.vy;
+    vz = w->fwd.vz;
+    setVector(&w->hull[8], ux + vx, uy + vy, uz + vz);
+    setVector(&w->hull[9], ux - vx, uy - vy, uz - vz);
+    setVector(&w->hull[10], -ux + vx, -uy + vy, -uz + vz);
+    setVector(&w->hull[11], -ux - vx, -uy - vy, -uz - vz);
+    if (w->gear >= 0) {
+        setVector(&w->ahead[0], ux * 32, uy * 32, uz * 32);
+        setVector(&w->ahead[1], (ux + vx) * 32, (uy + vy) * 32, (uz + vz) * 32);
+        setVector(&w->ahead[2], (ux - vx) * 32, (uy - vy) * 32, (uz - vz) * 32);
+    } else {
+        setVector(&w->ahead[0], -(ux * 32), -(uy * 32), -(uz * 32));
+        setVector(&w->ahead[1], -((ux + vx) * 32), -((uy + vy) * 32), -((uz + vz) * 32));
+        setVector(&w->ahead[2], -((ux - vx) * 32), -((uy - vy) * 32), -((uz - vz) * 32));
+    }
+    gear = D_800AE8D0.gear;
+    setVector(&w->ahead[3], ux * gear >> 12, uy * gear >> 12, uz * gear >> 12);
+    setVector(&w->ahead[4], (ux + vx) * gear >> 12, (uy + vy) * gear >> 12, (uz + vz) * gear >> 12);
+    setVector(&w->ahead[5], (ux - vx) * gear >> 12, (uy - vy) * gear >> 12, (uz - vz) * gear >> 12);
+    w->hull[0].alert = w->hull[1].alert = w->hull[2].alert = w->hull[3].alert = 0x400;
+    w->hull[4].alert = w->hull[5].alert = w->hull[6].alert = w->hull[7].alert = w->hull[8].alert = w->hull[9].alert =
+        w->hull[10].alert = w->hull[11].alert = 0x500;
+    w->ahead[3].alert = w->ahead[0].alert = 1;
+    w->ahead[4].alert = w->ahead[1].alert = 8;
+    w->ahead[5].alert = w->ahead[2].alert = 4;
+
+    /* Each point's cell and depth. */
+    p = w->hull;
+    do {
+        x = ((p->vx << 6) + w->x) >> 12;
+        z = ((p->vz << 6) + w->z) >> 12;
+        x = (x + 0x800) / 64;
+        col = x < 0 ? 0 : x;
+        x = col < 64 ? col : 63;
+        z = (0x800 - z) / 64;
+        row = z < 0 ? 0 : z;
+        z = row < 64 ? row : 63;
+        p->cell = z * 64 + x;
+        p->h = ((p->vy << 6) + w->y) >> 12;
+    } while (++p <= &w->hull[11]);
+    /* The corners touching a cell on its way up, and any point under the floor. */
+    p = w->hull;
+    do {
+        if ((D_800B5F4C[p->cell].flags & 0x2000) && (D_800B5F4C[p->cell].flags & 0x1000) &&
+            !(D_800B5F4C[p->cell].flags & 0x8000) && p->h - D_800B5F4C[p->cell].target > -0x40 &&
+            p->h - D_800B5F4C[p->cell].target < 0) {
+            w->alerts |= p->alert & 0x400;
+        }
+        if (D_800B5F4C[p->cell].base < p->h) {
+            w->alerts |= p->alert & 0x100;
+        }
+    } while (++p <= &w->hull[11]);
+    /* The points ahead off the floor's edge or under it. */
+    p = w->ahead;
+    do {
+        x = (p->vx + w->x) >> 12;
+        z = (p->vz + w->z) >> 12;
+        x = (x + 0x800) / 64;
+        if (x < 0) {
+            w->alerts |= p->alert;
+            x = 0;
+        }
+        if (x >= 64) {
+            w->alerts |= p->alert;
+            x = 63;
+        }
+        z = (0x800 - z) / 64;
+        if (z < 0) {
+            w->alerts |= p->alert;
+            z = 0;
+        }
+        if (z >= 64) {
+            w->alerts |= p->alert;
+            z = 63;
+        }
+        p->cell = z * 64 + x;
+        p->h = (p->vy + w->y) >> 12;
+        if (D_800B5F4C[p->cell].base < p->h && D_800B5F4C[p->cell].base < w->y >> 12) {
+            w->alerts |= p->alert;
+        }
+    } while (++p <= &w->ahead[5]);
+    D_800AE8D0.alerts |= w->alerts;
+}
+#else
+INCLUDE_ASM("asm/overlay/submar/nonmatchings/submar", submar_probe_floor);
+#endif
 #ifdef NON_MATCHING
 /* Register choice and the order of the first loads. */
 void sub_800A9130(void)

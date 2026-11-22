@@ -943,10 +943,10 @@ recovered C. Details in §7.
 | `BATTLE/BATRES.X` (`src/overlay/batres.c`) | `0x801B0000`–`0x801B193C` | 19 functions in C; 2 parked |
 | `FIELD/ENDING.X` (`src/overlay/ending.c`) | `0x800A0030`–`0x800A3934` | 62 functions in C; the star field's two parked |
 | `MINI/JET.BIN` (`src/overlay/jet.c`) | `0x800A0450`–`0x800A8310` | 75 functions in C; 29 parked, and the six hand-written GTE routines after the data stay asm |
-| `MINI/SUBMAR.BIN` (`src/overlay/submar.c`) | `0x800A00BC`–`0x800AD330` | 64 functions: 12 in C, 46 more parked with their C, and 6 still asm (two copies each of `ratan2` and a vector normalise, and two large functions without GTE code) |
+| `MINI/SUBMAR.BIN` (`src/overlay/submar.c`) | `0x800A00BC`–`0x800AD330` | 64 functions: 12 in C, 48 more parked with their C, and 4 still asm (two copies each of `ratan2` and a vector normalise) |
 
 Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
-`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN` and 52 of `SUBMAR.BIN`, parked as
+`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN` and 52 of `SUBMAR.BIN`, parked or kept as
 asm (§7), and every other overlay: `BATTLE.X`, field, world, the other five mini-games, the 289 `MAGIC/*.BIN`
 effects, `BATTLE/TITLE.BIN` (probably the title screen).
 
@@ -1845,7 +1845,7 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   - Start pauses (sound `0x3B`). With `jet_aim_mode` 0, a debug mode no code sets, the pad moves the fog, a debug
     camera offset and the speed instead.
   - Checked in the lab: the ride from `--minigame 5` with the sight swept and ○ held in turns, 7,100 frames.
-- **`SUBMAR.BIN` is the submarine** (`src/overlay/submar.c`; partly recovered).
+- **`SUBMAR.BIN` is the submarine** (`src/overlay/submar.c`; all in C but libgte's code, most of it parked).
   - `submar_main(mode)` takes a mode of 0-5 (more reads as 5) and returns 1 when the mission is won. It reads two
     LZS-packed TIMs and the sound by sector, then the mode's mission file (`submar_load_mission`, six files): the sea
     floor's 64x64 heights, the settings (time limit, floor offset and depth, how many cells to raise, torpedo
@@ -1865,6 +1865,14 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     alerts (`submar_show_alerts`).
   - The HUD (`submar_update_hud`): depth and speed digits beside their scales, a compass strip that wraps across two
     sprites, gauges, the M:SS timer, and the score (`submar_set_score`: five digits, leading zeros blank).
+    `submar_init_hud` sets its primitives up once: icons are a draw mode merged with a sprite, text is runs of glyph
+    sprites linked one to the next; a bar shaded between two colours (`Gauge`), two meters whose textured quad
+    slides along them (`Meter`), and the HUD's two ordering tables (20 entries, whose last links on into the 8 after
+    it).
+  - Hitting the floor (`submar_probe_floor`, every fourth frame): twelve points around the hull and six along the
+    heading (a length ahead, and this frame's move) are worked out in the scratchpad from the sub's axes; a corner
+    inside a cell on its way up, or any point under the floor, sets an alert bit, and so does a point ahead off the
+    floor's edge or under it, one bit per direction.
   - It ends 1 (won: two counts of subs reach the mission's number, and the time left is kept as a bonus), 2 (the
     gauge at the player's `+0x10` is empty), 3 (the time limit passed) or 5 (quit); after 1-3 a countdown of 900
     vblanks (1,200 in modes 1-5) shows the result.
@@ -2227,7 +2235,7 @@ same set). They give the original module and file split, and the staff folders b
   symbol's own address goes through a register: the mission's settings, members at an offset, are reached directly,
   and the path array after them is a symbol of its own. Array loops are `do`/`while` (GCC here doesn't fold
   `&a < &a[n]` before the first pass), searches are `while (x != v) { i++; if (i >= n) break; }`, libgpu's
-  `getTPage` takes the TIM's `RECT` fields (short), and groups of three stores are `setVector`. Parked (46):
+  `getTPage` takes the TIM's `RECT` fields (short), and groups of three stores are `setVector`. Parked (48):
   register choice in most; `submar_camera_to_result` and `submar_update_hud` keep every load below the stores before
   it, which GCC here doesn't.
   - The GTE code is C around one-instruction asm statements, not libgte's macros: `gte_ctc2`/`gte_mtc2` take `"rJ"`
@@ -2239,7 +2247,15 @@ same set). They give the original module and file split, and the staff folders b
     `len << 24 | p << 8 >> 8` give its `lbu`/`sll`/`srl`; the camera's move as one struct gives its base register.
   - Matched: `sub_800A1DA0`, `sub_800A8124`, `submar_move_camera`. The two copies of `ratan2` divide without the
     checks this build adds, so they are library code built elsewhere, and stay asm with the two vector normalises
-    beside them. `sub_800A4D90` and `sub_800A8944` (no GTE code) are still asm.
+    beside them.
+  - `submar_init_hud` matches but for one block's order and registers. What got it there: each HUD group as the
+    struct the game reaches it through (one symbol, so offsets come from one base); the two ordering tables as two
+    arrays (the game loads each address on its own); a texture page computed into an `int` (assigned straight to a
+    `short` field, GCC narrows the loads); loops that step `p[1]` through a pointer while linking by index, which
+    gives the game's three pointers. A loop whose body uses `a[i + 1]` on an array doesn't get pointers at all here:
+    CSE gives `i + 1` to the increment, and loop.c no longer sees `i` as a counter.
+  - `submar_probe_floor`: a local pointer to the scratchpad gives the game's base register (constant addresses before
+    the first branch, the register after); a clamp `c = x < 0 ? 0 : x` into another variable gives its moves.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
