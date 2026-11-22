@@ -56,24 +56,24 @@ int main(void)
 
     /* overlay_switch_by_content */
     load(&a);
-    assert(module_call(START, 1, 0, 0, 0, 0, 0, 0, 2) == 0xA + 3);
+    assert(module_call(START, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0) == 0xA + 3);
     assert(mem_r32(SLOT) == (unsigned int)a_entry);
     load(&b);
-    assert(module_call(START, 1, 0, 0, 0, 0, 0, 0, 2) == 0xB + 3);
+    assert(module_call(START, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0) == 0xB + 3);
     assert(mem_r32(SLOT) == (unsigned int)b_entry);
 
     /* a code pointer the game set since stays as it is, and so does a data pointer it put in that word */
     mem_w32(SLOT, (unsigned int)a_entry);
-    module_call(START, 0, 0, 0, 0, 0, 0, 0, 0);
+    module_call(START, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     assert(mem_r32(SLOT) == (unsigned int)a_entry);
     mem_w32(SLOT, 0x80100000);
-    module_call(START, 0, 0, 0, 0, 0, 0, 0, 0);
+    module_call(START, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     assert(mem_r32(SLOT) == 0x80100000);
 
     /* modules_at_other_addresses: with b still at START, a call into the menu's address reaches the menu */
     memcpy((void *)MENU, c.signature, sizeof c.signature);
-    assert(module_call(MENU, 1, 0, 0, 0, 0, 0, 0, 2) == 0xC + 3);
-    assert(module_call(START, 1, 0, 0, 0, 0, 0, 0, 2) == 0xB + 3);
+    assert(module_call(MENU, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0) == 0xC + 3);
+    assert(module_call(START, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0) == 0xB + 3);
 
     /* same_signature_told_apart_by_hash */
     d_image[100] = 1;
@@ -83,9 +83,9 @@ int main(void)
     module_register(&d);
     module_register(&e);
     memcpy((void *)EFFECT, e_image, sizeof e_image);
-    assert(module_call(EFFECT, 1, 0, 0, 0, 0, 0, 0, 2) == 0xE + 3);
+    assert(module_call(EFFECT, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0) == 0xE + 3);
     memcpy((void *)EFFECT, d_image, sizeof d_image);
-    assert(module_call(EFFECT, 1, 0, 0, 0, 0, 0, 0, 2) == 0xD + 3);
+    assert(module_call(EFFECT, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0) == 0xD + 3);
     puts("ok");
     return 0;
 }

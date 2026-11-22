@@ -10,20 +10,7 @@
 #include "prims.h"
 #include "cd.h"
 #include "sound.h"
-
-/* libgte's (layouts from Sony's Libref). */
-typedef struct VECTOR {
-    int vx, vy, vz, pad;
-} VECTOR;
-
-typedef struct SVECTOR {
-    short vx, vy, vz, pad;
-} SVECTOR;
-
-typedef struct MATRIX {
-    short m[3][3];
-    int t[3];
-} MATRIX;
+#include "gte.h"
 
 typedef struct LINE_G2 {
     unsigned int tag;
@@ -214,83 +201,6 @@ void end_set_script(short *script);
 
 /* The script's next word. */
 #define ARG() (*end_op_pc++)
-
-/* The GTE's registers and commands, as libgte's inline macros load and run them. */
-#ifdef NATIVE
-/* The PC build runs them on its GTE (pc/gte.c), commands by their low 25 bits. */
-void gte_cmd(unsigned int op);
-unsigned int gte_read(int reg);
-void gte_write(int reg, unsigned int v);
-void gte_write_ctrl(int reg, unsigned int v);
-#define gte_SetRotMatrix(r)                                                                                            \
-    (gte_write_ctrl(0, ((unsigned int *)(r))[0]), gte_write_ctrl(1, ((unsigned int *)(r))[1]),                         \
-     gte_write_ctrl(2, ((unsigned int *)(r))[2]), gte_write_ctrl(3, ((unsigned int *)(r))[3]),                         \
-     gte_write_ctrl(4, ((unsigned int *)(r))[4]))
-#define gte_ldopv1(v)                                                                                                  \
-    (gte_write_ctrl(0, ((unsigned int *)(v))[0]), gte_write_ctrl(2, ((unsigned int *)(v))[1]),                         \
-     gte_write_ctrl(4, ((unsigned int *)(v))[2]))
-#define gte_ldopv2(v)                                                                                                  \
-    (gte_write(11, ((unsigned int *)(v))[2]), gte_write(9, ((unsigned int *)(v))[0]),                                  \
-     gte_write(10, ((unsigned int *)(v))[1]))
-#define gte_ldv0(v) (gte_write(0, ((unsigned int *)(v))[0]), gte_write(1, ((unsigned int *)(v))[1]))
-#define gte_op12() gte_cmd(0x178000C)
-#define gte_rtv0() gte_cmd(0x486012)
-#define gte_stlvnl(v)                                                                                                  \
-    (((unsigned int *)(v))[0] = gte_read(25), ((unsigned int *)(v))[1] = gte_read(26),                                 \
-     ((unsigned int *)(v))[2] = gte_read(27))
-#else
-#define gte_SetRotMatrix(r)                                                                                            \
-    __asm__ volatile("move $12, %0\n"                                                                                  \
-                     "lw $13, 0($12)\n"                                                                                \
-                     "lw $14, 4($12)\n"                                                                                \
-                     "ctc2 $13, $0\n"                                                                                  \
-                     "ctc2 $14, $1\n"                                                                                  \
-                     "lw $13, 8($12)\n"                                                                                \
-                     "lw $14, 12($12)\n"                                                                               \
-                     "lw $15, 16($12)\n"                                                                               \
-                     "ctc2 $13, $2\n"                                                                                  \
-                     "ctc2 $14, $3\n"                                                                                  \
-                     "ctc2 $15, $4"                                                                                    \
-                     :                                                                                                 \
-                     : "r"(r)                                                                                          \
-                     : "$12", "$13", "$14", "$15")
-#define gte_ldopv1(v)                                                                                                  \
-    __asm__ volatile("move $12, %0\n"                                                                                  \
-                     "lw $13, 0($12)\n"                                                                                \
-                     "lw $14, 4($12)\n"                                                                                \
-                     "ctc2 $13, $0\n"                                                                                  \
-                     "lw $15, 8($12)\n"                                                                                \
-                     "ctc2 $14, $2\n"                                                                                  \
-                     "ctc2 $15, $4"                                                                                    \
-                     :                                                                                                 \
-                     : "r"(v)                                                                                          \
-                     : "$12", "$13", "$14", "$15")
-#define gte_ldopv2(v)                                                                                                  \
-    __asm__ volatile("move $12, %0\n"                                                                                  \
-                     "lwc2 $11, 8($12)\n"                                                                              \
-                     "lwc2 $9, 0($12)\n"                                                                               \
-                     "lwc2 $10, 4($12)"                                                                                \
-                     :                                                                                                 \
-                     : "r"(v)                                                                                          \
-                     : "$12")
-#define gte_ldv0(v)                                                                                                    \
-    __asm__ volatile("move $12, %0\n"                                                                                  \
-                     "lwc2 $0, 0($12)\n"                                                                               \
-                     "lwc2 $1, 4($12)"                                                                                 \
-                     :                                                                                                 \
-                     : "r"(v)                                                                                          \
-                     : "$12")
-#define gte_op12() __asm__ volatile("nop\n nop\n .word 0x4B78000C")
-#define gte_rtv0() __asm__ volatile("nop\n nop\n .word 0x4A486012")
-#define gte_stlvnl(v)                                                                                                  \
-    __asm__ volatile("move $12, %0\n"                                                                                  \
-                     "swc2 $25, 0($12)\n"                                                                              \
-                     "swc2 $26, 4($12)\n"                                                                              \
-                     "swc2 $27, 8($12)"                                                                                \
-                     :                                                                                                 \
-                     : "r"(v)                                                                                          \
-                     : "$12", "memory")
-#endif
 
 /* Uploads the field being drawn of the 640x480 logo at 0x80100000, a line at a time, into end_logo's odd. */
 #define END_LOGO_UPLOAD()                                                                                              \

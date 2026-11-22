@@ -9,8 +9,8 @@ first and decompilation keeps replacing parts of it.
 The main exe is mostly C (boot, sound driver, CD layer, movie player), and so are all 13 menu modules
 (`MENU/*.MNU`: the field menu and its screens, the shops and the save screens; 20 functions parked as asm), the
 game over screen in `FIELD/DSCHANGE.X` (its disc prompt parked), the battle's setup and results, `BATTLE/BATINI.X`
-and `BATRES.X` (7 functions parked), and the logo and credits in `FIELD/ENDING.X` (its star field parked). Outside them,
-nothing is recovered:
+and `BATRES.X` (7 functions parked), the logo and credits in `FIELD/ENDING.X` (its star field parked) and the Speed
+Square, `MINI/JET.BIN` (29 functions parked). Outside them, nothing is recovered:
 
 | Module | Unpacked |
 |---|---|
@@ -41,6 +41,13 @@ nothing is recovered:
    - The menus are the first whole modules done this way: the PC build compiles their C in place of the recompiled
      code, with the parked functions still recompiled. Their C, the parked functions' non-matching C and the fully
      recompiled modules give the same traces, screens and save data on scripted runs through each module's screens.
+   - A call into a module's recompiled code passes a0-a3 and the ten stack words a MIPS function can read (`JET.BIN`
+     has functions of 11 arguments). Decompiled C that keeps a pointer from the game's hand-written GTE code sets
+     bit 31 on it (`KSEG0`): those routines return 24-bit addresses, which the PS1 reads through RAM's mirror at 0,
+     and only recompiled code folds that mirror.
+   - The Speed Square with `jet.c` gives the same traces as fully recompiled, and its ride starts a frame sooner: the
+     start is timed in vblanks (`VSync(-1)`), PS1 time advances with polls, and recompiled loops poll on every
+     backward branch where native C doesn't, so a frame of C passes less PS1 time.
 
 3. **Hardware where the PS1's behaviour is the point, libraries where the PC should differ.**
    - Emulated, so Sony's library code runs as compiled: the **GPU** (GP0/GP1 commands and DMA into 1024×512 VRAM),

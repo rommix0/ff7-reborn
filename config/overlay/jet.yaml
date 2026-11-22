@@ -1,0 +1,53 @@
+# splat config for MINI/JET.BIN, the Speed Square, run at 0x800A0000 in the field's place. The disc's file is
+# packed; this is it unpacked (JET.BIN.dec). Started from tools/module_yaml.py's.
+name: JET.BIN
+sha1: 46a9f4dd9071786adedc169b0e5463874b1f965a
+options:
+  basename: jet
+  target_path: disks/MINI/JET.BIN.dec
+  base_path: ../..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm/overlay/jet
+  src_path: src/overlay
+  build_path: build
+  ld_script_path: build/overlay/jet.ld
+  undefined_funcs_auto_path: build/overlay/jet_undefined_funcs_auto.txt
+  undefined_syms_auto_path: build/overlay/jet_undefined_syms_auto.txt
+  symbol_addrs_path:
+    - config/symbols.main.txt
+    - config/symbols.main.psyq.txt
+    - config/symbols.jet.txt
+
+  find_file_boundaries: False
+  gp_value: 0x80062D44
+  o_as_suffix: True
+  use_legacy_include_asm: False
+  generate_asm_macros_files: False
+  section_order: [".rodata", ".text", ".data", ".bss"]
+  subalign: 4
+  ld_align_section_vram_end: False
+  ld_align_segment_vram_end: False
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+segments:
+  - name: jet
+    type: code
+    start: 0
+    vram: 0x800A0000
+    subsegments:
+      - [0x0, .rodata, jet]
+      - [0x450, c, jet]
+      - [0x8310, data]
+  # Hand-written GTE routines after the data, with no stack frames.
+  - name: jet_gte
+    type: code
+    start: 0x83F0
+    vram: 0x800A83F0
+    subsegments:
+      - [0x83F0, asm, jet_gte]
+  - [0x8918]

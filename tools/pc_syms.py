@@ -67,11 +67,10 @@ def main():
     args.out.write_text("".join(lines))
     if args.stubs:
         args.stubs.parent.mkdir(parents=True, exist_ok=True)
-        args.stubs.write_text("int module_call(unsigned int addr, int a0, int a1, int a2, int a3, int a4, int a5, int a6,"
-                              " int a7);\n" + "".join(
-                                  f"int {n}(int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7)\n"
-                                  f"{{\n    return module_call({a:#010x}, a0, a1, a2, a3, a4, a5, a6, a7);\n}}\n"
-                                  for n, a in modules))
+        params = ", ".join(f"int a{i}" for i in range(14))
+        values = ", ".join(f"a{i}" for i in range(14))
+        args.stubs.write_text(f"int module_call(unsigned int addr, {params});\n" + "".join(
+            f"int {n}({params})\n{{\n    return module_call({a:#010x}, {values});\n}}\n" for n, a in modules))
 
 
 if __name__ == "__main__":

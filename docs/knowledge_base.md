@@ -942,10 +942,12 @@ recovered C. Details in §7.
 | `BATTLE/BATINI.X` (`src/overlay/batini.c`) | `0x801B0050`–`0x801B27B4` | 22 functions in C; 5 parked |
 | `BATTLE/BATRES.X` (`src/overlay/batres.c`) | `0x801B0000`–`0x801B193C` | 19 functions in C; 2 parked |
 | `FIELD/ENDING.X` (`src/overlay/ending.c`) | `0x800A0030`–`0x800A3934` | 62 functions in C; the star field's two parked |
+| `MINI/JET.BIN` (`src/overlay/jet.c`) | `0x800A0450`–`0x800A8310` | 75 functions in C; 29 parked, and the six hand-written GTE routines after the data stay asm |
 
 Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
-`BATINI.X` and `BATRES.X` and `ENDING.X`'s star field, parked as asm (§7), and every other overlay: `BATTLE.X`, field,
-world, mini-games, the 289 `MAGIC/*.BIN` effects, `BATTLE/TITLE.BIN` (probably the title screen).
+`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field and 29 functions of `JET.BIN`, parked as asm (§7), and every other
+overlay: `BATTLE.X`, field, world, the other six mini-games, the 289 `MAGIC/*.BIN` effects, `BATTLE/TITLE.BIN`
+(probably the title screen).
 
 ### PC vs PS1
 
@@ -1817,6 +1819,31 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     pad's buttons move a view that nothing reads).
   - Checked in the lab: the boot to frame 9600, with and without ○ during the opening credits, the same screen for
     screen as the recompiled module. The ending's credits and its star field can't be reached from the lab.
+- **`JET.BIN` is the Speed Square** (`src/overlay/jet.c`), the Gold Saucer's shooting ride.
+  - `jet_load` reads four files by sector (the table `jet_files`): `TEXADR.BIN` (where the TIMs are) into
+    `jet_tims`, `TEX.BIN`'s nine TIMs to `0x800F0000` (uploaded, then twelve tpages and CLUTs), `XBINADR.BIN` into
+    `jet_parts` (17 pointers) and `XBIN2.BIN`, LZS-packed, to `0x800F0000` over them: the track and everything on it.
+  - The ride is a 16.16 place along the track (`jet_track_t`), moved by `jet_speed` each frame. `jet_track_point`
+    lerps two rails and a rotation between keys and lifts the point along the track's normal; the camera rides 100
+    units above it, and its pitch slows or speeds the ride (`rsin / 15`, within `0xA7F8`–`0x1D4BF`).
+  - The track streams in by segments of `1 << 18`: lists of faces (shaded triangles, drawn by hand-written GTE
+    code with depth cueing) and of lights to add and drop, ended by `0xFFFF`, kept in two linked lists (12,000 and
+    9,000 links).
+  - Targets: a pool of 100 (`jet_targets`, `0x13C` bytes each, at most 99 at once), placed by segment from the
+    track file's records (a kind, a model, a path and 20 parameters). `jet_update_targets` runs each by its kind
+    (27 of them): along a path of keys (looping or not, some turned to face along it), swinging, falling, rising
+    and bursting, debris tumbling away, spawners, still ones, a bonus that flies at the camera (5 points off if it
+    gets away), the ride's speed set by kinds 254 and 255, and the fades in (252) and out (253; it ends the ride).
+  - Aiming and firing: the d-pad moves the sight 5 pixels a frame (kept on the 320x240 screen), ○ fires both guns
+    (lasers from the muzzles, which two triangles of model 79 give on screen). Firing heats the guns (`jet_heat`,
+    128 when cold, down to 8, back up when not firing), and a hit takes `heat >> 5` (at least 1) from the target's
+    life. A target is hit when the sight is inside the screen box of its bounding box's six face centres while
+    firing and it is in front of the two view planes (`jet_init_planes`, through the screen's corners).
+  - A destroyed target adds its score (to 9,999), bursts into debris (3 or 100 pieces), spins or shows the bonus: the
+    model turning in a corner with its points for 100 frames, blinking for the last 50.
+  - Start pauses (sound `0x3B`). With `jet_aim_mode` 0, a debug mode no code sets, the pad moves the fog, a debug
+    camera offset and the speed instead.
+  - Checked in the lab: the ride from `--minigame 5` with the sight swept and ○ held in turns, 7,100 frames.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2152,6 +2179,17 @@ same set). They give the original module and file split, and the staff folders b
   GCC loads the script's address before the stores. Parked: `end_op_stars` (one instruction short: the game loads
   the array's address once for both the star and its place) and `end_op_stars_frame` (the target's stores and two
   registers).
+- **`JET.BIN`** is GCC 2.6.3 with ASPSX 2.21 and its divide checks, at `-G0`, and with `-fforce-addr`: any global used
+  twice in a function is reached through its address in a register (`la`), scalar or not, and an offset-0 member of a
+  struct the same way; that is the only module so far built so. Others: an `extern` struct or array shares no
+  address with its neighbours (GCC derives one member's address from another's in the same symbol), the plane
+  distances are `inline` functions (2.6.3 puts a loaded operand of a multiply last unless it is in a variable), as
+  are the path select, the despawn and the place helpers, which only later functions inline; a block-local
+  declaration at a loop's top keeps GCC from copying its exit test before it (the main loop, the stream lists).
+  The GTE command macros clobber memory (the game reloads the matrix pointers after each), and `CompMatrix`'s
+  translation is stored from IR1-3. The six routines after the data are a second splat segment of asm. Parked (29):
+  register choice in most; `jet_update_targets` (2,312 instructions, 18 short: GCC merges the kinds' shared tails
+  into other cases than the game's); `jet_draw_target` (GCC narrows the points' loads to halfwords).
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2512,7 +2550,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   | 2 | 8 | `SNOBO.BIN` | `func_800A0390` | the snowboard down to the Great Glacier |
   | 3 | 9 | `CONDOR.BIN` | `func_800B6B58` | Fort Condor |
   | 4 | 10 | `SUBMAR.BIN` | `func_800A00BC` | the submarine (its result to `0x8009D5E6`) |
-  | 5 | 11 | `JET.BIN` | `func_800A0450` | the Speed Square (its score to `0x8009D3EA`) |
+  | 5 | 11 | `JET.BIN` | `jet_main` | the Speed Square (its score to `0x8009D3EA`) |
   | 6 | 14 | `SNOBO2.BIN` | `func_800A0448` | the Gold Saucer snowboard |
 
   - In the lab, `--minigame N` asks for one from the field that's up. All seven start from the opening field and draw;

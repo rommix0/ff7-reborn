@@ -40,7 +40,10 @@ typedef struct Module {
 unsigned int code_hash(const void *code, unsigned int size); /* FNV-1a */
 void module_register(const Module *m);
 void *module_function(unsigned int addr); /* the loaded module's function at addr, or 0 */
-int module_call(unsigned int addr, int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7);
+/* A loaded module's function by its game address, with a0-a3 and the ten words a MIPS callee finds above
+ * its $sp. */
+int module_call(unsigned int addr, int a0, int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9,
+                int a10, int a11, int a12, int a13);
 void pc_vblank(void);                     /* the PC build's once-a-frame hook (main.c) */
 void pc_audio(const short *lr, int frames); /* the SPU's 44.1 kHz stereo out (sdl.c) */
 
