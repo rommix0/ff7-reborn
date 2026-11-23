@@ -18,7 +18,7 @@ MENUS := chngmenu patymenu bginmenu limtmenu statmenu cnfgmenu formmenu namemenu
 # The other overlays being decompiled, as name:file, each with its splat config in config/overlay.
 OVERLAYS := dschange:FIELD/DSCHANGE.X ending:FIELD/ENDING.X batini:BATTLE/BATINI.X.dec batres:BATTLE/BATRES.X.dec \
 	jet:MINI/JET.BIN.dec submar:MINI/SUBMAR.BIN.dec \
-	highway:MINI/HIGHWAY.BIN.dec
+	highway:MINI/HIGHWAY.BIN.dec chocobo:MINI/CHOCOBO.BIN.dec
 # Every module the build relinks, as its config's path:the file it rebuilds.
 MODULES := $(foreach m,$(MENUS),menu/$(m):MENU/$(shell echo $(m) | tr a-z A-Z).MNU) $(addprefix overlay/,$(OVERLAYS))
 MODULE_FILES := $(foreach m,$(MODULES),build/$(word 2,$(subst :, ,$(m))))
@@ -100,6 +100,7 @@ build/src/%.o: src/%.c
 	@mkdir -p $(dir $@)
 	cpp -P -undef -nostdinc -D__GNUC__=2 -Iinclude $< > build/src/$*.i
 	toolchain/gcc-$(GCC)/cc1 -quiet $(CFLAGS) build/src/$*.i -o build/src/$*.s
+	$(if $(JTBL_ALIGN),$(PYTHON) tools/jtbl_align.py build/src/$*.s)
 	$(PYTHON) toolchain/maspsx/maspsx.py --aspsx-version=$(ASPSX) $(MASPSXFLAGS) < build/src/$*.s > build/src/$*.ms
 	$(CROSS)as $(ASFLAGS) build/src/$*.ms -o $@
 
@@ -212,6 +213,19 @@ build/src/overlay/highway.o: ASPSX = 2.21
 build/src/overlay/highway.o: GCC = 2.6.3
 build/src/overlay/highway.o: MASPSXFLAGS = --expand-div
 build/src/overlay/highway.o: CFLAGS = -O2 -G0
+# CHOCOBO.BIN is four objects. The main loop and the race: GCC 2.7.2 at -G0 with -fforce-addr and loops unrolled,
+# ASPSX 2.56 (`li` as `addiu`, indexed loads folded into `%lo`) with its divide checks, and the jump tables aligned as
+# its assembler did. The setup between them: the same at plain -O2 -G0. The figure code: HIGHWAY.BIN's toolchain.
+build/src/overlay/chocobo.o build/src/overlay/chocobo_race.o: ASPSX = 2.56
+build/src/overlay/chocobo.o build/src/overlay/chocobo_race.o: MASPSXFLAGS = --expand-div
+build/src/overlay/chocobo.o build/src/overlay/chocobo_race.o: CFLAGS = -O2 -G0 -fforce-addr -funroll-loops
+build/src/overlay/chocobo.o build/src/overlay/chocobo_race.o: JTBL_ALIGN = 1
+build/src/overlay/chocobo_init.o: ASPSX = 2.56
+build/src/overlay/chocobo_init.o: MASPSXFLAGS = --expand-div
+build/src/overlay/chocobo_figure.o: ASPSX = 2.21
+build/src/overlay/chocobo_figure.o: GCC = 2.6.3
+build/src/overlay/chocobo_figure.o: MASPSXFLAGS = --expand-div
+build/src/overlay/chocobo_figure.o: CFLAGS = -O2 -G0
 # BATRES.X: ASPSX 2.34 (indexed loads fold into `%lo`) with its divide checks, like NAMEMENU's level-up code.
 build/src/overlay/batres.o: ASPSX = 2.34
 build/src/overlay/batres.o: MASPSXFLAGS = --expand-div
@@ -395,6 +409,7 @@ PC_GAME += $(foreach m,$(MENUS),build/pc/game/menu/$(m).o) $(if $(filter namemen
 	$(if $(filter savemenu,$(MENUS)),build/pc/game/menu/savecard.o build/pc/game/menu/saveload.o) \
 	$(if $(filter eqipmenu,$(MENUS)),build/pc/game/menu/eqipmateria.o)
 PC_GAME += $(foreach o,$(OVERLAYS),build/pc/game/overlay/$(firstword $(subst :, ,$(o))).o)
+PC_GAME += $(addprefix build/pc/game/overlay/,chocobo_init.o chocobo_race.o chocobo_figure.o)
 PC_RUNTIME := $(addprefix build/pc/obj/,main.o memory.o exe.o dispatch.o bios.o hw.o mdec.o spu.o gpu.o buttons.o gte.o display.o cd_native.o sdl.o controls.o lab.o card.o)
 build/pc/obj/sdl.o build/pc/obj/controls.o: PC_CFLAGS += $(PC_SDL_CFLAGS)
 build/pc/ff7.native: $(PC_GAME) $(PC_RUNTIME)

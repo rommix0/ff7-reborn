@@ -10,8 +10,8 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player), and so ar
 (`MENU/*.MNU`: the field menu and its screens, the shops and the save screens; 20 functions parked as asm), the
 game over screen in `FIELD/DSCHANGE.X` (its disc prompt parked), the battle's setup and results, `BATTLE/BATINI.X`
 and `BATRES.X` (7 functions parked), the logo and credits in `FIELD/ENDING.X` (its star field parked) and the Speed
-Square, `MINI/JET.BIN` (29 functions parked), the submarine, `MINI/SUBMAR.BIN` (12 of its functions; 48 parked) and the motorcycle chase,
-`MINI/HIGHWAY.BIN` (108 of its functions; 21 parked).
+Square, `MINI/JET.BIN` (29 functions parked), the submarine, `MINI/SUBMAR.BIN` (12 of its functions; 48 parked), the motorcycle chase,
+`MINI/HIGHWAY.BIN` (108 of its functions; 21 parked) and the chocobo race, `MINI/CHOCOBO.BIN` (35; 17 parked).
 Outside them, nothing is recovered:
 
 | Module | Unpacked |
@@ -59,6 +59,8 @@ Outside them, nothing is recovered:
      presses. Built with its parked C it gives the same traces and screens as with only its matching C. A racer
      not out yet has a null frame pointer, which the game reads through (low RAM on the PS1): the C reads it as
      `KSEG0(p)` (`common.h`).
+   - The chocobo race with `chocobo*.c` gives the same traces and screens as fully recompiled, the betting and a
+     whole race; built with its parked C (all 52 functions native) the same again.
    - C that calls `rand` or `srand` gets the game's own (`common.h` maps them to the recompiled `psx_rand` and
      `psx_srand`), not the host C library's.
 

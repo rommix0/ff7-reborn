@@ -68,6 +68,14 @@ typedef struct SPRT_8 {
     unsigned short clut;
 } SPRT_8;
 
+typedef struct SPRT_16 {
+    unsigned int tag;
+    unsigned char r0, g0, b0, code;
+    short x0, y0;
+    unsigned char u0, v0;
+    unsigned short clut;
+} SPRT_16;
+
 typedef struct POLY_G4 {
     unsigned int tag;
     unsigned char r0, g0, b0, code;

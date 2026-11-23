@@ -945,10 +945,11 @@ recovered C. Details in §7.
 | `MINI/JET.BIN` (`src/overlay/jet.c`) | `0x800A0450`–`0x800A8310` | 75 functions in C; 29 parked, and the six hand-written GTE routines after the data stay asm |
 | `MINI/SUBMAR.BIN` (`src/overlay/submar.c`) | `0x800A00BC`–`0x800AD330` | 64 functions: 12 in C, 48 more parked with their C, and 4 still asm (two copies each of `ratan2` and a vector normalise) |
 | `MINI/HIGHWAY.BIN` (`src/overlay/highway.c`) | `0x800A00D0`–`0x800B41C8` | 136 functions: 108 in C, 21 more parked with their C, and the seven hand-written drawers at the end still asm |
+| `MINI/CHOCOBO.BIN` (`src/overlay/chocobo*.c`) | `0x800A02D0`–`0x800B1250` | 52 functions in four objects: 35 in C, 17 more parked with their C |
 
 Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
-`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN`, 52 of `SUBMAR.BIN` and 28 of
-`HIGHWAY.BIN`, parked or kept as asm (§7), and every other overlay: `BATTLE.X`, field, world, the other four mini-games, the 289 `MAGIC/*.BIN`
+`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN`, 52 of `SUBMAR.BIN`, 28 of
+`HIGHWAY.BIN` and 17 of `CHOCOBO.BIN`, parked or kept as asm (§7), and every other overlay: `BATTLE.X`, field, world, the other three mini-games, the 289 `MAGIC/*.BIN`
 effects, `BATTLE/TITLE.BIN` (probably the title screen).
 
 ### PC vs PS1
@@ -1900,6 +1901,21 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   - Riders (`Rider`, 0x180 bytes, six at `0x800B4F4C`): ten frames each and the bike's state; a racer not out yet has
     no frames. A hit takes from a party gauge, and an emptied gauge passes the rest of the hit to the next.
   - Checked in the lab: `--minigame 0`, 9,000 frames of steering and swings either way.
+- **`CHOCOBO.BIN` is the chocobo race** (`src/overlay/chocobo*.c`, sharing `chocobo.h`; 17 functions parked). It
+  links four objects: the main loop (`chocobo.c`), the setup (`chocobo_init.c`), the race (`chocobo_race.c`) and
+  `HIGHWAY.BIN`'s figure code (`chocobo_figure.c`: jointed figures posed, projected, scaled and tinted; the same
+  instructions, its globals at other addresses).
+  - `chocobo_main` sets up (the race's state, textures and course files into `0x80110000` and `0x80190000`, sound,
+    the figures, the racers), runs the betting when the player only watches (`chocobo_bet`: a 5x3 board of tickets,
+    each a pair of racers with a prize behind it, three bought with gil), then each frame: the pad, the racers, the
+    camera, the course and its props, the HUD (standings, course map, stamina), the fade; then ranks whoever has not
+    finished and shows the results (`chocobo_results`, the winning ticket's prize given).
+  - The course file is a list of segments (`Segment`, 0x18 bytes: two edges across the track, then the camera shot,
+    prop, sound and background each sets off), with its scenery's triangles, quads and billboards.
+  - Racers (`Racer`, 0xA4 bytes, seven at `0x800B75CC`: the six chocobos, then the camera's record): each runs
+    along the segments (`chocobo_move_racer`), slowed by the ground its mask picks, running or dashing (its stamina spent by the dash);
+    items (1-13) boost or cut speed and stamina (`chocobo_use_item`).
+  - Checked in the lab: `--minigame 1`, the betting screen then a whole race, 9,000 frames.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2281,6 +2297,17 @@ same set). They give the original module and file split, and the staff folders b
   frame) and `highway_pose_figure` (`sub`, not `subu`) are hand-written in GCC's calling style, so they stay asm
   with C for the PC. The seven drawers after them (`highway_draw_g3_list` and the like) have no prologue and use
   `add`/`sub`; they stay asm with no C.
+- **`CHOCOBO.BIN`** links four objects built three ways. The main loop and the race: GCC 2.7.2 at `-G0` with
+  `-fforce-addr` and `-funroll-loops` (racer loops unrolled by 3, a sort by 4), ASPSX 2.56 (`li` as `addiu`, indexed
+  loads folded into `%lo`) with its divide checks. The setup between them: the same at plain `-O2 -G0` (its loops not
+  unrolled). The figure code after them: `HIGHWAY.BIN`'s GCC 2.6.3 and ASPSX 2.21. Its assembler placed a
+  function's jump tables 8 apart from the function's first table, which itself sits only on a word
+  (`jtbl_800A0034`); GCC 2.7.2 puts each under `.align 3`, so `tools/jtbl_align.py` rewrites them before maspsx. The
+  HUD's sprites (`D_800A01B8`) sit in rodata before an earlier function's jump tables, so splat leaves them out and
+  the C defines them. `chocobo_yaw_from_dir` is a non-static `inline` that `chocobo_yaw_between` inlines. Parked (17):
+  register choice and scheduling; in three (`chocobo_init_racers`, `chocobo_bet`, `chocobo_results`) GCC keeps
+  `&D_800B66CC` in a register where the game reaches it by `%hi`/`%lo` at each use. The figure code's two
+  hand-written functions are parked as in `HIGHWAY.BIN`.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2637,7 +2664,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   | # | Mode | File | Entry | Game |
   |---|---|---|---|---|
   | 0 | 6 | `HIGHWAY.BIN` | `highway_main` | the motorcycle chase |
-  | 1 | 7 | `CHOCOBO.BIN` | `func_800A02D0` | the chocobo races |
+  | 1 | 7 | `CHOCOBO.BIN` | `chocobo_main` | the chocobo races |
   | 2 | 8 | `SNOBO.BIN` | `func_800A0390` | the snowboard down to the Great Glacier |
   | 3 | 9 | `CONDOR.BIN` | `func_800B6B58` | Fort Condor |
   | 4 | 10 | `SUBMAR.BIN` | `submar_main` | the submarine (its result to `0x8009D5E6`) |
