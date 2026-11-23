@@ -7,59 +7,6 @@
 #include "sound.h"
 #include "gte.h"
 
-/* libgpu's primitives that only JET.BIN uses (layouts from Sony's Libref). */
-typedef struct POLY_F3 {
-    unsigned int tag;
-    unsigned char r0, g0, b0, code;
-    short x0, y0, x1, y1, x2, y2;
-} POLY_F3;
-
-typedef struct POLY_F4 {
-    unsigned int tag;
-    unsigned char r0, g0, b0, code;
-    short x0, y0, x1, y1, x2, y2, x3, y3;
-} POLY_F4;
-
-typedef struct POLY_G3 {
-    unsigned int tag;
-    unsigned char r0, g0, b0, code;
-    short x0, y0;
-    unsigned char r1, g1, b1, pad1;
-    short x1, y1;
-    unsigned char r2, g2, b2, pad2;
-    short x2, y2;
-} POLY_G3;
-
-typedef struct POLY_FT3 {
-    unsigned int tag;
-    unsigned char r0, g0, b0, code;
-    short x0, y0;
-    unsigned char u0, v0;
-    unsigned short clut;
-    short x1, y1;
-    unsigned char u1, v1;
-    unsigned short tpage;
-    short x2, y2;
-    unsigned char u2, v2;
-    unsigned short pad1;
-} POLY_FT3;
-
-typedef struct POLY_GT3 {
-    unsigned int tag;
-    unsigned char r0, g0, b0, code;
-    short x0, y0;
-    unsigned char u0, v0;
-    unsigned short clut;
-    unsigned char r1, g1, b1, p1;
-    short x1, y1;
-    unsigned char u1, v1;
-    unsigned short tpage;
-    unsigned char r2, g2, b2, p2;
-    short x2, y2;
-    unsigned char u2, v2;
-    unsigned short pad2;
-} POLY_GT3;
-
 /* A frame's primitives, one array of each kind, and the next free one in each. */
 typedef struct JetPrims {
     void *next[9];
@@ -349,12 +296,7 @@ void OuterProduct0(VECTOR *v0, VECTOR *v1, VECTOR *v2);
 int VectorNormal(VECTOR *v0, VECTOR *v1);
 
 /* The hand-written routines after the data. The drawers hand back the next free primitive as a 24-bit address
- * (KUSEG, which the PS1 maps onto RAM); the PC's C reaches RAM only at 0x80000000. */
-#ifdef NATIVE
-#define KSEG0(p) ((void *)((unsigned int)(p) | 0x80000000))
-#else
-#define KSEG0(p) (p)
-#endif
+ * (KUSEG, which the PS1 maps onto RAM), hence KSEG0. */
 void jet_project9(SVECTOR *v, unsigned int *sxy);
 void jet_project3(SVECTOR *v, unsigned int *sxy);
 void *jet_draw_model(DrawArgs *a);

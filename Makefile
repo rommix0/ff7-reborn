@@ -17,7 +17,8 @@ OBJS := $(shell grep -o 'build/[^ ()]*\.o' build/main.ld 2>/dev/null | sort -u)
 MENUS := chngmenu patymenu bginmenu limtmenu statmenu cnfgmenu formmenu namemenu mgicmenu itemmenu shopmenu savemenu eqipmenu
 # The other overlays being decompiled, as name:file, each with its splat config in config/overlay.
 OVERLAYS := dschange:FIELD/DSCHANGE.X ending:FIELD/ENDING.X batini:BATTLE/BATINI.X.dec batres:BATTLE/BATRES.X.dec \
-	jet:MINI/JET.BIN.dec submar:MINI/SUBMAR.BIN.dec
+	jet:MINI/JET.BIN.dec submar:MINI/SUBMAR.BIN.dec \
+	highway:MINI/HIGHWAY.BIN.dec
 # Every module the build relinks, as its config's path:the file it rebuilds.
 MODULES := $(foreach m,$(MENUS),menu/$(m):MENU/$(shell echo $(m) | tr a-z A-Z).MNU) $(addprefix overlay/,$(OVERLAYS))
 MODULE_FILES := $(foreach m,$(MODULES),build/$(word 2,$(subst :, ,$(m))))
@@ -206,6 +207,11 @@ build/src/overlay/submar.o: ASPSX = 2.21
 build/src/overlay/submar.o: GCC = 2.6.3
 build/src/overlay/submar.o: MASPSXFLAGS = --expand-div
 build/src/overlay/submar.o: CFLAGS = -O2 -G0 -fforce-addr
+# HIGHWAY.BIN: the same, but without -fforce-addr (it reloads globals by %hi/%lo every time).
+build/src/overlay/highway.o: ASPSX = 2.21
+build/src/overlay/highway.o: GCC = 2.6.3
+build/src/overlay/highway.o: MASPSXFLAGS = --expand-div
+build/src/overlay/highway.o: CFLAGS = -O2 -G0
 # BATRES.X: ASPSX 2.34 (indexed loads fold into `%lo`) with its divide checks, like NAMEMENU's level-up code.
 build/src/overlay/batres.o: ASPSX = 2.34
 build/src/overlay/batres.o: MASPSXFLAGS = --expand-div
@@ -287,6 +293,8 @@ build/pc/game/sound_init.o build/pc/game/loader.o build/pc/game/random.o build/p
 	build/pc/game/menu.o build/pc/game/menu_util.o build/pc/game/menu_text.o: PC_CFLAGS += -fcommon
 # The game reads a materia's bonus unset when no level has one, and always on Enemy Away's detail page.
 build/pc/game/materia_own.o: PC_CFLAGS += -Wno-maybe-uninitialized
+# HIGHWAY.BIN calls the exe's csqrt (an integer square root), not the host's complex one.
+build/pc/game/overlay/highway.o: PC_CFLAGS += -fno-builtin-csqrt
 build/pc/obj/%.o: pc/%.c pc/memory.h pc/recomp.h pc/gpu.h pc/cd_native.h pc/controls.h
 	@mkdir -p $(dir $@)
 	$(PC_CC) $(PC_CFLAGS) -c $< -o $@

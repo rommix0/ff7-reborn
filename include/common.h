@@ -43,4 +43,12 @@ void ps1_stack_give(unsigned int size);
 #define DMA_BUFFER_END(size)
 #endif
 
+/* A KUSEG address (0x00xxxxxx, which the PS1 maps onto RAM, a null pointer included) as RAM: the PC's C reaches RAM
+ * only at 0x80000000. */
+#ifdef NATIVE
+#define KSEG0(p) ((void *)((unsigned int)(p) | 0x80000000))
+#else
+#define KSEG0(p) (p)
+#endif
+
 #endif

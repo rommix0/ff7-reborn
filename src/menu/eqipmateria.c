@@ -26,21 +26,6 @@ typedef struct VECTOR {
     int vx, vy, vz, pad;
 } VECTOR;
 
-/* libgpu's textured triangle. */
-typedef struct POLY_FT3 {
-    unsigned int tag;
-    unsigned char r0, g0, b0, code;
-    short x0, y0;
-    unsigned char u0, v0;
-    unsigned short clut;
-    short x1, y1;
-    unsigned char u1, v1;
-    unsigned short tpage;
-    short x2, y2;
-    unsigned char u2, v2;
-    unsigned short pad1;
-} POLY_FT3;
-
 /* A polygon as libgs's TMD reader returns it. */
 typedef struct TMD_PRIM {
     unsigned int id;

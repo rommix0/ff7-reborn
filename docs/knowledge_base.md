@@ -944,10 +944,11 @@ recovered C. Details in §7.
 | `FIELD/ENDING.X` (`src/overlay/ending.c`) | `0x800A0030`–`0x800A3934` | 62 functions in C; the star field's two parked |
 | `MINI/JET.BIN` (`src/overlay/jet.c`) | `0x800A0450`–`0x800A8310` | 75 functions in C; 29 parked, and the six hand-written GTE routines after the data stay asm |
 | `MINI/SUBMAR.BIN` (`src/overlay/submar.c`) | `0x800A00BC`–`0x800AD330` | 64 functions: 12 in C, 48 more parked with their C, and 4 still asm (two copies each of `ratan2` and a vector normalise) |
+| `MINI/HIGHWAY.BIN` (`src/overlay/highway.c`) | `0x800A00D0`–`0x800B41C8` | 136 functions: 108 in C, 21 more parked with their C, and the seven hand-written drawers at the end still asm |
 
 Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
-`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN` and 52 of `SUBMAR.BIN`, parked or kept as
-asm (§7), and every other overlay: `BATTLE.X`, field, world, the other five mini-games, the 289 `MAGIC/*.BIN`
+`BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN`, 52 of `SUBMAR.BIN` and 28 of
+`HIGHWAY.BIN`, parked or kept as asm (§7), and every other overlay: `BATTLE.X`, field, world, the other four mini-games, the 289 `MAGIC/*.BIN`
 effects, `BATTLE/TITLE.BIN` (probably the title screen).
 
 ### PC vs PS1
@@ -1885,6 +1886,20 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     Rotation matrices come from three angles through the GTE (`sub_800A1DA0`, `sub_800A8124`), and the camera's move
     between views is one struct (`CamMove`, `submar_move_camera`).
   - Checked in the lab: `--minigame 4`, 9,600 frames of gear changes, turns, dives and torpedoes.
+- **`HIGHWAY.BIN` is the motorcycle chase** (`src/overlay/highway.c`; all in C but seven hand-written drawers, 21
+  functions parked). Its scene engine is `JET.BIN`'s: 400 frames (`Frame`, a rotation and translation under a parent,
+  on a list per depth), models by id, and pools of primitives per display buffer.
+  - `highway_main` reads the textures, models and sound, then each frame: the pad, the course script, the road, the
+    riders, the fade, the road and sky drawn, the props, the HUD (the party's four gauges, or the score in the score
+    mode `0x8009D3FB` asks for), the camera, then the buffers swap. Leaving, it keeps the best score
+    (`0x8009D4F5`-`F6`) or writes each gauge's value into the field's variables from `+0x174`.
+  - The road is a ring of 80 segments (`Segment`, 0x144 bytes) built ahead as the distance grows, one per 256 units
+    (`highway_build_segment`); each holds its turn, its corners in view and the things drawn on it.
+  - The course script (`highway_run_script`) is a list of `{distance, event}` pairs: events bring on the soldiers'
+    bikes and trucks, set riders' states and start the two timed sequences of sound cues and speed changes.
+  - Riders (`Rider`, 0x180 bytes, six at `0x800B4F4C`): ten frames each and the bike's state; a racer not out yet has
+    no frames. A hit takes from a party gauge, and an emptied gauge passes the rest of the hit to the next.
+  - Checked in the lab: `--minigame 0`, 9,000 frames of steering and swings either way.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2256,6 +2271,16 @@ same set). They give the original module and file split, and the staff folders b
     CSE gives `i + 1` to the increment, and loop.c no longer sees `i` as a counter.
   - `submar_probe_floor`: a local pointer to the scratchpad gives the game's base register (constant addresses before
     the first branch, the register after); a clamp `c = x < 0 ? 0 : x` into another variable gives its moves.
+- **`HIGHWAY.BIN`** is GCC 2.6.3 with ASPSX 2.21 and its divide checks at `-G0`, but without `-fforce-addr`: it
+  reloads a global by `%hi`/`%lo` at every use. One rodata word read by two functions (`D_800A0008`) is left out
+  by splat's migration, so the C defines it. `highway_clear_rider`, `highway_remove_rider` and `highway_free_thing` are
+  `inline` but not `static`: the game inlines them into the functions after them and keeps them too. Four functions
+  take narrow parameters through an old-style definition against an `int` prototype; a narrow prototype makes GCC
+  narrow in the callers too. Parked (21): register choice and scheduling in most; `highway_draw_road` (2,392
+  instructions, ours about 270 shorter: the game reloads and spills more); `highway_draw_figure` (a 0x3C-byte stack
+  frame) and `highway_pose_figure` (`sub`, not `subu`) are hand-written in GCC's calling style, so they stay asm
+  with C for the PC. The seven drawers after them (`highway_draw_g3_list` and the like) have no prologue and use
+  `add`/`sub`; they stay asm with no C.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2611,7 +2636,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
 
   | # | Mode | File | Entry | Game |
   |---|---|---|---|---|
-  | 0 | 6 | `HIGHWAY.BIN` | `func_800A00D0` | the motorcycle chase |
+  | 0 | 6 | `HIGHWAY.BIN` | `highway_main` | the motorcycle chase |
   | 1 | 7 | `CHOCOBO.BIN` | `func_800A02D0` | the chocobo races |
   | 2 | 8 | `SNOBO.BIN` | `func_800A0390` | the snowboard down to the Great Glacier |
   | 3 | 9 | `CONDOR.BIN` | `func_800B6B58` | Fort Condor |
