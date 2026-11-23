@@ -11,8 +11,8 @@ The main exe is mostly C (boot, sound driver, CD layer, movie player), and so ar
 game over screen in `FIELD/DSCHANGE.X` (its disc prompt parked), the battle's setup and results, `BATTLE/BATINI.X`
 and `BATRES.X` (7 functions parked), the logo and credits in `FIELD/ENDING.X` (its star field parked) and the Speed
 Square, `MINI/JET.BIN` (29 functions parked), the submarine, `MINI/SUBMAR.BIN` (12 of its functions; 48 parked), the motorcycle chase,
-`MINI/HIGHWAY.BIN` (108 of its functions; 21 parked), the chocobo race, `MINI/CHOCOBO.BIN` (35; 17 parked) and
-Fort Condor, `MINI/CONDOR.BIN` (93; 55 parked).
+`MINI/HIGHWAY.BIN` (108 of its functions; 21 parked), the chocobo race, `MINI/CHOCOBO.BIN` (35; 17 parked),
+Fort Condor, `MINI/CONDOR.BIN` (93; 55 parked) and the snowboard, `MINI/SNOBO.BIN` (323; 31 parked).
 Outside them, nothing is recovered:
 
 | Module | Unpacked |
@@ -64,6 +64,8 @@ Outside them, nothing is recovered:
      whole race; built with its parked C (all 52 functions native) the same again.
    - Fort Condor with `condor.c` gives the same traces and screens as fully recompiled, and with its parked C (all
      148 functions native) the same again.
+   - The snowboard with `snobo.c` gives the same traces and screens as fully recompiled, and with its parked C
+     (all 354 functions native) the same again.
    - C that calls `rand` or `srand` gets the game's own (`common.h` maps them to the recompiled `psx_rand` and
      `psx_srand`), not the host C library's.
 

@@ -947,10 +947,12 @@ recovered C. Details in §7.
 | `MINI/HIGHWAY.BIN` (`src/overlay/highway.c`) | `0x800A00D0`–`0x800B41C8` | 136 functions: 108 in C, 21 more parked with their C, and the seven hand-written drawers at the end still asm |
 | `MINI/CHOCOBO.BIN` (`src/overlay/chocobo*.c`) | `0x800A02D0`–`0x800B1250` | 52 functions in four objects: 35 in C, 17 more parked with their C |
 | `MINI/CONDOR.BIN` (`src/overlay/condor.c`) | `0x800A037C`–`0x800BE7D8` | 148 functions: 93 in C, 55 more parked with their C |
+| `MINI/SNOBO.BIN` (`src/overlay/snobo.c`) | `0x800A0390`–`0x800BFD74` | 354 functions: 323 in C, 31 more parked with their C |
 
 Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
 `BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN`, 52 of `SUBMAR.BIN`, 28 of
-`HIGHWAY.BIN`, 17 of `CHOCOBO.BIN` and 55 of `CONDOR.BIN`, parked or kept as asm (§7), and every other overlay: `BATTLE.X`, field, world, the two snowboard mini-games, the 289 `MAGIC/*.BIN`
+`HIGHWAY.BIN`, 17 of `CHOCOBO.BIN`, 55 of `CONDOR.BIN` and 31 of `SNOBO.BIN`, parked or kept as asm (§7), and
+every other overlay: `BATTLE.X`, field, world, the Gold Saucer snowboard (`SNOBO2.BIN`), the 289 `MAGIC/*.BIN`
 effects, `BATTLE/TITLE.BIN` (probably the title screen).
 
 ### PC vs PS1
@@ -1928,6 +1930,22 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
   - Placing a unit: the cursor over the mountain, the shop's ring of units for sale bought with gil
     (`condor_open_shop`, `condor_buy_unit`), then aiming towers and units.
   - Checked in the lab: `--minigame 3`, 9,000 frames of placing units.
+- **`SNOBO.BIN` is the snowboard down to the Great Glacier** (`src/overlay/snobo.c`; 31 functions parked).
+  `snobo_main` loads the music, textures and models, then runs one step function a frame (fade in, intro, race,
+  finish, fade out) and leaves a number for the stretch the rider ended on (`D_800BFEC0[D_801028E0]`) at `0x8009D456`,
+  probably where on the Great Glacier the story picks up.
+  - The course is a graph of segments (`Segment` at `0x800D37D4`: a length, the previous and up to two next ones for
+    the forks, a piece, an angle and an origin), each piece (`Piece`, 0x374 bytes at `0x800C000C`) a 7x7 grid of
+    vertices and their colours with 72 faces; a few segments ahead are drawn each frame.
+  - The rider (`Board` at `0x800DB1D4`) runs a state per frame (riding, carving, spins, jumps, crashes), finds its
+    face of the ground, bounces off walls, and poses a skeleton blended between poses.
+  - Entering a segment fires its event: a script of ops, and handlers that place the props of that stretch (snowmen,
+    balloons, bumps, things thrown at the rider) into a pool of 32 objects (`Obj`, 0x8C bytes at `0x800FFDB0`), each
+    spawned from a template (`Tmpl`, 0x48 bytes) with its own update.
+  - At the end `snobo_score_run` scores three parts of 30, 30 and 40 points (one count against 30, the time against
+    two minutes, a second count up to 40).
+  - Checked in the lab: `--minigame 2`, an up press to push off, then a jump every 300 frames, 12,000 frames down
+    the snowfields, the canyons, a tunnel and the forest.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2326,6 +2344,12 @@ same set). They give the original module and file split, and the staff folders b
   choice and scheduling in most. Three (`condor_start_burst`, `condor_update_troops`, `condor_end_round`) match only
   with `snd_request`'s fields declared as separate variables, which would overlay `include/sound.h`'s struct; one
   (`condor_update_shots`) only with `D_8012C3EC` volatile, which breaks four other matches.
+- **`SNOBO.BIN`** is one object: GCC 2.6.3 at `-O2 -G0` without `-fforce-addr`, ASPSX 2.34 with its divide checks
+  (2.21 can't keep `%lo` in an indexed load of a global, `lh v0,%lo(sym)(at)`). Its rodata is 12-byte model names
+  that only a pointer table in the data reaches, so it stays an asm file. The object spawn is `static inline` and
+  inlined into about a hundred event handlers. Parked (31): register choice and scheduling, loops GCC
+  strength-reduces where the game didn't. On the PC, `snobo_init_run` hands `snobo_find_ground_face` a real place to
+  write (the game passes whatever is in `a2`), and a spawn into a full pool gets a spare object.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2683,7 +2707,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   |---|---|---|---|---|
   | 0 | 6 | `HIGHWAY.BIN` | `highway_main` | the motorcycle chase |
   | 1 | 7 | `CHOCOBO.BIN` | `chocobo_main` | the chocobo races |
-  | 2 | 8 | `SNOBO.BIN` | `func_800A0390` | the snowboard down to the Great Glacier |
+  | 2 | 8 | `SNOBO.BIN` | `snobo_main` | the snowboard down to the Great Glacier |
   | 3 | 9 | `CONDOR.BIN` | `condor_main` | Fort Condor |
   | 4 | 10 | `SUBMAR.BIN` | `submar_main` | the submarine (its result to `0x8009D5E6`) |
   | 5 | 11 | `JET.BIN` | `jet_main` | the Speed Square (its score to `0x8009D3EA`) |

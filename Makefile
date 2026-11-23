@@ -18,7 +18,7 @@ MENUS := chngmenu patymenu bginmenu limtmenu statmenu cnfgmenu formmenu namemenu
 # The other overlays being decompiled, as name:file, each with its splat config in config/overlay.
 OVERLAYS := dschange:FIELD/DSCHANGE.X ending:FIELD/ENDING.X batini:BATTLE/BATINI.X.dec batres:BATTLE/BATRES.X.dec \
 	jet:MINI/JET.BIN.dec submar:MINI/SUBMAR.BIN.dec \
-	highway:MINI/HIGHWAY.BIN.dec chocobo:MINI/CHOCOBO.BIN.dec condor:MINI/CONDOR.BIN.dec
+	highway:MINI/HIGHWAY.BIN.dec chocobo:MINI/CHOCOBO.BIN.dec condor:MINI/CONDOR.BIN.dec snobo:MINI/SNOBO.BIN.dec
 # Every module the build relinks, as its config's path:the file it rebuilds.
 MODULES := $(foreach m,$(MENUS),menu/$(m):MENU/$(shell echo $(m) | tr a-z A-Z).MNU) $(addprefix overlay/,$(OVERLAYS))
 MODULE_FILES := $(foreach m,$(MODULES),build/$(word 2,$(subst :, ,$(m))))
@@ -231,6 +231,11 @@ build/src/overlay/condor.o: ASPSX = 2.21
 build/src/overlay/condor.o: GCC = 2.6.3
 build/src/overlay/condor.o: MASPSXFLAGS = --expand-div
 build/src/overlay/condor.o: CFLAGS = -O2 -G0
+# SNOBO.BIN: GCC 2.6.3 and ASPSX 2.34 (an indexed global load keeps `%lo` in the load) with its divide checks.
+build/src/overlay/snobo.o: ASPSX = 2.34
+build/src/overlay/snobo.o: GCC = 2.6.3
+build/src/overlay/snobo.o: MASPSXFLAGS = --expand-div
+build/src/overlay/snobo.o: CFLAGS = -O2 -G0
 # BATRES.X: ASPSX 2.34 (indexed loads fold into `%lo`) with its divide checks, like NAMEMENU's level-up code.
 build/src/overlay/batres.o: ASPSX = 2.34
 build/src/overlay/batres.o: MASPSXFLAGS = --expand-div
