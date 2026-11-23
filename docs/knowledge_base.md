@@ -946,10 +946,11 @@ recovered C. Details in §7.
 | `MINI/SUBMAR.BIN` (`src/overlay/submar.c`) | `0x800A00BC`–`0x800AD330` | 64 functions: 12 in C, 48 more parked with their C, and 4 still asm (two copies each of `ratan2` and a vector normalise) |
 | `MINI/HIGHWAY.BIN` (`src/overlay/highway.c`) | `0x800A00D0`–`0x800B41C8` | 136 functions: 108 in C, 21 more parked with their C, and the seven hand-written drawers at the end still asm |
 | `MINI/CHOCOBO.BIN` (`src/overlay/chocobo*.c`) | `0x800A02D0`–`0x800B1250` | 52 functions in four objects: 35 in C, 17 more parked with their C |
+| `MINI/CONDOR.BIN` (`src/overlay/condor.c`) | `0x800A037C`–`0x800BE7D8` | 148 functions: 93 in C, 55 more parked with their C |
 
 Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
 `BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN`, 52 of `SUBMAR.BIN`, 28 of
-`HIGHWAY.BIN` and 17 of `CHOCOBO.BIN`, parked or kept as asm (§7), and every other overlay: `BATTLE.X`, field, world, the other three mini-games, the 289 `MAGIC/*.BIN`
+`HIGHWAY.BIN`, 17 of `CHOCOBO.BIN` and 55 of `CONDOR.BIN`, parked or kept as asm (§7), and every other overlay: `BATTLE.X`, field, world, the two snowboard mini-games, the 289 `MAGIC/*.BIN`
 effects, `BATTLE/TITLE.BIN` (probably the title screen).
 
 ### PC vs PS1
@@ -1916,6 +1917,17 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     along the segments (`chocobo_move_racer`), slowed by the ground its mask picks, running or dashing (its stamina spent by the dash);
     items (1-13) boost or cut speed and stamina (`chocobo_use_item`).
   - Checked in the lab: `--minigame 1`, the betting screen then a whole race, 9,000 frames.
+- **`CONDOR.BIN` is Fort Condor** (`src/overlay/condor.c`; 55 functions parked). `condor_main` runs rounds until the
+  battle is decided, then writes the outcome, the round and the gil back to the save.
+  - The board is drawn from sprite blocks (`SpriteBlock`, 0x1C bytes at `0x8010BB94`: a grid of 16x16 sprites, a
+    position relative to the camera and an optional motion), the units as Gouraud models (towers lit and textured);
+    two display buffers (`DrawBuf`, 0x69BC bytes).
+  - Units (`Unit`, 0x78 bytes, 70 at `0x800BE8C0`: 0-19 the player's, 20-39 the enemy's, the shop's from 52) walk
+    paths of waypoints across the mountain's cells (`Cell`, 0x4C bytes), run scripts of frames by kind, and hit what
+    is in reach; enemies come in by the stage's timed list (`condor_spawn_enemy`).
+  - Placing a unit: the cursor over the mountain, the shop's ring of units for sale bought with gil
+    (`condor_open_shop`, `condor_buy_unit`), then aiming towers and units.
+  - Checked in the lab: `--minigame 3`, 9,000 frames of placing units.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2308,6 +2320,12 @@ same set). They give the original module and file split, and the staff folders b
   register choice and scheduling; in three (`chocobo_init_racers`, `chocobo_bet`, `chocobo_results`) GCC keeps
   `&D_800B66CC` in a register where the game reaches it by `%hi`/`%lo` at each use. The figure code's two
   hand-written functions are parked as in `HIGHWAY.BIN`.
+- **`CONDOR.BIN`** is one object: GCC 2.6.3 at `-O2 -G0` without `-fforce-addr`, ASPSX 2.21 with its divide checks.
+  The block draws are `static inline` helpers taking a block's index (a constant pointer makes GCC reload each field);
+  `condor_aim` and a few others are non-static `inline`, kept and inlined where the game did. Parked (55): register
+  choice and scheduling in most. Three (`condor_start_burst`, `condor_update_troops`, `condor_end_round`) match only
+  with `snd_request`'s fields declared as separate variables, which would overlay `include/sound.h`'s struct; one
+  (`condor_update_shots`) only with `D_8012C3EC` volatile, which breaks four other matches.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2666,7 +2684,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   | 0 | 6 | `HIGHWAY.BIN` | `highway_main` | the motorcycle chase |
   | 1 | 7 | `CHOCOBO.BIN` | `chocobo_main` | the chocobo races |
   | 2 | 8 | `SNOBO.BIN` | `func_800A0390` | the snowboard down to the Great Glacier |
-  | 3 | 9 | `CONDOR.BIN` | `func_800B6B58` | Fort Condor |
+  | 3 | 9 | `CONDOR.BIN` | `condor_main` | Fort Condor |
   | 4 | 10 | `SUBMAR.BIN` | `submar_main` | the submarine (its result to `0x8009D5E6`) |
   | 5 | 11 | `JET.BIN` | `jet_main` | the Speed Square (its score to `0x8009D3EA`) |
   | 6 | 14 | `SNOBO2.BIN` | `func_800A0448` | the Gold Saucer snowboard |

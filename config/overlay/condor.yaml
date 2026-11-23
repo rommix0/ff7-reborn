@@ -1,0 +1,46 @@
+# splat config for MINI/CONDOR.BIN, Fort Condor, run at 0x800A0000 in the field's place. The disc's file is
+# packed; this is it unpacked (CONDOR.BIN.dec). Started from tools/module_yaml.py's.
+name: CONDOR.BIN
+sha1: c4fe080886805df17712d160375eb9660eb5a2f8
+options:
+  basename: condor
+  target_path: disks/MINI/CONDOR.BIN.dec
+  base_path: ../..
+  platform: psx
+  compiler: PSYQ
+
+  asm_path: asm/overlay/condor
+  src_path: src/overlay
+  build_path: build
+  ld_script_path: build/overlay/condor.ld
+  undefined_funcs_auto_path: build/overlay/condor_undefined_funcs_auto.txt
+  undefined_syms_auto_path: build/overlay/condor_undefined_syms_auto.txt
+  symbol_addrs_path:
+    - config/symbols.main.txt
+    - config/symbols.main.psyq.txt
+    - config/symbols.condor.txt
+
+  find_file_boundaries: False
+  gp_value: 0x80062D44
+  o_as_suffix: True
+  use_legacy_include_asm: False
+  generate_asm_macros_files: False
+  section_order: [".rodata", ".text", ".data", ".bss"]
+  subalign: 4
+  ld_align_section_vram_end: False
+  ld_align_segment_vram_end: False
+  string_encoding: ASCII
+  data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+
+segments:
+  - name: condor
+    type: code
+    start: 0
+    vram: 0x800A0000
+    subsegments:
+      - [0x0, .rodata, condor]
+      - [0x37C, c, condor]
+      - [0x1E7D8, data]
+  - [0x1E810]

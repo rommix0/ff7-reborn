@@ -165,6 +165,11 @@ typedef struct DR_MODE {
     unsigned int code[2];
 } DR_MODE;
 
+typedef struct DR_OFFSET {
+    unsigned int tag;
+    unsigned int code[2];
+} DR_OFFSET;
+
 typedef struct DR_ENV {
     unsigned int tag;
     unsigned int code[15];
