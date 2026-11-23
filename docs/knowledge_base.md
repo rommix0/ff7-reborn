@@ -948,11 +948,12 @@ recovered C. Details in §7.
 | `MINI/CHOCOBO.BIN` (`src/overlay/chocobo*.c`) | `0x800A02D0`–`0x800B1250` | 52 functions in four objects: 35 in C, 17 more parked with their C |
 | `MINI/CONDOR.BIN` (`src/overlay/condor.c`) | `0x800A037C`–`0x800BE7D8` | 148 functions: 93 in C, 55 more parked with their C |
 | `MINI/SNOBO.BIN` (`src/overlay/snobo.c`) | `0x800A0390`–`0x800BFD74` | 354 functions: 323 in C, 31 more parked with their C |
+| `MINI/SNOBO2.BIN` (`src/overlay/snobo2.c`) | `0x800A0448`–`0x800B8260` | 481 functions: 449 in C, 32 more parked with their C |
 
 Not recovered yet: 12 of the exe's game functions, 20 menu functions, `DSCHANGE.X`'s disc prompt, 7 functions of
 `BATINI.X` and `BATRES.X`, `ENDING.X`'s star field, 29 functions of `JET.BIN`, 52 of `SUBMAR.BIN`, 28 of
-`HIGHWAY.BIN`, 17 of `CHOCOBO.BIN`, 55 of `CONDOR.BIN` and 31 of `SNOBO.BIN`, parked or kept as asm (§7), and
-every other overlay: `BATTLE.X`, field, world, the Gold Saucer snowboard (`SNOBO2.BIN`), the 289 `MAGIC/*.BIN`
+`HIGHWAY.BIN`, 17 of `CHOCOBO.BIN`, 55 of `CONDOR.BIN`, 31 of `SNOBO.BIN` and 32 of `SNOBO2.BIN`, parked or kept
+as asm (§7), and every other overlay: `BATTLE.X`, field, world, the 289 `MAGIC/*.BIN`
 effects, `BATTLE/TITLE.BIN` (probably the title screen).
 
 ### PC vs PS1
@@ -1946,6 +1947,16 @@ several chapters (most mini-games, the platform bug lists) are lorem-ipsum place
     two minutes, a second count up to 40).
   - Checked in the lab: `--minigame 2`, an up press to push off, then a jump every 300 frames, 12,000 frames down
     the snowfields, the canyons, a tunnel and the forest.
+- **`SNOBO2.BIN` is the Gold Saucer snowboard** (`src/overlay/snobo2.c`; 32 functions parked), a reworked copy of
+  `SNOBO.BIN`: the same course graph, rider, objects and drawing, most functions the same code at new addresses.
+  `snobo2_main` picks the course from `0x8009D507` (2: B, 8: C, else A), loads the three courses' best times from
+  the save at `0x8009D4F8` and writes them back at the end.
+  - New here: the course's five best times and the run's place in them; a recorded run replayed as a ghost
+    (`Ghost`, four at `0x800B83A4`: the one being recorded and one kept per course); the pause menu; the results and
+    records windows; forks whose branches stay closed until the course's best score reaches 70 (`Segment.closed`).
+  - The score has the same three parts as `SNOBO.BIN`'s (crashes, the time against the course's par, the pickups).
+  - Checked in the lab: `--minigame 6`, an up press, a left turn at the first fork onto the Beginner course, then a
+    jump every 300 frames, 12,000 frames.
 - **Menu assets.** Some `.MNU` overlays have TIM images appended; `PATYMENU` and `FORMMENU` share external TIMs on
   disc. `WINDOW.BIN` holds the resident window textures and font.
 - **Debug rooms.** Field maps named after staff (Kitase, Nojima, Kyounen, …) jump to other scenes; useful entry
@@ -2350,6 +2361,11 @@ same set). They give the original module and file split, and the staff folders b
   inlined into about a hundred event handlers. Parked (31): register choice and scheduling, loops GCC
   strength-reduces where the game didn't. On the PC, `snobo_init_run` hands `snobo_find_ground_face` a real place to
   write (the game passes whatever is in `a2`), and a spawn into a full pool gets a spare object.
+- **`SNOBO2.BIN`** is built like `SNOBO.BIN`, one object (GCC 2.6.3, ASPSX 2.34, `-O2 -G0`). Its rodata starts with
+  two functions' jump tables, which the C emits, then the model names, kept as asm. Its head follows `snobo.c`'s
+  types, with SNOBO2's layouts where they changed (`Segment`, `Joint`, the skeleton). An object's update gets the
+  course drawer's work too; most ignore it, so `Tmpl.update` keeps one argument and the loop calls through a cast.
+  Parked (32): register choice and scheduling, mostly the twins of `SNOBO.BIN`'s parked functions.
 
 **Main exe layout** (splat's guess, corrected by hand):
 
@@ -2711,7 +2727,7 @@ NEW GAME into the field module, which loads `MD1STIN` and plays the opening movi
   | 3 | 9 | `CONDOR.BIN` | `condor_main` | Fort Condor |
   | 4 | 10 | `SUBMAR.BIN` | `submar_main` | the submarine (its result to `0x8009D5E6`) |
   | 5 | 11 | `JET.BIN` | `jet_main` | the Speed Square (its score to `0x8009D3EA`) |
-  | 6 | 14 | `SNOBO2.BIN` | `func_800A0448` | the Gold Saucer snowboard |
+  | 6 | 14 | `SNOBO2.BIN` | `snobo2_main` | the Gold Saucer snowboard |
 
   - In the lab, `--minigame N` asks for one from the field that's up. All seven start from the opening field and draw;
     the chocobo bet (○, 100 gil), Fort Condor's unit placing, the submarine (dive, speed, the 10-minute timer), the
